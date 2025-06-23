@@ -29,10 +29,22 @@ cd CoolBox
 pip install -r requirements.txt
 ```
 
+For a development environment with debugging tools, run:
+```bash
+./scripts/setup_dev_env.sh
+```
+
 3. Run the application:
 ```bash
 python main.py
 ```
+
+### Debugging with VS Code
+
+1. Open the project folder in Visual Studio Code.
+2. Ensure the Python extension is installed.
+3. Press `F5` or choose **Run > Start Debugging** to launch the app using the
+   configuration provided in `.vscode/launch.json`.
 
 ## 📁 Project Structure
 

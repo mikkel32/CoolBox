@@ -3,6 +3,8 @@ Toolbar component with common actions
 """
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
+
+from ..utils import file_manager
 import pyperclip
 
 
@@ -69,14 +71,7 @@ class Toolbar(ctk.CTkFrame):
 
     def _open_file(self):
         """Open file dialog"""
-        filename = filedialog.askopenfilename(
-            title="Open File",
-            filetypes=[
-                ("All Files", "*.*"),
-                ("Text Files", "*.txt"),
-                ("Python Files", "*.py"),
-            ],
-        )
+        filename = file_manager.pick_file()
         if filename:
             self.app.status_bar.set_message(f"Opened: {filename}", "info")
             self.app.config.add_recent_file(filename)
@@ -93,6 +88,7 @@ class Toolbar(ctk.CTkFrame):
             ],
         )
         if filename:
+            file_manager.write_text(filename, "")
             self.app.status_bar.set_message(f"Saved: {filename}", "success")
 
     def _copy(self):

@@ -16,6 +16,7 @@ from .views.settings_view import SettingsView
 from .views.about_view import AboutView
 from .models.app_state import AppState
 from .utils.theme import ThemeManager
+from .utils.helpers import log
 
 
 class CoolBoxApp:
@@ -41,6 +42,8 @@ class CoolBoxApp:
 
         # Theme manager
         self.theme = ThemeManager()
+        self.theme.apply_theme(self.config.get("theme", {}))
+        log("Initialized theme manager")
 
         # Initialize views dict
         self.views: Dict[str, ctk.CTkFrame] = {}
@@ -120,6 +123,8 @@ class CoolBoxApp:
         self.views[view_name].pack(fill="both", expand=True)
         self.current_view = view_name
 
+        log(f"Switched view to {view_name}")
+
         # Update sidebar selection
         self.sidebar.set_active(view_name)
 
@@ -138,14 +143,18 @@ class CoolBoxApp:
         self.config.set("window_height", self.window.winfo_height())
         self.config.save()
 
+        log("Application closing")
+
         # Destroy window
         self.window.destroy()
         sys.exit(0)
 
     def run(self):
         """Start the application"""
+        log("Starting main loop")
         self.window.mainloop()
 
     def destroy(self):
         """Destroy the application window."""
         self.window.destroy()
+        log("Window destroyed")
