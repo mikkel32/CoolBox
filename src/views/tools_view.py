@@ -2,7 +2,8 @@
 Tools view - Various utilities and tools
 """
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
+import socket
 import subprocess
 import platform
 import webbrowser
@@ -222,18 +223,43 @@ Python: {platform.python_version()}
 
     def _ping_tool(self):
         """Launch ping tool"""
-        self.app.status_bar.set_message("Opening Ping Tool...", "info")
-        messagebox.showinfo("Ping Tool", "Network ping tool would open here")
+        host = simpledialog.askstring("Ping", "Enter host to ping", parent=self)
+        if not host:
+            return
+        self.app.status_bar.set_message(f"Pinging {host}...", "info")
+        count_flag = "-n" if platform.system() == "Windows" else "-c"
+        try:
+            result = subprocess.run(["ping", count_flag, "4", host], capture_output=True, text=True, timeout=10)
+            messagebox.showinfo("Ping Result", result.stdout or result.stderr)
+        except Exception as exc:
+            messagebox.showerror("Ping Error", str(exc))
 
     def _port_scanner(self):
         """Launch port scanner"""
-        self.app.status_bar.set_message("Opening Port Scanner...", "info")
-        messagebox.showinfo("Port Scanner", "Port scanning tool would open here")
+        host = simpledialog.askstring("Port Scanner", "Host", parent=self)
+        port = simpledialog.askinteger("Port Scanner", "Port", parent=self, minvalue=1, maxvalue=65535)
+        if not host or not port:
+            return
+        self.app.status_bar.set_message(f"Scanning {host}:{port}...", "info")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(2)
+            try:
+                sock.connect((host, port))
+                messagebox.showinfo("Port Scanner", f"Port {port} is OPEN")
+            except Exception:
+                messagebox.showinfo("Port Scanner", f"Port {port} is CLOSED")
 
     def _dns_lookup(self):
         """Launch DNS lookup"""
-        self.app.status_bar.set_message("Opening DNS Lookup...", "info")
-        messagebox.showinfo("DNS Lookup", "DNS lookup tool would open here")
+        domain = simpledialog.askstring("DNS Lookup", "Domain", parent=self)
+        if not domain:
+            return
+        try:
+            info = socket.gethostbyname_ex(domain)
+            result = "\n".join(info[2])
+            messagebox.showinfo("DNS Lookup", f"IPs for {domain}:\n{result}")
+        except Exception as exc:
+            messagebox.showerror("DNS Lookup", str(exc))
 
     def _speed_test(self):
         """Launch speed test"""

@@ -85,6 +85,23 @@ class SettingsView(ctk.CTkFrame):
         )
         color_menu.pack(side="left", padx=10)
 
+        self.accent_color_var = ctk.StringVar(
+            value=self.app.config.get("theme", {}).get("accent_color", "#007acc")
+        )
+        self.accent_display = ctk.CTkLabel(
+            color_frame, text=" ", width=20, fg_color=self.accent_color_var.get()
+        )
+        self.accent_display.pack(side="left", padx=6)
+
+        # Custom accent color picker
+        accent_btn = ctk.CTkButton(
+            color_frame,
+            text="Choose Accent",
+            width=140,
+            command=self._pick_accent_color,
+        )
+        accent_btn.pack(side="left", padx=10)
+
         # Font size
         font_frame = ctk.CTkFrame(section)
         font_frame.pack(fill="x", padx=20, pady=10)
@@ -244,6 +261,11 @@ class SettingsView(ctk.CTkFrame):
         self.app.config.set("show_statusbar", self.show_statusbar_var.get())
         self.app.config.set("max_recent_files", self.recent_limit_var.get())
 
+        theme = self.app.config.get("theme", {})
+        theme["accent_color"] = self.accent_color_var.get()
+        self.app.config.set("theme", theme)
+        self.app.theme.apply_theme(theme)
+
         # Save to file
         self.app.config.save()
 
@@ -295,3 +317,10 @@ class SettingsView(ctk.CTkFrame):
                 messagebox.showinfo("Import Complete", "Please restart the application for changes to take effect")
             except Exception as e:
                 messagebox.showerror("Import Error", f"Failed to import settings: {str(e)}")
+
+    def _pick_accent_color(self):
+        """Prompt for a custom accent color."""
+        color_code = colorchooser.askcolor(color=self.accent_color_var.get())[1]
+        if color_code:
+            self.accent_color_var.set(color_code)
+            self.accent_display.configure(fg_color=color_code)
