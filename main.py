@@ -1,15 +1,21 @@
-"""Main entry point for the CoolBox application."""
+#!/usr/bin/env python3
+"""
+CoolBox - A Modern Desktop Application
+Main entry point for the application
+"""
+import sys
+from pathlib import Path
 
-from src.app import CoolBoxApp
-from src.utils.theme import apply_theme
-from src.utils.helpers import log
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from app import CoolBoxApp
 
 
-def main() -> None:
-    log("Starting CoolBox")
+def main():
+    """Initialize and run the application"""
     app = CoolBoxApp()
-    apply_theme(app)
-    app.mainloop()
+    app.run()
 
 
 if __name__ == "__main__":
