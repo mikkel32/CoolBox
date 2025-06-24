@@ -239,7 +239,7 @@ class ToolsView(ctk.CTkFrame):
         lines = Path(filename).read_text().splitlines(True)
         base = Path(filename)
         for idx in range(0, len(lines), lines_per_part):
-            part_lines = lines[idx : idx + lines_per_part]
+            part_lines = lines[idx:idx + lines_per_part]
             part_path = base.with_name(f"{base.stem}_part{idx // lines_per_part + 1}{base.suffix}")
             part_path.write_text("".join(part_lines))
 
@@ -248,7 +248,7 @@ class ToolsView(ctk.CTkFrame):
     def _system_info(self):
         """Show system information"""
         info = f"""System Information:
-        
+
 Platform: {platform.system()} {platform.release()}
 Processor: {platform.processor()}
 Architecture: {platform.architecture()[0]}

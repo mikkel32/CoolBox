@@ -51,7 +51,7 @@ class ThemeManager:
             json.dump(theme_data, f, indent=4)
 
         ctk.set_default_color_theme(str(self._theme_file))
-            
+
     def use_default_theme(self) -> None:
         """Reset to the default theme values."""
         ctk.set_default_color_theme("blue")

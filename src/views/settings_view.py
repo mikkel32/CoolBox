@@ -274,15 +274,17 @@ class SettingsView(ctk.CTkFrame):
     def _clear_cache(self):
         """Clear application cache"""
         if messagebox.askyesno("Clear Cache", "Are you sure you want to clear the cache?"):
-            # Clear cache logic here
-            self.app.status_bar.set_message("Cache cleared successfully!", "success")
+            removed = self.app.config.clear_cache()
+            self.app.status_bar.set_message(
+                f"Cache cleared ({removed} items)", "success"
+            )
 
     def _reset_settings(self):
         """Reset settings to defaults"""
         if messagebox.askyesno("Reset Settings", "Are you sure you want to reset all settings to defaults?"):
             self.app.config.reset_to_defaults()
+            self.app.theme.apply_theme(self.app.config.get("theme", {}))
             self.app.status_bar.set_message("Settings reset to defaults!", "success")
-            # Reload the settings view
             self.app.switch_view("settings")
 
     def _export_settings(self):

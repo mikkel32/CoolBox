@@ -29,7 +29,7 @@ class HomeView(ctk.CTkFrame):
         # Welcome message
         welcome_label = ctk.CTkLabel(
             welcome_frame,
-            text=f"Welcome to CoolBox!",
+            text="Welcome to CoolBox!",
             font=ctk.CTkFont(size=28, weight="bold"),
         )
         welcome_label.pack(pady=20)

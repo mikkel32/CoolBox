@@ -2,7 +2,7 @@
 Toolbar component with common actions
 """
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
 from ..utils import file_manager
 import pyperclip
