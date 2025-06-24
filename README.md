@@ -28,8 +28,15 @@ cd CoolBox
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
+python setup.py
 ```
+
+For a development environment with additional tools, use:
+```bash
+python setup.py --dev
+```
+This script installs all packages from `requirements.txt` and optional
+development extras like `debugpy` and `flake8`.
 
 For a development environment with debugging tools, run:
 ```bash
