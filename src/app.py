@@ -86,6 +86,7 @@ class CoolBoxApp:
         # Create sidebar
         self.sidebar = Sidebar(self.content_area, self)
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        self.sidebar.set_collapsed(self.config.get("sidebar_collapsed", False))
 
         # Create view container
         self.view_container = ctk.CTkFrame(self.content_area, corner_radius=0)
@@ -135,6 +136,7 @@ class CoolBoxApp:
         self.window.bind("<Control-t>", lambda e: self.switch_view("tools"))
         self.window.bind("<Control-s>", lambda e: self.switch_view("settings"))
         self.window.bind("<F11>", lambda e: self.toggle_fullscreen())
+        self.window.bind("<Control-b>", lambda e: self.toggle_sidebar())
 
     def switch_view(self, view_name: str):
         """Switch to a different view"""
@@ -169,6 +171,14 @@ class CoolBoxApp:
         """Toggle fullscreen mode"""
         current_state = self.window.attributes("-fullscreen")
         self.window.attributes("-fullscreen", not current_state)
+
+    def toggle_sidebar(self) -> None:
+        """Collapse or expand the sidebar."""
+        self.sidebar.toggle()
+        self.config.set("sidebar_collapsed", self.sidebar.collapsed)
+        if self.status_bar is not None:
+            state = "collapsed" if self.sidebar.collapsed else "expanded"
+            self.status_bar.set_message(f"Sidebar {state}", "info")
 
     def _on_closing(self):
         """Handle window closing event"""

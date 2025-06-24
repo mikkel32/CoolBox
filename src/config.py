@@ -32,6 +32,7 @@ class Config:
             "font_size": 14,
             "show_toolbar": True,
             "show_statusbar": True,
+            "sidebar_collapsed": False,
             "theme": {
                 "primary_color": "#1f538d",
                 "secondary_color": "#212121",
