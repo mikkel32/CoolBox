@@ -1,4 +1,5 @@
 import tempfile
+import json
 from pathlib import Path
 
 from src.config import Config
@@ -39,3 +40,10 @@ def test_default_scan_concurrency(monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp)
     cfg = Config()
     assert cfg.get("scan_concurrency") == 100
+
+
+def test_add_recent_file_persists(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cfg = Config()
+    cfg.add_recent_file("x.txt")
+    assert "x.txt" in json.loads(cfg.config_file.read_text())["recent_files"]

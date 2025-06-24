@@ -3,6 +3,7 @@ Settings view - Application preferences
 """
 import customtkinter as ctk
 from tkinter import messagebox, colorchooser
+import json
 
 
 class SettingsView(ctk.CTkFrame):
@@ -101,6 +102,31 @@ class SettingsView(ctk.CTkFrame):
             command=self._pick_accent_color,
         )
         accent_btn.pack(side="left", padx=10)
+
+        # Theme management buttons
+        theme_btns = ctk.CTkFrame(section)
+        theme_btns.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkButton(
+            theme_btns,
+            text="Import Theme",
+            command=self._import_theme,
+            width=120,
+        ).pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            theme_btns,
+            text="Export Theme",
+            command=self._export_theme,
+            width=120,
+        ).pack(side="left", padx=5)
+
+        ctk.CTkButton(
+            theme_btns,
+            text="Reset Theme",
+            command=self._reset_theme,
+            width=120,
+        ).pack(side="left", padx=5)
 
         # Font size
         font_frame = ctk.CTkFrame(section)
@@ -259,6 +285,46 @@ class SettingsView(ctk.CTkFrame):
         )
         clear_scan_cache_btn.pack(pady=10)
 
+        clear_host_cache_btn = ctk.CTkButton(
+            section,
+            text="🗑️ Clear Host Cache",
+            command=self._clear_host_cache,
+            width=200,
+        )
+        clear_host_cache_btn.pack(pady=10)
+
+        open_cache_btn = ctk.CTkButton(
+            section,
+            text="📂 Open Cache Folder",
+            command=self._open_cache_folder,
+            width=200,
+        )
+        open_cache_btn.pack(pady=10)
+
+        open_config_btn = ctk.CTkButton(
+            section,
+            text="📂 Open Config Folder",
+            command=self._open_config_folder,
+            width=200,
+        )
+        open_config_btn.pack(pady=10)
+
+        open_config_file_btn = ctk.CTkButton(
+            section,
+            text="📄 Open Config File",
+            command=self._open_config_file_external,
+            width=200,
+        )
+        open_config_file_btn.pack(pady=10)
+
+        edit_config_btn = ctk.CTkButton(
+            section,
+            text="📝 Edit Config File",
+            command=self._edit_config_file,
+            width=200,
+        )
+        edit_config_btn.pack(pady=10)
+
         # Reset settings button
         reset_btn = ctk.CTkButton(
             section,
@@ -376,6 +442,63 @@ class SettingsView(ctk.CTkFrame):
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Port scan cache cleared", "success")
 
+    def _clear_host_cache(self) -> None:
+        """Clear cached host resolution results."""
+        from src.utils import clear_host_cache
+
+        clear_host_cache()
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Host cache cleared", "success")
+
+    def _open_cache_folder(self) -> None:
+        """Open the cache directory in the system file manager."""
+        from src.utils import open_path
+
+        open_path(str(self.app.config.cache_dir))
+
+    def _open_config_folder(self) -> None:
+        """Open the configuration directory in the system file manager."""
+        from src.utils import open_path
+
+        open_path(str(self.app.config.config_dir))
+
+    def _open_config_file_external(self) -> None:
+        """Open the configuration file using the system default editor."""
+        from src.utils import open_path
+
+        open_path(str(self.app.config.config_file))
+
+    def _edit_config_file(self) -> None:
+        """Edit the configuration file inside CoolBox."""
+        window = ctk.CTkToplevel(self)
+        window.title("Edit Config File")
+
+        textbox = ctk.CTkTextbox(window, width=600, height=400)
+        textbox.pack(fill="both", expand=True, padx=10, pady=10)
+
+        try:
+            data = self.app.config.config_file.read_text()
+        except Exception:
+            data = json.dumps(self.app.config.config, indent=4)
+        textbox.insert("1.0", data)
+
+        def save() -> None:
+            text = textbox.get("1.0", "end-1c")
+            try:
+                new_cfg = json.loads(text)
+            except Exception as exc:
+                messagebox.showerror("Save Error", str(exc))
+                return
+            self.app.config.config = new_cfg
+            self.app.config.save()
+            messagebox.showinfo("Config", "Configuration saved")
+            window.destroy()
+
+        btn_frame = ctk.CTkFrame(window, fg_color="transparent")
+        btn_frame.pack(pady=5)
+        ctk.CTkButton(btn_frame, text="Save", command=save, width=100).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Cancel", command=window.destroy, width=100).pack(side="left", padx=5)
+
     def _export_settings(self):
         """Export settings to file"""
         from tkinter import filedialog
@@ -420,3 +543,42 @@ class SettingsView(ctk.CTkFrame):
             theme = self.app.theme.get_theme()
             theme["accent_color"] = color_code
             self.app.theme.apply_theme(theme)
+
+    def _export_theme(self) -> None:
+        """Export the current theme to a JSON file."""
+        from tkinter import filedialog
+
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json")],
+        )
+        if filename:
+            self.app.theme.export_theme(filename)
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message(
+                    f"Theme exported to {filename}", "success"
+                )
+
+    def _import_theme(self) -> None:
+        """Import a custom theme from a JSON file."""
+        from tkinter import filedialog
+
+        filename = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
+        if filename:
+            try:
+                self.app.theme.import_theme(filename)
+                if self.app.status_bar is not None:
+                    self.app.status_bar.set_message(
+                        f"Theme imported from {filename}", "success"
+                    )
+            except Exception as exc:
+                messagebox.showerror("Import Theme", str(exc))
+
+    def _reset_theme(self) -> None:
+        """Reset theme colors to defaults."""
+        self.app.theme.use_default_theme()
+        theme = self.app.theme.get_theme()
+        self.accent_color_var.set(theme.get("accent_color", "#007acc"))
+        self.accent_display.configure(fg_color=self.accent_color_var.get())
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Theme reset to defaults", "success")
