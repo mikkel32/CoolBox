@@ -9,6 +9,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Rich Toolset**: File tools, system utilities, text processing, and more
 - **Customizable**: Extensive settings and preferences
 - **Configurable UI**: Show or hide the toolbar and status bar on demand
+- **Collapsible Sidebar**: Quickly hide the sidebar using the toolbar button,
+  arrow icon or `Ctrl+B`. CoolBox remembers your preference across sessions.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
@@ -31,6 +33,10 @@ cd CoolBox
 2. Install dependencies:
 ```bash
 python setup.py
+```
+Alternatively you can run:
+```bash
+pip install -r requirements.txt
 ```
 
 For a development environment with additional tools, use:

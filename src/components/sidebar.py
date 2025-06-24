@@ -1,8 +1,12 @@
-"""
-Sidebar component for navigation
-"""
+"""Sidebar component for navigation."""
+
+from __future__ import annotations
+
 import customtkinter as ctk
 from typing import Dict
+
+COLLAPSED_WIDTH = 60
+EXPANDED_WIDTH = 200
 
 
 class Sidebar(ctk.CTkFrame):
@@ -10,9 +14,12 @@ class Sidebar(ctk.CTkFrame):
 
     def __init__(self, parent, app):
         """Initialize sidebar"""
-        super().__init__(parent, corner_radius=0, width=200)
+        super().__init__(parent, corner_radius=0, width=EXPANDED_WIDTH)
         self.app = app
         self.buttons: Dict[str, ctk.CTkButton] = {}
+        self.icons: Dict[str, str] = {}
+        self.labels: Dict[str, str] = {}
+        self.collapsed: bool = False
 
         # Configure grid
         self.grid_rowconfigure(4, weight=1)  # Make row 4 expandable
@@ -44,10 +51,43 @@ class Sidebar(ctk.CTkFrame):
             command=self._toggle_theme,
             height=32,
         )
-        self.theme_toggle.grid(row=6, column=0, padx=20, pady=(10, 20), sticky="ew")
+        self.theme_toggle.grid(row=6, column=0, padx=20, pady=(10, 5), sticky="ew")
+
+        # Collapse/expand button
+        self.collapse_btn = ctk.CTkButton(
+            self,
+            text="◀",
+            command=self.toggle,
+            width=32,
+            height=32,
+        )
+        self.collapse_btn.grid(row=7, column=0, pady=(0, 20))
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Collapse or expand the sidebar."""
+        self.collapsed = collapsed
+        width = COLLAPSED_WIDTH if collapsed else EXPANDED_WIDTH
+        self.configure(width=width)
+        self.title.configure(text="🧊" if collapsed else "CoolBox")
+        for name, button in self.buttons.items():
+            icon = self.icons[name]
+            label = self.labels[name]
+            button.configure(text=icon if collapsed else f"{icon} {label}")
+        current = ctk.get_appearance_mode()
+        if current == "Dark":
+            dark_text = "🌙" if collapsed else "🌙 Dark Mode"
+        else:
+            dark_text = "☀️" if collapsed else "☀️ Light Mode"
+        self.theme_toggle.configure(text=dark_text)
+        self.collapse_btn.configure(text="▶" if collapsed else "◀")
+
+    def toggle(self) -> None:
+        """Toggle collapsed state."""
+        self.set_collapsed(not self.collapsed)
 
     def _create_nav_button(self, name: str, text: str, row: int):
         """Create a navigation button"""
+        icon, label = text.split(" ", 1)
         button = ctk.CTkButton(
             self,
             text=text,
@@ -58,6 +98,8 @@ class Sidebar(ctk.CTkFrame):
         )
         button.grid(row=row, column=0, padx=20, pady=5, sticky="ew")
         self.buttons[name] = button
+        self.icons[name] = icon
+        self.labels[name] = label
 
     def set_active(self, view_name: str):
         """Set the active button"""
@@ -83,3 +125,6 @@ class Sidebar(ctk.CTkFrame):
 
         # Save preference
         self.app.config.set("appearance_mode", new_mode)
+        # Refresh collapsed state label
+        if self.collapsed:
+            self.set_collapsed(True)
