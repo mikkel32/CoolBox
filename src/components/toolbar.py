@@ -22,6 +22,7 @@ class Toolbar(ctk.CTkFrame):
 
         # Create toolbar items
         self._create_toolbar_items()
+        self.update_recent_files()
 
     def _create_toolbar_items(self):
         """Create toolbar buttons and items"""
@@ -43,6 +44,17 @@ class Toolbar(ctk.CTkFrame):
         # Right side items
         right_frame = ctk.CTkFrame(self, fg_color="transparent")
         right_frame.pack(side="right", padx=10)
+
+        # Recent files dropdown
+        self.recent_var = ctk.StringVar(value="Recent")
+        self.recent_menu = ctk.CTkOptionMenu(
+            right_frame,
+            values=["Recent"],
+            variable=self.recent_var,
+            command=self._open_recent,
+            width=150,
+        )
+        self.recent_menu.pack(side="right", padx=5)
 
         # Search box
         self.search_var = ctk.StringVar()
@@ -73,9 +85,12 @@ class Toolbar(ctk.CTkFrame):
     def _open_file(self):
         """Open file dialog"""
         filename = file_manager.pick_file()
-        if filename and self.app.status_bar is not None:
-            self.app.status_bar.set_message(f"Opened: {filename}", "info")
+        if filename:
+            open_path(filename)
             self.app.config.add_recent_file(filename)
+            self.update_recent_files()
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message(f"Opened: {filename}", "info")
 
     def _save_file(self):
         """Save file dialog"""
@@ -90,6 +105,8 @@ class Toolbar(ctk.CTkFrame):
         )
         if filename:
             file_manager.write_text(filename, "")
+            self.app.config.add_recent_file(filename)
+            self.update_recent_files()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(f"Saved: {filename}", "success")
 
@@ -155,3 +172,23 @@ class Toolbar(ctk.CTkFrame):
                 anchor="w",
                 command=lambda p=path: open_path(str(p)),
             ).pack(fill="x", pady=2)
+
+    # ----- Recent files helpers -----
+    def update_recent_files(self) -> None:
+        """Refresh the recent files dropdown from config."""
+        files = self.app.config.get("recent_files", [])
+        if files:
+            self.recent_menu.configure(values=files, state="normal")
+            self.recent_var.set(files[0])
+        else:
+            self.recent_menu.configure(values=["Recent"], state="disabled")
+            self.recent_var.set("Recent")
+
+    def _open_recent(self, value: str) -> None:
+        """Open a file selected from the recent dropdown."""
+        if value and value != "Recent":
+            open_path(value)
+            self.app.config.add_recent_file(value)
+            self.update_recent_files()
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message(f"Opened: {value}", "info")

@@ -75,6 +75,15 @@ python main.py --debug
 This starts ``debugpy`` on port ``5678`` and waits for a debugger to
 attach. Use ``--debug-port`` to specify a custom port.
 
+To automatically spin up a Docker or Vagrant environment and attach a
+debugger, run:
+
+```bash
+python main.py --vm-debug
+```
+This calls ``launch_vm_debug`` which tries Docker first, then Vagrant,
+falling back to ``run_debug.sh`` if neither is available.
+
 ### Debugging in a Dev Container
 
 The project includes a **devcontainer** for running CoolBox inside Docker.  This

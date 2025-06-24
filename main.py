@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from argparse import ArgumentParser
 
+from src.utils import launch_vm_debug
+
 # Ensure package imports work when running as a script before other imports.
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -27,7 +29,16 @@ def main() -> None:
         default=5678,
         help="Port for debugpy to listen on (default: 5678)",
     )
+    parser.add_argument(
+        "--vm-debug",
+        action="store_true",
+        help="Launch inside a VM or container and wait for debugger",
+    )
     args = parser.parse_args()
+
+    if args.vm_debug:
+        launch_vm_debug()
+        return
 
     if args.debug:
         try:
