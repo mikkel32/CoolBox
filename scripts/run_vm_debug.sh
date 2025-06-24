@@ -5,6 +5,7 @@ if command -v vagrant >/dev/null 2>&1; then
 elif command -v docker >/dev/null 2>&1; then
     exec ./scripts/run_devcontainer.sh
 else
-    echo "Neither vagrant nor docker is available" >&2
-    exit 1
+    # Fall back to running locally under debugpy so the app can still be
+    # debugged even when no VM backend is installed.
+    exec ./scripts/run_debug.sh
 fi
