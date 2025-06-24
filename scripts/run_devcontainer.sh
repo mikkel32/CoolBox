@@ -13,6 +13,14 @@ CONTAINER_NAME=coolbox_dev
 docker build -f .devcontainer/Dockerfile -t $IMAGE_NAME .
 
 # Run container and start app under debugpy
+RUN_CMD="python -Xfrozen_modules=off -m debugpy --listen 5678 --wait-for-client main.py"
+if [ -z "$DISPLAY" ]; then
+    if command -v xvfb-run >/dev/null 2>&1; then
+        RUN_CMD="xvfb-run -a $RUN_CMD"
+    else
+        echo "warning: xvfb-run not found; running without virtual display" >&2
+    fi
+fi
 exec docker run --rm \
     --name $CONTAINER_NAME \
     -e DISPLAY=$DISPLAY \
@@ -20,4 +28,4 @@ exec docker run --rm \
     -v "$(pwd)":/workspace \
     -w /workspace \
     $IMAGE_NAME \
-    python -m debugpy --listen 5678 --wait-for-client main.py
+    bash -c "$RUN_CMD"

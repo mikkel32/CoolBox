@@ -49,6 +49,7 @@ class ToolsView(ctk.CTkFrame):
             ("File Converter", "Convert between file formats", self._file_converter),
             ("Duplicate Finder", "Find and remove duplicate files", self._duplicate_finder),
             ("File Splitter", "Split large files into parts", self._file_splitter),
+            ("File Manager", "Copy, move or delete files", self._file_manager),
         ]
 
         for name, desc, func in tools:
@@ -245,6 +246,118 @@ class ToolsView(ctk.CTkFrame):
 
         messagebox.showinfo("File Splitter", "File split successfully")
 
+    def _file_manager(self):
+        """Perform basic copy, move and delete operations."""
+        from src.utils import (
+            copy_file,
+            move_file,
+            delete_file,
+            copy_dir,
+            move_dir,
+            delete_dir,
+            list_files,
+        )
+
+        self.app.status_bar.set_message("Opening File Manager...", "info")
+        window = ctk.CTkToplevel(self)
+        window.title("File Manager")
+
+        output = ctk.CTkTextbox(window, width=500, height=200)
+        output.pack(padx=10, pady=10, fill="both", expand=True)
+
+        def do_copy():
+            is_dir = messagebox.askyesno("Copy", "Copy directory?", parent=window)
+            if is_dir:
+                src = filedialog.askdirectory(parent=window)
+                if not src:
+                    return
+                dest_parent = filedialog.askdirectory(parent=window)
+                if not dest_parent:
+                    return
+                dest = Path(dest_parent) / Path(src).name
+                try:
+                    copy_dir(src, dest, overwrite=True)
+                    output.insert("end", f"Copied {src} -> {dest}\n")
+                except Exception as exc:
+                    messagebox.showerror("File Manager", str(exc))
+            else:
+                src = filedialog.askopenfilename(parent=window)
+                if not src:
+                    return
+                dest = filedialog.asksaveasfilename(parent=window, initialfile=Path(src).name)
+                if not dest:
+                    return
+                try:
+                    copy_file(src, dest, overwrite=True)
+                    output.insert("end", f"Copied {src} -> {dest}\n")
+                except Exception as exc:
+                    messagebox.showerror("File Manager", str(exc))
+
+        def do_move():
+            is_dir = messagebox.askyesno("Move", "Move directory?", parent=window)
+            if is_dir:
+                src = filedialog.askdirectory(parent=window)
+                if not src:
+                    return
+                dest_parent = filedialog.askdirectory(parent=window)
+                if not dest_parent:
+                    return
+                dest = Path(dest_parent) / Path(src).name
+                try:
+                    move_dir(src, dest, overwrite=True)
+                    output.insert("end", f"Moved {src} -> {dest}\n")
+                except Exception as exc:
+                    messagebox.showerror("File Manager", str(exc))
+            else:
+                src = filedialog.askopenfilename(parent=window)
+                if not src:
+                    return
+                dest = filedialog.asksaveasfilename(parent=window, initialfile=Path(src).name)
+                if not dest:
+                    return
+                try:
+                    move_file(src, dest, overwrite=True)
+                    output.insert("end", f"Moved {src} -> {dest}\n")
+                except Exception as exc:
+                    messagebox.showerror("File Manager", str(exc))
+
+        def do_delete():
+            is_dir = messagebox.askyesno("Delete", "Delete directory?", parent=window)
+            if is_dir:
+                path = filedialog.askdirectory(parent=window)
+                if not path:
+                    return
+                if messagebox.askyesno("Delete", f"Delete {path}?", parent=window):
+                    try:
+                        delete_dir(path)
+                        output.insert("end", f"Deleted {path}\n")
+                    except Exception as exc:
+                        messagebox.showerror("File Manager", str(exc))
+            else:
+                path = filedialog.askopenfilename(parent=window)
+                if not path:
+                    return
+                if messagebox.askyesno("Delete", f"Delete {path}?", parent=window):
+                    try:
+                        delete_file(path)
+                        output.insert("end", f"Deleted {path}\n")
+                    except Exception as exc:
+                        messagebox.showerror("File Manager", str(exc))
+
+        def do_list():
+            directory = filedialog.askdirectory(parent=window)
+            if not directory:
+                return
+            files = list_files(directory)
+            output.insert("end", "\n".join(str(p) for p in files) + "\n")
+
+        btn_frame = ctk.CTkFrame(window)
+        btn_frame.pack(pady=5)
+        ctk.CTkButton(btn_frame, text="Copy", command=do_copy).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Move", command=do_move).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Delete", command=do_delete).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="List Dir", command=do_list).pack(side="left", padx=5)
+
     def _system_info(self):
         """Show system information"""
         info = f"""System Information:
@@ -403,19 +516,56 @@ Python: {platform.python_version()}
             messagebox.showerror("Ping Error", str(exc))
 
     def _port_scanner(self):
-        """Launch port scanner"""
+        """Launch a simple port scanner supporting ranges."""
         host = simpledialog.askstring("Port Scanner", "Host", parent=self)
-        port = simpledialog.askinteger("Port Scanner", "Port", parent=self, minvalue=1, maxvalue=65535)
-        if not host or not port:
+        if not host:
             return
-        self.app.status_bar.set_message(f"Scanning {host}:{port}...", "info")
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(2)
-            try:
-                sock.connect((host, port))
-                messagebox.showinfo("Port Scanner", f"Port {port} is OPEN")
-            except Exception:
-                messagebox.showinfo("Port Scanner", f"Port {port} is CLOSED")
+        rng = simpledialog.askstring(
+            "Port Scanner",
+            "Port or range (e.g. 22 or 20-25)",
+            parent=self,
+        )
+        if not rng:
+            return
+
+        try:
+            if "-" in rng:
+                start, end = [int(p) for p in rng.split("-", 1)]
+            else:
+                start = end = int(rng)
+        except ValueError:
+            messagebox.showerror("Port Scanner", "Invalid port specification")
+            return
+
+        from src.utils import async_scan_ports
+        import threading
+        import asyncio
+
+        def progress(value: float | None) -> None:
+            if value is None:
+                self.app.window.after(0, self.app.status_bar.hide_progress)
+            else:
+                self.app.window.after(0, lambda: self.app.status_bar.show_progress(value))
+
+        def run_scan() -> None:
+            open_ports = asyncio.run(async_scan_ports(host, start, end, progress))
+
+            def show_result() -> None:
+                if open_ports:
+                    ports = ", ".join(str(p) for p in open_ports)
+                    messagebox.showinfo(
+                        "Port Scanner",
+                        f"Open ports on {host}: {ports}",
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Port Scanner",
+                        f"No open ports found on {host} in range {start}-{end}",
+                    )
+
+            self.app.window.after(0, show_result)
+
+        threading.Thread(target=run_scan, daemon=True).start()
 
     def _dns_lookup(self):
         """Launch DNS lookup"""

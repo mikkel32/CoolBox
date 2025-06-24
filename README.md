@@ -9,6 +9,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Rich Toolset**: File tools, system utilities, text processing, and more
 - **Customizable**: Extensive settings and preferences
 - **Cross-Platform**: Works on Windows, macOS, and Linux
+- **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, and a threaded port scanner
 
 ## 📋 Requirements
 
@@ -52,6 +53,11 @@ To start the app and wait for a debugger to attach, use:
 ```bash
 ./scripts/run_debug.sh
 ```
+This script will automatically start the application under ``xvfb`` if no
+display is available, making it convenient to debug in headless
+environments such as CI or containers. The ``-Xfrozen_modules=off`` option
+is passed to Python to silence warnings when using debugpy with frozen
+modules.
 
 ### Debugging in a Dev Container
 
@@ -68,8 +74,26 @@ You can also start the container manually:
 ```bash
 ./scripts/run_devcontainer.sh
 ```
+This requires Docker to be installed on your system. Like
+``run_debug.sh``, the script automatically launches the app under
+``xvfb`` if no display is detected so the GUI works even in headless
+Docker environments.
 
-This requires Docker to be installed on your system.
+### Debugging in a Vagrant VM
+
+If you prefer a lightweight virtual machine instead of Docker, a
+`Vagrantfile` is provided. This sets up an Ubuntu VM with all
+dependencies preinstalled and starts CoolBox under `debugpy`.
+The debug server port **5678** is forwarded to the host so you can attach
+to `localhost:5678`:
+
+```bash
+./scripts/run_vagrant.sh
+```
+
+The first run may take a while while Vagrant downloads the base box and
+installs packages. Once finished, Visual Studio Code can attach to the
+debug server on port `5678` using the **Python: Attach** configuration.
 
 ### Debugging with VS Code
 
