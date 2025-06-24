@@ -100,6 +100,7 @@ class Config:
         # Limit size
         max_files = self.config.get("max_recent_files", 10)
         self.config["recent_files"] = recent[:max_files]
+        self.save()
 
     def reset_to_defaults(self):
         """Reset configuration to defaults"""

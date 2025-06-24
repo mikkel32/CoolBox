@@ -30,6 +30,8 @@ from .network import (
     clear_host_cache,
 )
 
+from . import file_manager
+
 __all__ = [
     "log",
     "read_text",
@@ -54,4 +56,5 @@ __all__ = [
     "async_scan_targets",
     "clear_scan_cache",
     "clear_host_cache",
+    "file_manager",
 ]
