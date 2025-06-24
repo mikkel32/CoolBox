@@ -1,6 +1,13 @@
 """Utility helpers and file management."""
 
-from .helpers import log, open_path, calc_hash, get_system_info
+from .helpers import (
+    log,
+    open_path,
+    calc_hash,
+    calc_hash_cached,
+    calc_hashes,
+    get_system_info,
+)
 from .vm import launch_vm_debug
 from .file_manager import (
     read_text,
@@ -36,6 +43,8 @@ __all__ = [
     "delete_dir",
     "open_path",
     "calc_hash",
+    "calc_hash_cached",
+    "calc_hashes",
     "get_system_info",
     "launch_vm_debug",
     "scan_ports",

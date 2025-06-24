@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.utils import async_scan_targets  # noqa: E402
+from rich.progress import Progress
 
 
 async def main() -> None:
@@ -24,13 +25,23 @@ async def main() -> None:
     else:
         start = end = int(args.ports)
 
-    results = await async_scan_targets(
-        args.hosts,
-        start,
-        end,
-        concurrency=args.concurrency,
-        cache_ttl=args.ttl,
-    )
+    with Progress() as progress:
+        task = progress.add_task("scan", total=1.0)
+
+        def update(value: float | None) -> None:
+            if value is None:
+                progress.update(task, completed=1.0)
+            else:
+                progress.update(task, completed=value)
+
+        results = await async_scan_targets(
+            args.hosts,
+            start,
+            end,
+            concurrency=args.concurrency,
+            cache_ttl=args.ttl,
+            progress=update,
+        )
     for host, ports in results.items():
         if ports:
             print(f"{host}: {', '.join(str(p) for p in ports)}")

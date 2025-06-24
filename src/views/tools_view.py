@@ -215,23 +215,39 @@ class ToolsView(ctk.CTkFrame):
             return
 
         files = [p for p in Path(directory).rglob("*") if p.is_file()]
-        total = len(files)
+
+        # Group by size so we only hash files that could be duplicates
+        size_map: dict[int, list[Path]] = {}
+        for path in files:
+            size_map.setdefault(path.stat().st_size, []).append(path)
+
+        groups = [g for g in size_map.values() if len(g) > 1]
 
         hashes: dict[str, Path] = {}
         duplicates: dict[str, list[Path]] = {}
-        for i, path in enumerate(files, 1):
-            from src.utils import calc_hash
 
-            digest = calc_hash(str(path))
+        from src.utils.cache import CacheManager
+        from src.utils.helpers import calc_hashes
+
+        cache_file = self.app.config.cache_dir / "hash_cache.json"
+        hash_cache = CacheManager[dict](cache_file)
+
+        def update(value: float | None) -> None:
+            if self.app.status_bar is not None:
+                if value is None:
+                    self.app.status_bar.hide_progress()
+                else:
+                    self.app.status_bar.show_progress(value)
+
+        paths = [str(p) for group in groups for p in group]
+        digest_map = calc_hashes(paths, cache=hash_cache, progress=update)
+
+        for path_str, digest in digest_map.items():
+            path = Path(path_str)
             if digest in hashes:
                 duplicates.setdefault(digest, []).append(path)
             else:
                 hashes[digest] = path
-            if self.app.status_bar is not None:
-                self.app.status_bar.show_progress(i / total)
-
-        if self.app.status_bar is not None:
-            self.app.status_bar.hide_progress()
 
         if not duplicates:
             messagebox.showinfo("Duplicate Finder", "No duplicates found")
