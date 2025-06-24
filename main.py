@@ -6,10 +6,10 @@ Main entry point for the application
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Ensure package imports work when running as a script
+sys.path.insert(0, str(Path(__file__).parent))
 
-from app import CoolBoxApp
+from src import CoolBoxApp
 
 
 def main():

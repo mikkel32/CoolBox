@@ -122,6 +122,7 @@ class CoolBoxApp:
         # Show new view
         self.views[view_name].pack(fill="both", expand=True)
         self.current_view = view_name
+        self.state.current_view = view_name
 
         log(f"Switched view to {view_name}")
 
