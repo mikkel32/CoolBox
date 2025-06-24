@@ -2,8 +2,6 @@ import subprocess
 import shutil
 from pathlib import Path
 
-import pytest
-
 from src.utils.vm import launch_vm_debug
 
 
@@ -28,6 +26,8 @@ def test_launch_vm_debug_docker(monkeypatch):
 
 
 def test_launch_vm_debug_missing(monkeypatch):
+    called = []
     monkeypatch.setattr(shutil, "which", lambda x: None)
-    with pytest.raises(RuntimeError):
-        launch_vm_debug()
+    monkeypatch.setattr(subprocess, "check_call", lambda args: called.append(args))
+    launch_vm_debug()
+    assert Path(called[0][0]).name == "run_debug.sh"

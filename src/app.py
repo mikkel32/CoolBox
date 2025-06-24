@@ -2,7 +2,12 @@
 CoolBox Application Class
 Manages the main application window and navigation
 """
-import customtkinter as ctk
+try:
+    import customtkinter as ctk
+except ImportError:  # pragma: no cover - runtime dependency check
+    from .ensure_deps import ensure_customtkinter
+
+    ctk = ensure_customtkinter()
 from typing import Dict, Optional
 import sys
 

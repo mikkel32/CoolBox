@@ -95,8 +95,8 @@ This requires Docker to be installed on your system. Like
 ``xvfb`` if no display is detected so the GUI works even in headless
 Docker environments.  You may also use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` which choose Docker or Vagrant
-depending on what is installed, launching the app under debugpy in
-whichever environment is available.
+depending on what is installed. If neither is present, it falls back to
+``run_debug.sh`` so you can still debug locally.
 
 ### Debugging in a Vagrant VM
 
@@ -112,7 +112,9 @@ to `localhost:5678`:
 
 As a shortcut you can use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` which will start ``run_vagrant.sh`` or
-``run_devcontainer.sh`` depending on what tools are available.
+``run_devcontainer.sh`` depending on what tools are available. When
+neither is found the script falls back to running ``run_debug.sh`` in the
+current environment.
 
 The first run may take a while while Vagrant downloads the base box and
 installs packages. Once finished, Visual Studio Code can attach to the
