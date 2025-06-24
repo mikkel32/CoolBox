@@ -2,8 +2,11 @@
 Configuration management for CoolBox
 """
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Dict
+
+from .utils.helpers import log
 
 
 class Config:
@@ -13,6 +16,9 @@ class Config:
         """Initialize configuration"""
         self.config_dir = Path.home() / ".coolbox"
         self.config_file = self.config_dir / "config.json"
+        self.cache_dir = self.config_dir / "cache"
+
+        self.ensure_dirs()
 
         # Default configuration
         self.defaults = {
@@ -38,10 +44,14 @@ class Config:
         # Load configuration
         self.config = self._load_config()
 
+    def ensure_dirs(self) -> None:
+        """Create configuration and cache directories if needed."""
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir.mkdir(exist_ok=True)
+
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file"""
-        # Create config directory if it doesn't exist
-        self.config_dir.mkdir(exist_ok=True)
+        self.ensure_dirs()
 
         # Load existing config or use defaults
         if self.config_file.exists():
@@ -51,7 +61,7 @@ class Config:
                     # Merge with defaults to ensure all keys exist
                     return {**self.defaults, **loaded_config}
             except Exception as e:
-                print(f"Error loading config: {e}")
+                log(f"Error loading config: {e}")
                 return self.defaults.copy()
         else:
             return self.defaults.copy()
@@ -62,7 +72,7 @@ class Config:
             with open(self.config_file, "w") as f:
                 json.dump(self.config, f, indent=4)
         except Exception as e:
-            print(f"Error saving config: {e}")
+            log(f"Error saving config: {e}")
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value"""
@@ -91,3 +101,23 @@ class Config:
         """Reset configuration to defaults"""
         self.config = self.defaults.copy()
         self.save()
+
+    def clear_cache(self) -> int:
+        """Remove files from the cache directory.
+
+        Returns the number of items deleted.
+        """
+        count = 0
+        self.ensure_dirs()
+        if self.cache_dir.exists():
+            for path in self.cache_dir.iterdir():
+                try:
+                    if path.is_file():
+                        path.unlink()
+                        count += 1
+                    else:
+                        shutil.rmtree(path)
+                        count += 1
+                except Exception:
+                    continue
+        return count

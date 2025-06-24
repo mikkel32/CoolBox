@@ -34,10 +34,42 @@ For a development environment with debugging tools, run:
 ./scripts/setup_dev_env.sh
 ```
 
+### Running Tests
+
+To run the test suite and style checks:
+
+```bash
+pytest -q
+flake8 src setup.py tests
+```
+
 3. Run the application:
 ```bash
 python main.py
 ```
+
+To start the app and wait for a debugger to attach, use:
+```bash
+./scripts/run_debug.sh
+```
+
+### Debugging in a Dev Container
+
+The project includes a **devcontainer** for running CoolBox inside Docker.  This
+lets you debug the application in an isolated environment:
+
+1. Install the *Dev Containers* extension for Visual Studio Code.
+2. From the Command Palette choose **Dev Containers: Open Folder in Container**.
+3. Once the container starts, run `./scripts/run_debug.sh` to launch the app
+   under `debugpy`.
+
+You can also start the container manually:
+
+```bash
+./scripts/run_devcontainer.sh
+```
+
+This requires Docker to be installed on your system.
 
 ### Debugging with VS Code
 
@@ -45,6 +77,8 @@ python main.py
 2. Ensure the Python extension is installed.
 3. Press `F5` or choose **Run > Start Debugging** to launch the app using the
    configuration provided in `.vscode/launch.json`.
+4. Alternatively, run `./scripts/run_debug.sh` and select the
+   **Python: Attach** configuration to connect the debugger.
 
 ## 📁 Project Structure
 
