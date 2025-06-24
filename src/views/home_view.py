@@ -164,7 +164,19 @@ class HomeView(ctk.CTkFrame):
     def _quick_start(self):
         """Handle quick start action"""
         self.app.status_bar.set_message("Starting new project...", "info")
-        # Implement quick start logic
+        from tkinter import filedialog
+        from pathlib import Path
+
+        filename = filedialog.asksaveasfilename(
+            title="Create New File",
+            defaultextension=".txt",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
+            parent=self,
+        )
+        if filename:
+            Path(filename).write_text("")
+            self.app.config.add_recent_file(filename)
+            self.app.status_bar.set_message(f"Created {filename}", "success")
 
     def _show_recent(self):
         """Show recent files"""
