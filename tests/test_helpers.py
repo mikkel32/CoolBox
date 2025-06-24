@@ -1,6 +1,7 @@
 import sys
 import subprocess
-from src.utils import open_path, calc_hash, get_system_info
+from src.utils import open_path, calc_hash, calc_hashes, get_system_info
+from src.utils.cache import CacheManager
 
 
 def test_calc_hash(tmp_path):
@@ -41,3 +42,19 @@ def test_get_system_info():
     info = get_system_info()
     assert "Platform:" in info
     assert "Python:" in info
+
+
+def test_calc_hash_cached_and_bulk(tmp_path):
+    files = [tmp_path / f"f{i}.txt" for i in range(3)]
+    for i, f in enumerate(files):
+        f.write_text(str(i))
+
+    cache = CacheManager[dict](tmp_path / "cache.json")
+
+    digests = calc_hashes([str(f) for f in files], cache=cache)
+    assert len(digests) == 3
+
+    hits_before = cache.stats()["hits"]
+    digests2 = calc_hashes([str(f) for f in files], cache=cache)
+    assert digests2 == digests
+    assert cache.stats()["hits"] > hits_before

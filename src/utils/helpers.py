@@ -7,8 +7,12 @@ import logging
 import os
 import platform
 import subprocess
-from typing import Literal
+from typing import Literal, Dict, Any, Iterable, Callable
+from pathlib import Path
+
+from .cache import CacheManager
 import psutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO)
 
@@ -35,6 +39,72 @@ def calc_hash(path: str, algo: Literal["md5", "sha1", "sha256"] = "md5") -> str:
         for chunk in iter(lambda: f.read(8192), b""):
             hash_func.update(chunk)
     return hash_func.hexdigest()
+
+
+def calc_hash_cached(
+    path: str,
+    algo: Literal["md5", "sha1", "sha256"] = "md5",
+    cache: CacheManager[Dict[str, Any]] | None = None,
+    *,
+    ttl: float = 365 * 24 * 60 * 60,
+) -> str:
+    """Return hash of ``path`` using *algo* with disk caching."""
+    if cache is None:
+        return calc_hash(path, algo)
+
+    p = Path(path)
+    key = f"{path}:{algo}"
+    cache.refresh()
+    entry = cache.get(key)
+    mtime = p.stat().st_mtime
+    if entry and entry.get("mtime") == mtime:
+        return str(entry.get("digest"))
+
+    digest = calc_hash(path, algo)
+    cache.set(key, {"mtime": mtime, "digest": digest}, ttl)
+    return digest
+
+
+def calc_hashes(
+    paths: Iterable[str],
+    algo: Literal["md5", "sha1", "sha256"] = "md5",
+    cache: CacheManager[Dict[str, Any]] | None = None,
+    *,
+    workers: int | None = None,
+    ttl: float = 365 * 24 * 60 * 60,
+    progress: Callable[[float | None], None] | None = None,
+) -> Dict[str, str]:
+    """Return a mapping of path->digest for many files concurrently."""
+    paths = list(paths)
+    if not paths:
+        if progress is not None:
+            progress(None)
+        return {}
+
+    if workers is None:
+        workers = min(32, os.cpu_count() or 1)
+
+    total = len(paths)
+    completed = 0
+    results: Dict[str, str] = {}
+
+    def update(value: float | None) -> None:
+        if progress is not None:
+            progress(value)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(calc_hash_cached, p, algo, cache, ttl=ttl): p
+            for p in paths
+        }
+        for fut in as_completed(future_map):
+            path = future_map[fut]
+            results[path] = fut.result()
+            completed += 1
+            update(completed / total)
+
+    update(None)
+    return results
 
 
 def get_system_info() -> str:

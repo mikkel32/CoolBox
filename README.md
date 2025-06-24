@@ -10,7 +10,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Customizable**: Extensive settings and preferences
 - **Configurable UI**: Show or hide the toolbar and status bar on demand
 - **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator, an advanced duplicate finder with removal support, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
+- **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Network Scanner CLI**: Scan multiple hosts from the command line using async networking and disk-backed caching.
 
 ## 📋 Requirements
@@ -113,7 +113,7 @@ This requires Docker or Podman to be installed on your system. Like
 ``run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
 Docker environments.  You may also use ``./scripts/run_vm_debug.sh`` or
-``python scripts/run_vm_debug.py`` which choose Docker/Podman or Vagrant
+``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
 ``run_debug.sh`` so you can still debug locally.
 
