@@ -27,6 +27,7 @@ from .network import (
     scan_targets,
     async_scan_targets,
     clear_scan_cache,
+    clear_host_cache,
 )
 
 __all__ = [
@@ -52,4 +53,5 @@ __all__ = [
     "scan_targets",
     "async_scan_targets",
     "clear_scan_cache",
+    "clear_host_cache",
 ]

@@ -11,7 +11,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Configurable UI**: Show or hide the toolbar and status bar on demand
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
-- **Network Scanner CLI**: Scan multiple hosts from the command line using async networking and disk-backed caching.
+- **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
+  support, host lookup caching, and configurable timeouts.
 
 ## 📋 Requirements
 
@@ -92,7 +93,14 @@ Use ``scripts/network_scan.py`` to scan multiple hosts for open ports:
 ```bash
 ./scripts/network_scan.py 22-25 host1 host2 host3
 ```
-The script runs asynchronous scans with caching so repeated invocations are fast.
+The script runs asynchronous scans with caching so repeated invocations are fast
+and supports a few useful options:
+
+```bash
+./scripts/network_scan.py 80-85 host1 --timeout 1.0 --family ipv6
+```
+* ``--timeout`` sets the connection timeout in seconds
+* ``--family`` forces IPv4 or IPv6 resolution (``auto`` by default)
 
 ### Debugging in a Dev Container
 
@@ -157,6 +165,8 @@ debug server on port `5678` using the **Python: Attach** configuration.
    **Run in Available VM** to start the appropriate environment.
 6. Alternatively, run the scripts manually and select the **Python: Attach**
    configuration to connect the debugger.
+7. Within the application, open **Tools > System Tools > Launch VM Debug** to
+   start the same environment directly from the GUI.
 
 ## 📁 Project Structure
 
