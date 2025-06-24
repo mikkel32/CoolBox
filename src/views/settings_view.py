@@ -195,6 +195,40 @@ class SettingsView(ctk.CTkFrame):
         )
         clear_cache_btn.pack(pady=10)
 
+        ttl_frame = ctk.CTkFrame(section)
+        ttl_frame.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(
+            ttl_frame,
+            text="Scan cache TTL (s):",
+            width=150,
+            anchor="w",
+        ).pack(side="left")
+
+        self.scan_ttl_var = ctk.IntVar(value=self.app.config.get("scan_cache_ttl", 300))
+        ctk.CTkEntry(ttl_frame, textvariable=self.scan_ttl_var, width=80).pack(side="left", padx=10)
+
+        concurrency_frame = ctk.CTkFrame(section)
+        concurrency_frame.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(
+            concurrency_frame,
+            text="Scan concurrency:",
+            width=150,
+            anchor="w",
+        ).pack(side="left")
+
+        self.scan_concurrency_var = ctk.IntVar(value=self.app.config.get("scan_concurrency", 100))
+        ctk.CTkEntry(concurrency_frame, textvariable=self.scan_concurrency_var, width=80).pack(side="left", padx=10)
+
+        clear_scan_cache_btn = ctk.CTkButton(
+            section,
+            text="🗑️ Clear Scan Cache",
+            command=self._clear_scan_cache,
+            width=200,
+        )
+        clear_scan_cache_btn.pack(pady=10)
+
         # Reset settings button
         reset_btn = ctk.CTkButton(
             section,
@@ -262,10 +296,11 @@ class SettingsView(ctk.CTkFrame):
         self.app.config.set("show_toolbar", self.show_toolbar_var.get())
         self.app.config.set("show_statusbar", self.show_statusbar_var.get())
         self.app.config.set("max_recent_files", self.recent_limit_var.get())
+        self.app.config.set("scan_cache_ttl", int(self.scan_ttl_var.get()))
+        self.app.config.set("scan_concurrency", int(self.scan_concurrency_var.get()))
 
-        theme = self.app.config.get("theme", {})
+        theme = self.app.theme.get_theme()
         theme["accent_color"] = self.accent_color_var.get()
-        self.app.config.set("theme", theme)
         self.app.theme.apply_theme(theme)
 
         # Save to file
@@ -280,6 +315,8 @@ class SettingsView(ctk.CTkFrame):
         """Clear application cache"""
         if messagebox.askyesno("Clear Cache", "Are you sure you want to clear the cache?"):
             removed = self.app.config.clear_cache()
+            from src.utils import clear_scan_cache
+            clear_scan_cache()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(
                     f"Cache cleared ({removed} items)", "success"
@@ -294,6 +331,16 @@ class SettingsView(ctk.CTkFrame):
                 self.app.status_bar.set_message("Settings reset to defaults!", "success")
             self.app.switch_view("settings")
             self.app.update_ui_visibility()
+            self.scan_ttl_var.set(self.app.config.get("scan_cache_ttl", 300))
+            self.scan_concurrency_var.set(self.app.config.get("scan_concurrency", 100))
+
+    def _clear_scan_cache(self) -> None:
+        """Clear cached port scan results."""
+        from src.utils import clear_scan_cache
+
+        clear_scan_cache()
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Port scan cache cleared", "success")
 
     def _export_settings(self):
         """Export settings to file"""
@@ -336,6 +383,6 @@ class SettingsView(ctk.CTkFrame):
         if color_code:
             self.accent_color_var.set(color_code)
             self.accent_display.configure(fg_color=color_code)
-            theme = self.app.config.get("theme", {})
+            theme = self.app.theme.get_theme()
             theme["accent_color"] = color_code
             self.app.theme.apply_theme(theme)

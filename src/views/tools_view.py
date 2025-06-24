@@ -96,6 +96,7 @@ class ToolsView(ctk.CTkFrame):
         tools = [
             ("Ping Tool", "Test network connectivity", self._ping_tool),
             ("Port Scanner", "Scan open ports", self._port_scanner),
+            ("Network Scanner", "Scan multiple hosts", self._network_scan),
             ("DNS Lookup", "Query DNS records", self._dns_lookup),
             ("Speed Test", "Test internet speed", self._speed_test),
         ]
@@ -743,7 +744,18 @@ class ToolsView(ctk.CTkFrame):
                     self.app.window.after(0, lambda: self.app.status_bar.show_progress(value))
 
         def run_scan() -> None:
-            open_ports = asyncio.run(async_scan_ports(host, start, end, progress))
+            ttl = self.app.config.get("scan_cache_ttl", 300)
+            concurrency = self.app.config.get("scan_concurrency", 100)
+            open_ports = asyncio.run(
+                async_scan_ports(
+                    host,
+                    start,
+                    end,
+                    progress,
+                    concurrency=concurrency,
+                    cache_ttl=ttl,
+                )
+            )
 
             def show_result() -> None:
                 if open_ports:
@@ -757,6 +769,78 @@ class ToolsView(ctk.CTkFrame):
                         "Port Scanner",
                         f"No open ports found on {host} in range {start}-{end}",
                     )
+
+            self.app.window.after(0, show_result)
+
+        threading.Thread(target=run_scan, daemon=True).start()
+
+    def _network_scan(self) -> None:
+        """Scan multiple hosts for open ports."""
+        hosts_raw = simpledialog.askstring(
+            "Network Scanner", "Hosts (comma separated)", parent=self
+        )
+        if not hosts_raw:
+            return
+        hosts = [h.strip() for h in hosts_raw.split(",") if h.strip()]
+        if not hosts:
+            return
+
+        rng = simpledialog.askstring(
+            "Network Scanner",
+            "Port or range (e.g. 22 or 20-25)",
+            parent=self,
+        )
+        if not rng:
+            return
+
+        try:
+            if "-" in rng:
+                start, end = [int(p) for p in rng.split("-", 1)]
+            else:
+                start = end = int(rng)
+        except ValueError:
+            messagebox.showerror("Network Scanner", "Invalid port specification")
+            return
+
+        from src.utils import async_scan_targets
+        import threading
+        import asyncio
+
+        def progress(value: float | None) -> None:
+            if value is None:
+                if self.app.status_bar is not None:
+                    self.app.window.after(0, self.app.status_bar.hide_progress)
+            else:
+                if self.app.status_bar is not None:
+                    self.app.window.after(
+                        0, lambda: self.app.status_bar.show_progress(value)
+                    )
+
+        def run_scan() -> None:
+            ttl = self.app.config.get("scan_cache_ttl", 300)
+            concurrency = self.app.config.get("scan_concurrency", 100)
+            results = asyncio.run(
+                async_scan_targets(
+                    hosts,
+                    start,
+                    end,
+                    progress,
+                    concurrency=concurrency,
+                    cache_ttl=ttl,
+                )
+            )
+
+            def show_result() -> None:
+                lines = []
+                for host, ports in results.items():
+                    if ports:
+                        ports_str = ", ".join(str(p) for p in ports)
+                        lines.append(f"{host}: {ports_str}")
+                    else:
+                        lines.append(f"{host}: none")
+                messagebox.showinfo(
+                    "Network Scanner", "\n".join(lines)
+                )
 
             self.app.window.after(0, show_result)
 
