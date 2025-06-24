@@ -163,7 +163,8 @@ class HomeView(ctk.CTkFrame):
 
     def _quick_start(self):
         """Handle quick start action"""
-        self.app.status_bar.set_message("Starting new project...", "info")
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Starting new project...", "info")
         from tkinter import filedialog
         from pathlib import Path
 
@@ -176,12 +177,35 @@ class HomeView(ctk.CTkFrame):
         if filename:
             Path(filename).write_text("")
             self.app.config.add_recent_file(filename)
-            self.app.status_bar.set_message(f"Created {filename}", "success")
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message(f"Created {filename}", "success")
 
     def _show_recent(self):
         """Show recent files"""
         recent_files = self.app.config.get("recent_files", [])
-        if recent_files:
-            self.app.status_bar.set_message(f"Found {len(recent_files)} recent files", "info")
-        else:
-            self.app.status_bar.set_message("No recent files", "warning")
+        if not recent_files:
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("No recent files", "warning")
+            return
+
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message(
+                f"Found {len(recent_files)} recent files", "info"
+            )
+
+        window = ctk.CTkToplevel(self)
+        window.title("Recent Files")
+
+        from src.utils import open_path
+
+        def open_file(path: str) -> None:
+            """Open *path* using the default application."""
+            open_path(path)
+
+        for path in recent_files:
+            ctk.CTkButton(
+                window,
+                text=path,
+                anchor="w",
+                command=lambda p=path: open_file(p),
+            ).pack(fill="x", padx=10, pady=5)

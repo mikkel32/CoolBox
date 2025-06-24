@@ -8,8 +8,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Modular Architecture**: Clean, maintainable code structure
 - **Rich Toolset**: File tools, system utilities, text processing, and more
 - **Customizable**: Extensive settings and preferences
+- **Configurable UI**: Show or hide the toolbar and status bar on demand
 - **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, and a threaded port scanner
+- **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator, an advanced duplicate finder with removal support, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 
 ## 📋 Requirements
 
@@ -59,6 +60,14 @@ environments such as CI or containers. The ``-Xfrozen_modules=off`` option
 is passed to Python to silence warnings when using debugpy with frozen
 modules.
 
+Alternatively you can launch directly using ``python``:
+
+```bash
+python main.py --debug
+```
+This starts ``debugpy`` on port ``5678`` and waits for a debugger to
+attach. Use ``--debug-port`` to specify a custom port.
+
 ### Debugging in a Dev Container
 
 The project includes a **devcontainer** for running CoolBox inside Docker.  This
@@ -77,7 +86,10 @@ You can also start the container manually:
 This requires Docker to be installed on your system. Like
 ``run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
-Docker environments.
+Docker environments.  You may also use ``./scripts/run_vm_debug.sh`` or
+``python scripts/run_vm_debug.py`` which choose Docker or Vagrant
+depending on what is installed, launching the app under debugpy in
+whichever environment is available.
 
 ### Debugging in a Vagrant VM
 
@@ -91,6 +103,10 @@ to `localhost:5678`:
 ./scripts/run_vagrant.sh
 ```
 
+As a shortcut you can use ``./scripts/run_vm_debug.sh`` or
+``python scripts/run_vm_debug.py`` which will start ``run_vagrant.sh`` or
+``run_devcontainer.sh`` depending on what tools are available.
+
 The first run may take a while while Vagrant downloads the base box and
 installs packages. Once finished, Visual Studio Code can attach to the
 debug server on port `5678` using the **Python: Attach** configuration.
@@ -101,8 +117,14 @@ debug server on port `5678` using the **Python: Attach** configuration.
 2. Ensure the Python extension is installed.
 3. Press `F5` or choose **Run > Start Debugging** to launch the app using the
    configuration provided in `.vscode/launch.json`.
-4. Alternatively, run `./scripts/run_debug.sh` and select the
-   **Python: Attach** configuration to connect the debugger.
+4. For convenience a task named **Run CoolBox in Debug** is provided. Open the
+   Command Palette and run **Tasks: Run Task** then choose this task to launch
+   the app via `./scripts/run_debug.sh`.
+5. Additional tasks are available for launching the app in Docker or Vagrant.
+   Choose **Run in Dev Container**, **Run in Vagrant VM**, or
+   **Run in Available VM** to start the appropriate environment.
+6. Alternatively, run the scripts manually and select the **Python: Attach**
+   configuration to connect the debugger.
 
 ## 📁 Project Structure
 
