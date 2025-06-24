@@ -14,7 +14,13 @@ from .file_manager import (
     move_dir,
     delete_dir,
 )
-from .network import scan_ports, async_scan_ports
+from .network import (
+    scan_ports,
+    async_scan_ports,
+    scan_targets,
+    async_scan_targets,
+    clear_scan_cache,
+)
 
 __all__ = [
     "log",
@@ -34,4 +40,7 @@ __all__ = [
     "launch_vm_debug",
     "scan_ports",
     "async_scan_ports",
+    "scan_targets",
+    "async_scan_targets",
+    "clear_scan_cache",
 ]

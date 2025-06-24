@@ -46,7 +46,7 @@ class CoolBoxApp:
         self.window.minsize(800, 600)
 
         # Theme manager
-        self.theme = ThemeManager()
+        self.theme = ThemeManager(config=self.config)
         self.theme.apply_theme(self.config.get("theme", {}))
         log("Initialized theme manager")
 
@@ -175,6 +175,7 @@ class CoolBoxApp:
         # Save configuration
         self.config.set("window_width", self.window.winfo_width())
         self.config.set("window_height", self.window.winfo_height())
+        self.config.set("theme", self.theme.get_theme())
         self.config.save()
 
         log("Application closing")

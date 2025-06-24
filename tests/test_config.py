@@ -32,3 +32,10 @@ def test_reset_to_defaults(monkeypatch):
     cfg.set("font_size", 99)
     cfg.reset_to_defaults()
     assert cfg.get("font_size") == cfg.defaults["font_size"]
+
+
+def test_default_scan_concurrency(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    assert cfg.get("scan_concurrency") == 100

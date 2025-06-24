@@ -46,5 +46,15 @@
             },
             "problemMatcher": []
         }
+        ,
+        {
+            "label": "Run VM and Open VSCode",
+            "type": "shell",
+            "command": "python scripts/run_vm_debug.py --code",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        }
     ]
 }

@@ -39,6 +39,8 @@ class Config:
                 "text_color": "#ffffff",
                 "background_color": "#1e1e1e",
             },
+            "scan_cache_ttl": 300,
+            "scan_concurrency": 100,
         }
 
         # Load configuration

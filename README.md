@@ -11,6 +11,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Configurable UI**: Show or hide the toolbar and status bar on demand
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator, an advanced duplicate finder with removal support, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
+- **Network Scanner CLI**: Scan multiple hosts from the command line using async networking and disk-backed caching.
 
 ## 📋 Requirements
 
@@ -75,14 +76,23 @@ python main.py --debug
 This starts ``debugpy`` on port ``5678`` and waits for a debugger to
 attach. Use ``--debug-port`` to specify a custom port.
 
-To automatically spin up a Docker or Vagrant environment and attach a
+To automatically spin up a Docker/Podman or Vagrant environment and attach a
 debugger, run:
 
 ```bash
 python main.py --vm-debug
 ```
-This calls ``launch_vm_debug`` which tries Docker first, then Vagrant,
+This calls ``launch_vm_debug`` which tries Docker or Podman first, then Vagrant,
 falling back to ``run_debug.sh`` if neither is available.
+
+### Network Scanner CLI
+
+Use ``scripts/network_scan.py`` to scan multiple hosts for open ports:
+
+```bash
+./scripts/network_scan.py 22-25 host1 host2 host3
+```
+The script runs asynchronous scans with caching so repeated invocations are fast.
 
 ### Debugging in a Dev Container
 
@@ -99,11 +109,11 @@ You can also start the container manually:
 ```bash
 ./scripts/run_devcontainer.sh
 ```
-This requires Docker to be installed on your system. Like
+This requires Docker or Podman to be installed on your system. Like
 ``run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
 Docker environments.  You may also use ``./scripts/run_vm_debug.sh`` or
-``python scripts/run_vm_debug.py`` which choose Docker or Vagrant
+``python scripts/run_vm_debug.py`` which choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
 ``run_debug.sh`` so you can still debug locally.
 
@@ -123,7 +133,11 @@ As a shortcut you can use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` which will start ``run_vagrant.sh`` or
 ``run_devcontainer.sh`` depending on what tools are available. When
 neither is found the script falls back to running ``run_debug.sh`` in the
-current environment.
+current environment.  You can set ``PREFER_VM=docker``, ``PREFER_VM=podman`` or
+``PREFER_VM=vagrant`` to force a specific backend or pass ``--prefer`` to
+``run_vm_debug.py``.
+Use the ``--code`` flag to open Visual Studio Code before launching the
+environment so it's ready to attach to the debug server.
 
 The first run may take a while while Vagrant downloads the base box and
 installs packages. Once finished, Visual Studio Code can attach to the
@@ -138,7 +152,7 @@ debug server on port `5678` using the **Python: Attach** configuration.
 4. For convenience a task named **Run CoolBox in Debug** is provided. Open the
    Command Palette and run **Tasks: Run Task** then choose this task to launch
    the app via `./scripts/run_debug.sh`.
-5. Additional tasks are available for launching the app in Docker or Vagrant.
+5. Additional tasks are available for launching the app in Docker/Podman or Vagrant.
    Choose **Run in Dev Container**, **Run in Vagrant VM**, or
    **Run in Available VM** to start the appropriate environment.
 6. Alternatively, run the scripts manually and select the **Python: Attach**
