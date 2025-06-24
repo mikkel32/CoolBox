@@ -3,7 +3,10 @@ import socketserver
 import threading
 import asyncio
 import importlib
+import subprocess
+import sys
 import time
+from pathlib import Path
 
 import src.utils.network as network
 
@@ -168,6 +171,7 @@ def test_clear_scan_cache(tmp_path, monkeypatch):
     network.clear_scan_cache()
     assert not cache_file.exists()
     assert len(network.PORT_CACHE) == 0
+    assert not network._HOST_CACHE
 
 
 def test_scan_ports_ipv6():
@@ -230,3 +234,85 @@ def test_async_scan_targets():
             t1.join()
             t2.join()
         assert result["localhost"] == [p2]
+
+
+def test_family_override():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = network.scan_ports(
+                "localhost",
+                port,
+                port,
+                family=socket.AF_INET,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+
+def test_custom_timeout():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = network.scan_ports("localhost", port, port, timeout=0.1)
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_scan_ports("localhost", port, port, timeout=0.1)
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+    with _IPv6Server(("::1", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_scan_ports(
+                    "::1",
+                    port,
+                    port,
+                    family=socket.AF_INET6,
+                )
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+
+def test_network_scan_cli(tmp_path):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = subprocess.run(
+                [sys.executable, str(script), str(port), "localhost", "--timeout", "0.1", "--family", "ipv4"],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert f"localhost: {port}" in result.stdout

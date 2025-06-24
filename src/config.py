@@ -41,6 +41,8 @@ class Config:
             },
             "scan_cache_ttl": 300,
             "scan_concurrency": 100,
+            "scan_timeout": 0.5,
+            "scan_family": "auto",
         }
 
         # Load configuration

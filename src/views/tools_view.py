@@ -11,6 +11,7 @@ import json
 import base64
 from pathlib import Path
 import re
+import threading
 from PIL import ImageGrab
 
 
@@ -70,6 +71,11 @@ class ToolsView(ctk.CTkFrame):
                 self._screenshot_tool,
             ),
             ("Registry Editor", "Edit system registry (Windows)", self._registry_editor),
+            (
+                "Launch VM Debug",
+                "Run CoolBox in a VM and wait for debugger",
+                self._launch_vm_debug,
+            ),
         ]
 
         for name, desc, func in tools:
@@ -546,6 +552,28 @@ class ToolsView(ctk.CTkFrame):
                 "The registry editor is only available on Windows",
             )
 
+    def _launch_vm_debug(self) -> None:
+        """Start CoolBox inside a VM for debugging."""
+        if not messagebox.askyesno(
+            "Launch VM Debug",
+            "Start CoolBox in a VM and wait for the debugger?",
+        ):
+            return
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Launching VM...", "info")
+
+        def run() -> None:
+            from src.utils import launch_vm_debug
+            try:
+                launch_vm_debug()
+            except Exception as exc:
+                messagebox.showerror("VM Debug", str(exc))
+            finally:
+                if self.app.status_bar is not None:
+                    self.app.window.after(0, self.app.status_bar.hide_progress)
+
+        threading.Thread(target=run, daemon=True).start()
+
     def _text_editor(self):
         """Open a simple text editor window."""
         if self.app.status_bar is not None:
@@ -762,6 +790,13 @@ class ToolsView(ctk.CTkFrame):
         def run_scan() -> None:
             ttl = self.app.config.get("scan_cache_ttl", 300)
             concurrency = self.app.config.get("scan_concurrency", 100)
+            timeout = self.app.config.get("scan_timeout", 0.5)
+            fam_opt = self.app.config.get("scan_family", "auto").lower()
+            fam = None
+            if fam_opt == "ipv4":
+                fam = socket.AF_INET
+            elif fam_opt == "ipv6":
+                fam = socket.AF_INET6
             open_ports = asyncio.run(
                 async_scan_ports(
                     host,
@@ -770,6 +805,8 @@ class ToolsView(ctk.CTkFrame):
                     progress,
                     concurrency=concurrency,
                     cache_ttl=ttl,
+                    timeout=timeout,
+                    family=fam,
                 )
             )
 
@@ -835,6 +872,13 @@ class ToolsView(ctk.CTkFrame):
         def run_scan() -> None:
             ttl = self.app.config.get("scan_cache_ttl", 300)
             concurrency = self.app.config.get("scan_concurrency", 100)
+            timeout = self.app.config.get("scan_timeout", 0.5)
+            fam_opt = self.app.config.get("scan_family", "auto").lower()
+            fam = None
+            if fam_opt == "ipv4":
+                fam = socket.AF_INET
+            elif fam_opt == "ipv6":
+                fam = socket.AF_INET6
             results = asyncio.run(
                 async_scan_targets(
                     hosts,
@@ -843,6 +887,8 @@ class ToolsView(ctk.CTkFrame):
                     progress,
                     concurrency=concurrency,
                     cache_ttl=ttl,
+                    timeout=timeout,
+                    family=fam,
                 )
             )
 

@@ -221,6 +221,36 @@ class SettingsView(ctk.CTkFrame):
         self.scan_concurrency_var = ctk.IntVar(value=self.app.config.get("scan_concurrency", 100))
         ctk.CTkEntry(concurrency_frame, textvariable=self.scan_concurrency_var, width=80).pack(side="left", padx=10)
 
+        timeout_frame = ctk.CTkFrame(section)
+        timeout_frame.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(
+            timeout_frame,
+            text="Scan timeout (s):",
+            width=150,
+            anchor="w",
+        ).pack(side="left")
+
+        self.scan_timeout_var = ctk.DoubleVar(value=self.app.config.get("scan_timeout", 0.5))
+        ctk.CTkEntry(timeout_frame, textvariable=self.scan_timeout_var, width=80).pack(side="left", padx=10)
+
+        family_frame = ctk.CTkFrame(section)
+        family_frame.pack(fill="x", padx=20, pady=10)
+
+        ctk.CTkLabel(
+            family_frame,
+            text="Address family:",
+            width=150,
+            anchor="w",
+        ).pack(side="left")
+
+        self.scan_family_var = ctk.StringVar(value=self.app.config.get("scan_family", "auto"))
+        ctk.CTkOptionMenu(
+            family_frame,
+            variable=self.scan_family_var,
+            values=["auto", "ipv4", "ipv6"],
+        ).pack(side="left", padx=10)
+
         clear_scan_cache_btn = ctk.CTkButton(
             section,
             text="🗑️ Clear Scan Cache",
@@ -298,6 +328,8 @@ class SettingsView(ctk.CTkFrame):
         self.app.config.set("max_recent_files", self.recent_limit_var.get())
         self.app.config.set("scan_cache_ttl", int(self.scan_ttl_var.get()))
         self.app.config.set("scan_concurrency", int(self.scan_concurrency_var.get()))
+        self.app.config.set("scan_timeout", float(self.scan_timeout_var.get()))
+        self.app.config.set("scan_family", self.scan_family_var.get())
 
         theme = self.app.theme.get_theme()
         theme["accent_color"] = self.accent_color_var.get()
@@ -333,6 +365,8 @@ class SettingsView(ctk.CTkFrame):
             self.app.update_ui_visibility()
             self.scan_ttl_var.set(self.app.config.get("scan_cache_ttl", 300))
             self.scan_concurrency_var.set(self.app.config.get("scan_concurrency", 100))
+            self.scan_timeout_var.set(self.app.config.get("scan_timeout", 0.5))
+            self.scan_family_var.set(self.app.config.get("scan_family", "auto"))
 
     def _clear_scan_cache(self) -> None:
         """Clear cached port scan results."""
