@@ -3,8 +3,9 @@ Toolbar component with common actions
 """
 import customtkinter as ctk
 from tkinter import filedialog
+from pathlib import Path
 
-from ..utils import file_manager
+from ..utils import file_manager, open_path
 import pyperclip
 
 
@@ -72,7 +73,7 @@ class Toolbar(ctk.CTkFrame):
     def _open_file(self):
         """Open file dialog"""
         filename = file_manager.pick_file()
-        if filename:
+        if filename and self.app.status_bar is not None:
             self.app.status_bar.set_message(f"Opened: {filename}", "info")
             self.app.config.add_recent_file(filename)
 
@@ -89,30 +90,68 @@ class Toolbar(ctk.CTkFrame):
         )
         if filename:
             file_manager.write_text(filename, "")
-            self.app.status_bar.set_message(f"Saved: {filename}", "success")
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message(f"Saved: {filename}", "success")
 
     def _copy(self):
         """Copy action"""
         # This would copy from the current view
-        self.app.status_bar.set_message("Copied to clipboard", "info")
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Copied to clipboard", "info")
 
     def _cut(self):
         """Cut action"""
-        self.app.status_bar.set_message("Cut to clipboard", "info")
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Cut to clipboard", "info")
 
     def _paste(self):
         """Paste action"""
         try:
             pyperclip.paste()
-            self.app.status_bar.set_message("Pasted from clipboard", "info")
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("Pasted from clipboard", "info")
         except Exception:
-            self.app.status_bar.set_message("Nothing to paste", "warning")
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("Nothing to paste", "warning")
 
     def _search(self):
-        """Perform search"""
-        query = self.search_var.get()
-        if query:
+        """Perform a simple filename search and show results."""
+        query = self.search_var.get().strip()
+        if not query:
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("Enter search query", "warning")
+            return
+
+        if self.app.status_bar is not None:
             self.app.status_bar.set_message(f"Searching for: {query}", "info")
-            # Implement actual search functionality
-        else:
-            self.app.status_bar.set_message("Enter search query", "warning")
+
+        directory = filedialog.askdirectory(title="Select folder to search", parent=self)
+        if not directory:
+            return
+
+        matches = [p for p in Path(directory).rglob(f"*{query}*") if p.is_file()]
+
+        window = ctk.CTkToplevel(self)
+        window.title(f"Search results for '{query}'")
+        window.geometry("600x400")
+
+        if not matches:
+            ctk.CTkLabel(window, text="No results found").pack(padx=20, pady=20)
+            return
+
+        ctk.CTkLabel(
+            window,
+            text=f"Results ({len(matches)})",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).pack(pady=(10, 5))
+
+        results_frame = ctk.CTkScrollableFrame(window)
+        results_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        for path in matches:
+            ctk.CTkButton(
+                results_frame,
+                text=str(path),
+                anchor="w",
+                command=lambda p=path: open_path(str(p)),
+            ).pack(fill="x", pady=2)

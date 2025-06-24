@@ -1,0 +1,50 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run CoolBox in Debug",
+            "type": "shell",
+            "command": "./scripts/run_debug.sh",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run in Dev Container",
+            "type": "shell",
+            "command": "./scripts/run_devcontainer.sh",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run in Vagrant VM",
+            "type": "shell",
+            "command": "./scripts/run_vagrant.sh",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run in Available VM",
+            "type": "shell",
+            "command": "./scripts/run_vm_debug.sh",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run in Available VM (Python)",
+            "type": "shell",
+            "command": "python scripts/run_vm_debug.py",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

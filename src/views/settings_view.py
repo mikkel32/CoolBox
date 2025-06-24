@@ -242,12 +242,14 @@ class SettingsView(ctk.CTkFrame):
     def _change_theme(self, value):
         """Change application theme"""
         ctk.set_appearance_mode(value.lower())
-        self.app.status_bar.set_message(f"Theme changed to {value}", "info")
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message(f"Theme changed to {value}", "info")
 
     def _change_color_theme(self, value):
         """Change color theme"""
         ctk.set_default_color_theme(value)
-        self.app.status_bar.set_message(f"Color theme changed to {value}", "info")
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message(f"Color theme changed to {value}", "info")
         messagebox.showinfo("Color Theme", "Please restart the application for changes to take effect")
 
     def _save_settings(self):
@@ -269,23 +271,29 @@ class SettingsView(ctk.CTkFrame):
         # Save to file
         self.app.config.save()
 
-        self.app.status_bar.set_message("Settings saved successfully!", "success")
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Settings saved successfully!", "success")
+        # Update visibility of optional UI elements
+        self.app.update_ui_visibility()
 
     def _clear_cache(self):
         """Clear application cache"""
         if messagebox.askyesno("Clear Cache", "Are you sure you want to clear the cache?"):
             removed = self.app.config.clear_cache()
-            self.app.status_bar.set_message(
-                f"Cache cleared ({removed} items)", "success"
-            )
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message(
+                    f"Cache cleared ({removed} items)", "success"
+                )
 
     def _reset_settings(self):
         """Reset settings to defaults"""
         if messagebox.askyesno("Reset Settings", "Are you sure you want to reset all settings to defaults?"):
             self.app.config.reset_to_defaults()
             self.app.theme.apply_theme(self.app.config.get("theme", {}))
-            self.app.status_bar.set_message("Settings reset to defaults!", "success")
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("Settings reset to defaults!", "success")
             self.app.switch_view("settings")
+            self.app.update_ui_visibility()
 
     def _export_settings(self):
         """Export settings to file"""
@@ -300,7 +308,8 @@ class SettingsView(ctk.CTkFrame):
 
             with open(filename, "w") as f:
                 json.dump(self.app.config.config, f, indent=4)
-            self.app.status_bar.set_message(f"Settings exported to {filename}", "success")
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message(f"Settings exported to {filename}", "success")
 
     def _import_settings(self):
         """Import settings from file"""
@@ -315,7 +324,8 @@ class SettingsView(ctk.CTkFrame):
                     imported = json.load(f)
                     self.app.config.config.update(imported)
                     self.app.config.save()
-                self.app.status_bar.set_message("Settings imported successfully!", "success")
+                if self.app.status_bar is not None:
+                    self.app.status_bar.set_message("Settings imported successfully!", "success")
                 messagebox.showinfo("Import Complete", "Please restart the application for changes to take effect")
             except Exception as e:
                 messagebox.showerror("Import Error", f"Failed to import settings: {str(e)}")

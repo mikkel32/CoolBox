@@ -2,6 +2,7 @@
 About view - Application info
 """
 import customtkinter as ctk
+from ..components.widgets import info_label
 
 
 class AboutView(ctk.CTkFrame):
@@ -27,18 +28,11 @@ class AboutView(ctk.CTkFrame):
         )
         title.pack(pady=(0, 20))
 
-        info = ctk.CTkLabel(
+        info = info_label(
             container,
-            text="CoolBox - A Modern Desktop App\nVersion 1.0",
-            font=ctk.CTkFont(size=14),
-            justify="left",
+            "CoolBox - A Modern Desktop App\nVersion 1.0",
         )
         info.pack(anchor="w")
 
-        credits = ctk.CTkLabel(
-            container,
-            text="Created by mikkel32",
-            font=ctk.CTkFont(size=12),
-            text_color="gray",
-        )
+        credits = info_label(container, "Created by mikkel32")
         credits.pack(anchor="w", pady=(20, 0))

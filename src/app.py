@@ -64,9 +64,11 @@ class CoolBoxApp:
         self.main_container = ctk.CTkFrame(self.window, corner_radius=0)
         self.main_container.pack(fill="both", expand=True)
 
-        # Create toolbar
-        self.toolbar = Toolbar(self.main_container, self)
-        self.toolbar.pack(fill="x", padx=0, pady=0)
+        # Create toolbar if enabled in config
+        self.toolbar: Toolbar | None = None
+        if self.config.get("show_toolbar", True):
+            self.toolbar = Toolbar(self.main_container, self)
+            self.toolbar.pack(fill="x", padx=0, pady=0)
 
         # Create content area with sidebar
         self.content_area = ctk.CTkFrame(self.main_container, corner_radius=0)
@@ -84,12 +86,32 @@ class CoolBoxApp:
         self.view_container = ctk.CTkFrame(self.content_area, corner_radius=0)
         self.view_container.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
 
-        # Create status bar
-        self.status_bar = StatusBar(self.main_container)
-        self.status_bar.pack(fill="x", side="bottom")
+        # Create status bar if enabled
+        self.status_bar: StatusBar | None = None
+        if self.config.get("show_statusbar", True):
+            self.status_bar = StatusBar(self.main_container)
+            self.status_bar.pack(fill="x", side="bottom")
 
         # Initialize views
         self._init_views()
+
+    def update_ui_visibility(self) -> None:
+        """Show or hide optional UI elements based on config."""
+        if self.config.get("show_toolbar", True):
+            if self.toolbar is None:
+                self.toolbar = Toolbar(self.main_container, self)
+                self.toolbar.pack(fill="x", padx=0, pady=0)
+        elif self.toolbar is not None:
+            self.toolbar.destroy()
+            self.toolbar = None
+
+        if self.config.get("show_statusbar", True):
+            if self.status_bar is None:
+                self.status_bar = StatusBar(self.main_container)
+                self.status_bar.pack(fill="x", side="bottom")
+        elif self.status_bar is not None:
+            self.status_bar.destroy()
+            self.status_bar = None
 
     def _init_views(self):
         """Initialize all application views"""
@@ -112,7 +134,10 @@ class CoolBoxApp:
     def switch_view(self, view_name: str):
         """Switch to a different view"""
         if view_name not in self.views:
-            self.status_bar.set_message(f"View '{view_name}' not found", "error")
+            if self.status_bar is not None:
+                self.status_bar.set_message(
+                    f"View '{view_name}' not found", "error"
+                )
             return
 
         # Hide current view
@@ -130,7 +155,10 @@ class CoolBoxApp:
         self.sidebar.set_active(view_name)
 
         # Update status
-        self.status_bar.set_message(f"Switched to {view_name.title()}", "info")
+        if self.status_bar is not None:
+            self.status_bar.set_message(
+                f"Switched to {view_name.title()}", "info"
+            )
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode"""
