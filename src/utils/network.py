@@ -41,21 +41,29 @@ async def async_scan_ports(
     start: int,
     end: int,
     progress: Callable[[float | None], None] | None = None,
+    concurrency: int = 100,
 ) -> List[int]:
-    """Asynchronously scan *host* and return a list of open ports."""
+    """Asynchronously scan *host* and return a list of open ports.
+
+    ``concurrency`` limits the number of simultaneous connection attempts,
+    preventing excessive resource usage when scanning large port ranges.
+    """
 
     open_ports: list[int] = []
     total = end - start + 1
     completed = 0
 
+    sem = asyncio.Semaphore(max(1, min(concurrency, total)))
+
     async def scan(port: int) -> int | None:
         nonlocal completed
         try:
-            conn = asyncio.open_connection(host, port)
-            reader, writer = await asyncio.wait_for(conn, timeout=0.5)
-            writer.close()
-            await writer.wait_closed()
-            return port
+            async with sem:
+                conn = asyncio.open_connection(host, port)
+                reader, writer = await asyncio.wait_for(conn, timeout=0.5)
+                writer.close()
+                await writer.wait_closed()
+                return port
         except Exception:
             return None
         finally:
