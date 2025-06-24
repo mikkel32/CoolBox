@@ -3,6 +3,7 @@ Home view - Main dashboard
 """
 import customtkinter as ctk
 from datetime import datetime
+from src.utils import open_path
 
 
 class HomeView(ctk.CTkFrame):
@@ -175,10 +176,15 @@ class HomeView(ctk.CTkFrame):
             parent=self,
         )
         if filename:
-            Path(filename).write_text("")
+            path = Path(filename)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("")
             self.app.config.add_recent_file(filename)
+            if self.app.toolbar is not None:
+                self.app.toolbar.update_recent_files()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(f"Created {filename}", "success")
+            open_path(str(path))
 
     def _show_recent(self):
         """Show recent files"""
@@ -195,8 +201,6 @@ class HomeView(ctk.CTkFrame):
 
         window = ctk.CTkToplevel(self)
         window.title("Recent Files")
-
-        from src.utils import open_path
 
         def open_file(path: str) -> None:
             """Open *path* using the default application."""

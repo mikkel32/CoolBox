@@ -336,3 +336,6 @@ class SettingsView(ctk.CTkFrame):
         if color_code:
             self.accent_color_var.set(color_code)
             self.accent_display.configure(fg_color=color_code)
+            theme = self.app.config.get("theme", {})
+            theme["accent_color"] = color_code
+            self.app.theme.apply_theme(theme)

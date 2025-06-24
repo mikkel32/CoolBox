@@ -18,7 +18,9 @@ def read_text(path: str) -> str:
 
 
 def write_text(path: str, data: str) -> None:
-    Path(path).write_text(data)
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(data)
 
 
 def pick_file() -> Optional[str]:
