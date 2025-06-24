@@ -35,16 +35,25 @@ class ThemeManager:
         """
 
         self._config_dir.mkdir(exist_ok=True)
-        theme_data = {
-            "CTk": {
-                "color_scale": {
-                    "primary_color": theme.get("primary_color", "#1f538d"),
-                    "secondary_color": theme.get("secondary_color", "#212121"),
-                    "text_color": theme.get("text_color", "#ffffff"),
-                    "background_color": theme.get("background_color", "#1e1e1e"),
-                    "accent_color": theme.get("accent_color", "#007acc"),
-                }
-            }
+
+        # load the builtin "blue" theme as a base so all required keys are
+        # present. this avoids KeyError when CustomTkinter widgets expect
+        # certain settings like ``CTkFrame`` to exist.
+        builtin_path = (
+            Path(ctk.__file__).parent / "assets" / "themes" / "blue.json"
+        )
+        try:
+            with open(builtin_path, "r", encoding="utf-8") as f:
+                theme_data = json.load(f)
+        except Exception:
+            theme_data = {"CTk": {}}
+
+        theme_data.setdefault("CTk", {})["color_scale"] = {
+            "primary_color": theme.get("primary_color", "#1f538d"),
+            "secondary_color": theme.get("secondary_color", "#212121"),
+            "text_color": theme.get("text_color", "#ffffff"),
+            "background_color": theme.get("background_color", "#1e1e1e"),
+            "accent_color": theme.get("accent_color", "#007acc"),
         }
 
         with open(self._theme_file, "w", encoding="utf-8") as f:
