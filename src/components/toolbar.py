@@ -47,9 +47,6 @@ class Toolbar(ctk.CTkFrame):
         self._create_button(left_frame, "📌", "Paste", self._paste).pack(
             side="left", padx=5
         )
-        self._create_button(
-            left_frame, "☰", "Toggle Sidebar", self.app.toggle_sidebar
-        ).pack(side="left", padx=5)
 
         self._create_button(
             left_frame,

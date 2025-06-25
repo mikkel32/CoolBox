@@ -8,12 +8,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Modular Architecture**: Clean, maintainable code structure
 - **Rich Toolset**: File tools, system utilities, text processing, and more
 - **Customizable**: Extensive settings and preferences
-- **Configurable UI**: Toggle the menu bar, toolbar and status bar on demand. The
-  menu bar now includes recent files, a Quick Settings dialog and a fullscreen
-  toggle. Quick Settings can also be launched from the toolbar or with the
-  `Ctrl+Q` shortcut.
-- **Collapsible Sidebar**: Quickly hide the sidebar using the toolbar button,
-  arrow icon or `Ctrl+B`. CoolBox remembers your preference across sessions.
+- **Configurable UI**: Toggle the menu bar, toolbar and status bar on demand. The menu bar now includes recent files, a Quick Settings dialog and a fullscreen toggle. Quick Settings can also be launched from the toolbar or with the `Ctrl+Q` shortcut.
+- **Fixed Sidebar**: Persistent navigation panel with quick theme switching.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6

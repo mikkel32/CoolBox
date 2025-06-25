@@ -983,7 +983,7 @@ class ToolsView(ctk.CTkFrame):
                     family=fam,
                 )
             )
-            
+
             def show_result() -> None:
                 lines = []
                 for host, ports in results.items():

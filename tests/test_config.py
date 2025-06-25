@@ -49,13 +49,6 @@ def test_add_recent_file_persists(monkeypatch, tmp_path):
     assert "x.txt" in json.loads(cfg.config_file.read_text())["recent_files"]
 
 
-def test_sidebar_collapsed_default(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    assert cfg.get("sidebar_collapsed") is False
-
-
 def test_menu_default(monkeypatch):
     tmp = Path(tempfile.mkdtemp())
     monkeypatch.setattr(Path, "home", lambda: tmp)

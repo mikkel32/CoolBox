@@ -165,7 +165,6 @@ class SettingsView(ctk.CTkFrame):
         # Auto-save
         self.auto_save_var = ctk.BooleanVar(value=self.app.config.get("auto_save", True))
         auto_save_check = ctk.CTkCheckBox(
-            section,
             text="Enable auto-save",
             variable=self.auto_save_var,
         )
@@ -174,7 +173,6 @@ class SettingsView(ctk.CTkFrame):
         # Show toolbar
         self.show_toolbar_var = ctk.BooleanVar(value=self.app.config.get("show_toolbar", True))
         toolbar_check = ctk.CTkCheckBox(
-            section,
             text="Show toolbar",
             variable=self.show_toolbar_var,
         )
@@ -183,7 +181,6 @@ class SettingsView(ctk.CTkFrame):
         # Show status bar
         self.show_statusbar_var = ctk.BooleanVar(value=self.app.config.get("show_statusbar", True))
         statusbar_check = ctk.CTkCheckBox(
-            section,
             text="Show status bar",
             variable=self.show_statusbar_var,
         )
@@ -192,25 +189,13 @@ class SettingsView(ctk.CTkFrame):
         # Show menu bar
         self.show_menu_var = ctk.BooleanVar(value=self.app.config.get("show_menu", True))
         menu_check = ctk.CTkCheckBox(
-            section,
             text="Show menu bar",
             variable=self.show_menu_var,
         )
         menu_check.pack(anchor="w", padx=20, pady=5)
 
-        # Collapse sidebar
-        self.collapse_sidebar_var = ctk.BooleanVar(
-            value=self.app.config.get("sidebar_collapsed", False)
-        )
-        sidebar_check = ctk.CTkCheckBox(
-            section,
-            text="Collapse sidebar",
-            variable=self.collapse_sidebar_var,
-        )
-        sidebar_check.pack(anchor="w", padx=20, pady=5)
-
-        # Recent files limit
         recent_frame = ctk.CTkFrame(section)
+        # Recent files limit
         recent_frame.pack(fill="x", padx=20, pady=10)
 
         ctk.CTkLabel(
@@ -234,7 +219,6 @@ class SettingsView(ctk.CTkFrame):
 
         # Clear cache button
         clear_cache_btn = ctk.CTkButton(
-            section,
             text="🗑️ Clear Cache",
             command=self._clear_cache,
             width=200,
@@ -298,7 +282,6 @@ class SettingsView(ctk.CTkFrame):
         ).pack(side="left", padx=10)
 
         clear_scan_cache_btn = ctk.CTkButton(
-            section,
             text="🗑️ Clear Scan Cache",
             command=self._clear_scan_cache,
             width=200,
@@ -306,7 +289,6 @@ class SettingsView(ctk.CTkFrame):
         clear_scan_cache_btn.pack(pady=10)
 
         clear_host_cache_btn = ctk.CTkButton(
-            section,
             text="🗑️ Clear Host Cache",
             command=self._clear_host_cache,
             width=200,
@@ -314,7 +296,6 @@ class SettingsView(ctk.CTkFrame):
         clear_host_cache_btn.pack(pady=10)
 
         open_cache_btn = ctk.CTkButton(
-            section,
             text="📂 Open Cache Folder",
             command=self._open_cache_folder,
             width=200,
@@ -322,7 +303,6 @@ class SettingsView(ctk.CTkFrame):
         open_cache_btn.pack(pady=10)
 
         open_config_btn = ctk.CTkButton(
-            section,
             text="📂 Open Config Folder",
             command=self._open_config_folder,
             width=200,
@@ -330,7 +310,6 @@ class SettingsView(ctk.CTkFrame):
         open_config_btn.pack(pady=10)
 
         open_config_file_btn = ctk.CTkButton(
-            section,
             text="📄 Open Config File",
             command=self._open_config_file_external,
             width=200,
@@ -338,7 +317,6 @@ class SettingsView(ctk.CTkFrame):
         open_config_file_btn.pack(pady=10)
 
         edit_config_btn = ctk.CTkButton(
-            section,
             text="📝 Edit Config File",
             command=self._edit_config_file,
             width=200,
@@ -347,7 +325,6 @@ class SettingsView(ctk.CTkFrame):
 
         # Reset settings button
         reset_btn = ctk.CTkButton(
-            section,
             text="🔄 Reset to Defaults",
             command=self._reset_settings,
             width=200,
@@ -358,7 +335,6 @@ class SettingsView(ctk.CTkFrame):
 
         # Export settings
         export_btn = ctk.CTkButton(
-            section,
             text="📤 Export Settings",
             command=self._export_settings,
             width=200,
@@ -367,7 +343,6 @@ class SettingsView(ctk.CTkFrame):
 
         # Import settings
         import_btn = ctk.CTkButton(
-            section,
             text="📥 Import Settings",
             command=self._import_settings,
             width=200,
@@ -381,7 +356,6 @@ class SettingsView(ctk.CTkFrame):
 
         # Section title
         title_label = ctk.CTkLabel(
-            section,
             text=title,
             font=ctk.CTkFont(size=18, weight="bold"),
         )
@@ -412,7 +386,6 @@ class SettingsView(ctk.CTkFrame):
         self.app.config.set("show_toolbar", self.show_toolbar_var.get())
         self.app.config.set("show_statusbar", self.show_statusbar_var.get())
         self.app.config.set("show_menu", self.show_menu_var.get())
-        self.app.config.set("sidebar_collapsed", self.collapse_sidebar_var.get())
         self.app.config.set("max_recent_files", self.recent_limit_var.get())
         self.app.config.set("scan_cache_ttl", int(self.scan_ttl_var.get()))
         self.app.config.set("scan_concurrency", int(self.scan_concurrency_var.get()))
@@ -422,7 +395,6 @@ class SettingsView(ctk.CTkFrame):
         theme = self.app.theme.get_theme()
         theme["accent_color"] = self.accent_color_var.get()
         self.app.theme.apply_theme(theme)
-        self.app.sidebar.set_collapsed(self.collapse_sidebar_var.get())
 
         # Save to file
         self.app.config.save()
@@ -452,8 +424,6 @@ class SettingsView(ctk.CTkFrame):
                 self.app.status_bar.set_message("Settings reset to defaults!", "success")
             self.app.switch_view("settings")
             self.app.update_ui_visibility()
-            self.collapse_sidebar_var.set(self.app.config.get("sidebar_collapsed", False))
-            self.app.sidebar.set_collapsed(self.collapse_sidebar_var.get())
             self.show_menu_var.set(self.app.config.get("show_menu", True))
             self.scan_ttl_var.set(self.app.config.get("scan_cache_ttl", 300))
             self.scan_concurrency_var.set(self.app.config.get("scan_concurrency", 100))
