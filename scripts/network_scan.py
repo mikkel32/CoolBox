@@ -9,7 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.utils import async_scan_targets  # noqa: E402
+from src.utils import async_scan_targets, parse_port_range  # noqa: E402
 from rich.progress import Progress  # noqa: E402
 
 
@@ -28,10 +28,10 @@ async def main() -> None:
     )
     args = parser.parse_args()
 
-    if "-" in args.ports:
-        start, end = [int(p) for p in args.ports.split("-", 1)]
-    else:
-        start = end = int(args.ports)
+    try:
+        start, end = parse_port_range(args.ports)
+    except Exception as exc:
+        parser.error(str(exc))
 
     with Progress() as progress:
         task = progress.add_task("scan", total=1.0)

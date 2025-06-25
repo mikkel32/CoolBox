@@ -103,6 +103,11 @@ class ToolsView(ctk.CTkFrame):
             ("Ping Tool", "Test network connectivity", self._ping_tool),
             ("Port Scanner", "Scan open ports", self._port_scanner),
             ("Network Scanner", "Scan multiple hosts", self._network_scan),
+            (
+                "Auto Network Scan",
+                "Automatically scan connected networks",
+                self._auto_network_scan,
+            ),
             ("DNS Lookup", "Query DNS records", self._dns_lookup),
             ("Speed Test", "Test internet speed", self._speed_test),
         ]
@@ -922,6 +927,76 @@ class ToolsView(ctk.CTkFrame):
                 messagebox.showinfo(
                     "Network Scanner", "\n".join(lines)
                 )
+
+            self.app.window.after(0, show_result)
+
+        threading.Thread(target=run_scan, daemon=True).start()
+
+    def _auto_network_scan(self) -> None:
+        """Automatically detect and scan local networks."""
+        rng = simpledialog.askstring(
+            "Auto Network Scan",
+            "Port or range (e.g. 22 or 20-25)",
+            parent=self,
+        )
+        if not rng:
+            return
+        from src.utils import async_auto_scan, parse_port_range
+        try:
+            start, end = parse_port_range(rng)
+        except Exception:
+            messagebox.showerror("Auto Network Scan", "Invalid port specification")
+            return
+        import threading
+        import asyncio
+
+        def progress(value: float | None) -> None:
+            if value is None:
+                if self.app.status_bar is not None:
+                    self.app.window.after(0, self.app.status_bar.hide_progress)
+            else:
+                if self.app.status_bar is not None:
+                    self.app.window.after(
+                        0, lambda: self.app.status_bar.show_progress(value)
+                    )
+
+        def run_scan() -> None:
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("Scanning local network...", "info")
+            ttl = self.app.config.get("scan_cache_ttl", 300)
+            concurrency = self.app.config.get("scan_concurrency", 100)
+            timeout = self.app.config.get("scan_timeout", 0.5)
+            fam_opt = self.app.config.get("scan_family", "auto").lower()
+            fam = None
+            if fam_opt == "ipv4":
+                fam = socket.AF_INET
+            elif fam_opt == "ipv6":
+                fam = socket.AF_INET6
+            results = asyncio.run(
+                async_auto_scan(
+                    start,
+                    end,
+                    progress,
+                    concurrency=concurrency,
+                    cache_ttl=ttl,
+                    timeout=timeout,
+                    family=fam,
+                )
+            )
+            
+            def show_result() -> None:
+                lines = []
+                for host, ports in results.items():
+                    if ports:
+                        ports_str = ", ".join(str(p) for p in ports)
+                        lines.append(f"{host}: {ports_str}")
+                    else:
+                        lines.append(f"{host}: none")
+                messagebox.showinfo(
+                    "Auto Network Scan", "\n".join(lines)
+                )
+                if self.app.status_bar is not None:
+                    self.app.status_bar.set_message("Scan complete", "success")
 
             self.app.window.after(0, show_result)
 

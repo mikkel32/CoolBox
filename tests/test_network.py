@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 
 import src.utils.network as network
+import psutil
+import pytest
 
 
 class _Handler(socketserver.BaseRequestHandler):
@@ -316,3 +318,78 @@ def test_network_scan_cli(tmp_path):
 
     assert result.returncode == 0
     assert f"localhost: {port}" in result.stdout
+
+
+def test_parse_port_range_single():
+    assert network.parse_port_range("80") == (80, 80)
+
+
+def test_parse_port_range_range():
+    assert network.parse_port_range("20-25") == (20, 25)
+
+
+def test_parse_port_range_invalid():
+    with pytest.raises(ValueError):
+        network.parse_port_range("70000")
+
+
+def test_detect_local_hosts(monkeypatch):
+    snic = psutil._common.snicaddr
+
+    def fake_if_addrs() -> dict[str, list]:
+        return {
+            "eth0": [
+                snic(
+                    family=socket.AF_INET,
+                    address="192.168.1.10",
+                    netmask="255.255.255.0",
+                    broadcast=None,
+                    ptp=None,
+                )
+            ]
+        }
+
+    monkeypatch.setattr(psutil, "net_if_addrs", fake_if_addrs)
+    hosts = network.detect_local_hosts(max_hosts_per_network=6)
+    assert "192.168.1.10" not in hosts
+    assert len(hosts) == 5
+
+
+def test_async_auto_scan(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost", "other"]
+
+    def fake_ping(host: str, timeout: float = 1.0) -> bool:
+        return host == "localhost"
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_ping_host", fake_ping)
+
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(network.async_auto_scan(port, port))
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result["localhost"] == [port]
+
+
+def test_async_filter_active_hosts(monkeypatch):
+    calls: list[str] = []
+
+    def fake_ping(host: str, timeout: float = 1.0) -> bool:
+        calls.append(host)
+        return host == "1.1.1.1"
+
+    monkeypatch.setattr(network, "_ping_host", fake_ping)
+
+    result = asyncio.run(
+        network.async_filter_active_hosts(["1.1.1.1", "2.2.2.2"], concurrency=2)
+    )
+
+    assert result == ["1.1.1.1"]
+    assert sorted(calls) == ["1.1.1.1", "2.2.2.2"]
