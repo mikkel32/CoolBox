@@ -87,6 +87,9 @@ class CoolBoxApp:
         self.sidebar = Sidebar(self.content_area, self)
         self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         self.sidebar.set_collapsed(self.config.get("sidebar_collapsed", False))
+        # Ensure geometry is realized before responsive check
+        self.window.update_idletasks()
+        self.sidebar.auto_adjust(self.window.winfo_width())
 
         # Create view container
         self.view_container = ctk.CTkFrame(self.content_area, corner_radius=0)
@@ -137,6 +140,7 @@ class CoolBoxApp:
         self.window.bind("<Control-s>", lambda e: self.switch_view("settings"))
         self.window.bind("<F11>", lambda e: self.toggle_fullscreen())
         self.window.bind("<Control-b>", lambda e: self.toggle_sidebar())
+        self.window.bind("<Configure>", self._on_resize)
 
     def switch_view(self, view_name: str):
         """Switch to a different view"""
@@ -179,6 +183,17 @@ class CoolBoxApp:
         if self.status_bar is not None:
             state = "collapsed" if self.sidebar.collapsed else "expanded"
             self.status_bar.set_message(f"Sidebar {state}", "info")
+
+    def _on_resize(self, event) -> None:
+        """Handle window resize events for responsive UI."""
+        previous = self.sidebar.collapsed
+        self.sidebar.auto_adjust(event.width)
+        if previous != self.sidebar.collapsed:
+            if not self.sidebar._auto_collapsed:
+                self.config.set("sidebar_collapsed", self.sidebar.collapsed)
+            if self.status_bar is not None:
+                state = "collapsed" if self.sidebar.collapsed else "expanded"
+                self.status_bar.set_message(f"Sidebar {state}", "info")
 
     def _on_closing(self):
         """Handle window closing event"""

@@ -1,12 +1,14 @@
 """
 Toolbar component with common actions
 """
+
 import customtkinter as ctk
 from tkinter import filedialog
 from pathlib import Path
 
 from ..utils import file_manager, open_path
 import pyperclip
+from .tooltip import Tooltip
 
 
 class Toolbar(ctk.CTkFrame):
@@ -16,6 +18,7 @@ class Toolbar(ctk.CTkFrame):
         """Initialize toolbar"""
         super().__init__(parent, height=50, corner_radius=0)
         self.app = app
+        self._tooltips: list[Tooltip] = []
 
         # Prevent frame from shrinking
         self.pack_propagate(False)
@@ -31,12 +34,22 @@ class Toolbar(ctk.CTkFrame):
         left_frame.pack(side="left", padx=10)
 
         # File operations
-        self._create_button(left_frame, "📁", "Open File", self._open_file).pack(side="left", padx=5)
-        self._create_button(left_frame, "💾", "Save", self._save_file).pack(side="left", padx=5)
-        self._create_button(left_frame, "📋", "Copy", self._copy).pack(side="left", padx=5)
+        self._create_button(left_frame, "📁", "Open File", self._open_file).pack(
+            side="left", padx=5
+        )
+        self._create_button(left_frame, "💾", "Save", self._save_file).pack(
+            side="left", padx=5
+        )
+        self._create_button(left_frame, "📋", "Copy", self._copy).pack(
+            side="left", padx=5
+        )
         self._create_button(left_frame, "✂️", "Cut", self._cut).pack(side="left", padx=5)
-        self._create_button(left_frame, "📌", "Paste", self._paste).pack(side="left", padx=5)
-        self._create_button(left_frame, "☰", "Toggle Sidebar", self.app.toggle_sidebar).pack(side="left", padx=5)
+        self._create_button(left_frame, "📌", "Paste", self._paste).pack(
+            side="left", padx=5
+        )
+        self._create_button(
+            left_frame, "☰", "Toggle Sidebar", self.app.toggle_sidebar
+        ).pack(side="left", padx=5)
 
         # Separator
         separator = ctk.CTkFrame(self, width=2, fg_color="gray50")
@@ -68,7 +81,9 @@ class Toolbar(ctk.CTkFrame):
         self.search_entry.pack(side="right", padx=5)
 
         # Search button
-        self._create_button(right_frame, "🔍", "Search", self._search).pack(side="right", padx=5)
+        self._create_button(right_frame, "🔍", "Search", self._search).pack(
+            side="right", padx=5
+        )
 
     def _create_button(self, parent, icon: str, tooltip: str, command) -> ctk.CTkButton:
         """Create a toolbar button"""
@@ -80,8 +95,17 @@ class Toolbar(ctk.CTkFrame):
             command=command,
             font=ctk.CTkFont(size=16),
         )
-        # Could add tooltip functionality here
+        tip = Tooltip(self, tooltip)
+        btn.bind("<Enter>", lambda e, t=tip: self._on_hover(t, e))
+        btn.bind("<Leave>", lambda e, t=tip: t.hide())
+        self._tooltips.append(tip)
         return btn
+
+    def _on_hover(self, tooltip: Tooltip, event) -> None:
+        """Show tooltip below a toolbar button."""
+        x = event.widget.winfo_rootx() + event.widget.winfo_width() // 2
+        y = event.widget.winfo_rooty() + event.widget.winfo_height() + 10
+        tooltip.show(x, y)
 
     def _open_file(self):
         """Open file dialog"""
@@ -143,7 +167,9 @@ class Toolbar(ctk.CTkFrame):
         if self.app.status_bar is not None:
             self.app.status_bar.set_message(f"Searching for: {query}", "info")
 
-        directory = filedialog.askdirectory(title="Select folder to search", parent=self)
+        directory = filedialog.askdirectory(
+            title="Select folder to search", parent=self
+        )
         if not directory:
             return
 
