@@ -47,14 +47,25 @@ def calc_hash_cached(
     cache: CacheManager[Dict[str, Any]] | None = None,
     *,
     ttl: float = 365 * 24 * 60 * 60,
+    refresh_cache: bool = True,
 ) -> str:
-    """Return hash of ``path`` using *algo* with disk caching."""
+    """Return hash of ``path`` using *algo* with disk caching.
+
+    Parameters
+    ----------
+    refresh_cache:
+        If true, the cache will be reloaded from disk before reading.
+        When computing many hashes concurrently the caller can disable
+        this and refresh the cache once beforehand for better
+        performance.
+    """
     if cache is None:
         return calc_hash(path, algo)
 
     p = Path(path)
     key = f"{path}:{algo}"
-    cache.refresh()
+    if refresh_cache:
+        cache.refresh()
     entry = cache.get(key)
     mtime = p.stat().st_mtime
     if entry and entry.get("mtime") == mtime:
@@ -88,13 +99,23 @@ def calc_hashes(
     completed = 0
     results: Dict[str, str] = {}
 
+    if cache is not None:
+        cache.refresh()
+
     def update(value: float | None) -> None:
         if progress is not None:
             progress(value)
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_map = {
-            executor.submit(calc_hash_cached, p, algo, cache, ttl=ttl): p
+            executor.submit(
+                calc_hash_cached,
+                p,
+                algo,
+                cache,
+                ttl=ttl,
+                refresh_cache=False,
+            ): p
             for p in paths
         }
         for fut in as_completed(future_map):
