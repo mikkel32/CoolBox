@@ -25,6 +25,7 @@ class Sidebar(ctk.CTkFrame):
         self._tooltips: Dict[str, Tooltip] = {}
         self.collapsed: bool = False
         self._auto_collapsed = False
+        self._user_override = False
         self._animating = False
         self._anim_job: str | None = None
         # Prevent grid geometry from overriding the specified width so
@@ -99,6 +100,7 @@ class Sidebar(ctk.CTkFrame):
     def toggle(self) -> None:
         """Toggle collapsed state."""
         self._auto_collapsed = False
+        self._user_override = True
         self.set_collapsed(not self.collapsed)
 
     def _on_hover(self, tooltip: Tooltip, event) -> None:
@@ -133,6 +135,11 @@ class Sidebar(ctk.CTkFrame):
     def auto_adjust(self, window_width: int) -> None:
         """Collapse or expand based on *window_width* for responsive layout."""
         if self._animating:
+            return
+        if window_width > AUTO_COLLAPSE_WIDTH:
+            # Reset manual override when window is sufficiently wide
+            self._user_override = False
+        if self._user_override:
             return
         if window_width <= AUTO_COLLAPSE_WIDTH and not self.collapsed:
             self._auto_collapsed = True
