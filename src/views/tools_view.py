@@ -462,9 +462,21 @@ class ToolsView(ctk.CTkFrame):
                 line = f"{pid:6} {name:<25} {cpu:6.1f} {mem:10.1f}\n"
                 text.insert("end", line)
 
+        refresh_job: str | None = None
+
         def schedule_refresh() -> None:
+            nonlocal refresh_job
+            if not window.winfo_exists():
+                return
             refresh()
-            window.after(5000, schedule_refresh)
+            refresh_job = window.after(5000, schedule_refresh)
+
+        def on_close() -> None:
+            if refresh_job is not None:
+                window.after_cancel(refresh_job)
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", on_close)
 
         def kill_selected() -> None:
             """Prompt for a PID and attempt to terminate that process."""
