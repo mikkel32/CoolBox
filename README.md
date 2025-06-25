@@ -115,10 +115,7 @@ and supports a few useful options:
 
 ### Auto Network Scan
 
-From the **Tools** view choose *Auto Network Scan* and specify a port or range.
-CoolBox detects local subnets using ``psutil`` and pings each address to find
-active hosts before scanning. Progress is shown in the status bar during both
-detection and scanning stages and results are displayed once complete.
+From the **Tools** view choose *Auto Network Scan* to open a modern dialog with scanning options on the left and a results table on the right. CoolBox automatically detects local subnets using `psutil` and pings each address to find active hosts before scanning the specified ports. A progress bar tracks detection and scanning with results displayed in a scrollable list when complete.
 
 ### Debugging in a Dev Container
 

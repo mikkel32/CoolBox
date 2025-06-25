@@ -1,0 +1,163 @@
+import customtkinter as ctk
+from tkinter import messagebox
+import socket
+import asyncio
+import threading
+
+from ..utils import async_auto_scan, parse_port_range
+
+
+class AutoNetworkScanDialog(ctk.CTkToplevel):
+    """Dialog for automatically scanning local networks with a polished layout."""
+
+    def __init__(self, app):
+        super().__init__(app.window)
+        self.app = app
+        self.title("Auto Network Scan")
+        self.resizable(False, False)
+        self.geometry("700x520")
+
+        ctk.CTkLabel(
+            self,
+            text="Auto Network Scan",
+            font=ctk.CTkFont(size=20, weight="bold"),
+        ).grid(row=0, column=0, columnspan=2, pady=(10, 5))
+
+        container = ctk.CTkFrame(self, fg_color="transparent")
+        container.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=20, pady=10)
+        container.grid_columnconfigure(1, weight=1)
+        container.grid_rowconfigure(0, weight=1)
+
+        form = ctk.CTkFrame(container)
+        form.grid(row=0, column=0, sticky="nw", padx=(0, 20))
+
+        ctk.CTkLabel(form, text="Port/Range:").grid(row=0, column=0, sticky="w")
+        self.port_var = ctk.StringVar(value="1-1024")
+        ctk.CTkEntry(form, textvariable=self.port_var, width=150).grid(
+            row=0, column=1, padx=10, pady=5, sticky="ew"
+        )
+
+        ctk.CTkLabel(form, text="Concurrency:").grid(row=1, column=0, sticky="w")
+        self.conc_var = ctk.StringVar(value=str(app.config.get("scan_concurrency", 100)))
+        ctk.CTkEntry(form, textvariable=self.conc_var, width=150).grid(
+            row=1, column=1, padx=10, pady=5, sticky="ew"
+        )
+
+        ctk.CTkLabel(form, text="Cache TTL:").grid(row=2, column=0, sticky="w")
+        self.ttl_var = ctk.StringVar(value=str(app.config.get("scan_cache_ttl", 300)))
+        ctk.CTkEntry(form, textvariable=self.ttl_var, width=150).grid(
+            row=2, column=1, padx=10, pady=5, sticky="ew"
+        )
+
+        ctk.CTkLabel(form, text="Timeout:").grid(row=3, column=0, sticky="w")
+        self.timeout_var = ctk.StringVar(value=str(app.config.get("scan_timeout", 0.5)))
+        ctk.CTkEntry(form, textvariable=self.timeout_var, width=150).grid(
+            row=3, column=1, padx=10, pady=5, sticky="ew"
+        )
+
+        ctk.CTkLabel(form, text="Family:").grid(row=4, column=0, sticky="w")
+        self.family_var = ctk.StringVar(value=app.config.get("scan_family", "auto").title())
+        ctk.CTkOptionMenu(
+            form,
+            values=["Auto", "IPv4", "IPv6"],
+            variable=self.family_var,
+            width=150,
+        ).grid(row=4, column=1, padx=10, pady=5, sticky="ew")
+
+        form.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkButton(form, text="Start Scan", command=self._start_scan).grid(
+            row=5, column=0, columnspan=2, pady=(15, 0)
+        )
+
+        result_panel = ctk.CTkFrame(container)
+        result_panel.grid(row=0, column=1, sticky="nsew")
+        result_panel.grid_columnconfigure(0, weight=1)
+        result_panel.grid_rowconfigure(1, weight=1)
+
+        self.progress = ctk.CTkProgressBar(result_panel)
+        self.progress.grid(row=0, column=0, sticky="ew")
+        self.progress.set(0)
+        self.progress.grid_remove()
+
+        self.result_area = ctk.CTkScrollableFrame(result_panel)
+        self.result_area.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+        self.result_area.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkFrame(self.result_area, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
+        header.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(header, text="Host", font=ctk.CTkFont(weight="bold"), anchor="w").grid(
+            row=0, column=0, sticky="w", padx=(0, 10)
+        )
+        ctk.CTkLabel(header, text="Open Ports", font=ctk.CTkFont(weight="bold"), anchor="w").grid(
+            row=0, column=1, sticky="w"
+        )
+
+        self.rows_frame = ctk.CTkFrame(self.result_area, fg_color="transparent")
+        self.rows_frame.grid(row=1, column=0, sticky="nsew")
+        self.rows_frame.grid_columnconfigure(0, weight=1)
+        self.rows_frame.grid_columnconfigure(1, weight=1)
+
+    def _start_scan(self) -> None:
+        try:
+            start, end = parse_port_range(self.port_var.get())
+            conc = int(self.conc_var.get())
+            ttl = float(self.ttl_var.get())
+            timeout = float(self.timeout_var.get())
+        except Exception as exc:
+            messagebox.showerror("Auto Network Scan", str(exc), parent=self)
+            return
+
+        fam_opt = self.family_var.get().lower()
+        fam = None
+        if fam_opt == "ipv4":
+            fam = socket.AF_INET
+        elif fam_opt == "ipv6":
+            fam = socket.AF_INET6
+
+        def update(value: float | None) -> None:
+            if value is None:
+                self.after(0, self.progress.grid_remove)
+            else:
+                if not self.progress.winfo_ismapped():
+                    self.progress.grid()
+                self.progress.set(value)
+
+        def run() -> None:
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("Scanning local network...", "info")
+            results = asyncio.run(
+                async_auto_scan(
+                    start,
+                    end,
+                    update,
+                    concurrency=conc,
+                    cache_ttl=ttl,
+                    timeout=timeout,
+                    family=fam,
+                )
+            )
+
+            def show() -> None:
+                for child in self.rows_frame.winfo_children():
+                    child.destroy()
+                for host, ports in results.items():
+                    row = ctk.CTkFrame(self.rows_frame, fg_color="transparent")
+                    row.grid(sticky="ew", pady=2)
+                    row.grid_columnconfigure(0, weight=1)
+                    row.grid_columnconfigure(1, weight=1)
+                    ctk.CTkLabel(row, text=host, anchor="w").grid(
+                        row=0, column=0, sticky="w", padx=(0, 10)
+                    )
+                    ports_str = ", ".join(str(p) for p in ports) if ports else "none"
+                    ctk.CTkLabel(row, text=ports_str, anchor="w").grid(
+                        row=0, column=1, sticky="w"
+                    )
+                if self.app.status_bar is not None:
+                    self.app.status_bar.set_message("Scan complete", "success")
+
+            self.after(0, show)
+
+        threading.Thread(target=run, daemon=True).start()
