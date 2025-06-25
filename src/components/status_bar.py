@@ -1,6 +1,7 @@
 """
 Status bar component for displaying messages
 """
+
 import customtkinter as ctk
 from datetime import datetime
 
@@ -29,10 +30,19 @@ class StatusBar(ctk.CTkFrame):
         right_frame.pack(side="right", padx=10)
 
         # Time label
+        # Use a monospaced font and fixed width to avoid jitter when the
+        # time text updates every second. Measure the width of the
+        # "00:00:00" string so the label size adapts to the chosen font.
+        time_font = ctk.CTkFont(size=12, family="Courier")
+        try:
+            width = time_font.measure("00:00:00")
+        except Exception:  # pragma: no cover - measure may fail in headless env
+            width = 70
         self.time_label = ctk.CTkLabel(
             right_frame,
-            text="",
-            font=ctk.CTkFont(size=12),
+            text="00:00:00",
+            font=time_font,
+            width=width,
         )
         self.time_label.pack(side="right", padx=10)
 
