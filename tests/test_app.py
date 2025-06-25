@@ -48,6 +48,27 @@ class TestCoolBoxApp(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_sidebar_manual_override_persists(self) -> None:
+        app = CoolBoxApp()
+        app.window.update()
+        self.assertFalse(app.sidebar.collapsed)
+
+        app.toggle_sidebar()
+        for _ in range(10):
+            app.window.update()
+        self.assertTrue(app.sidebar.collapsed)
+
+        app.window.geometry("500x600")
+        app.window.update()
+        self.assertTrue(app.sidebar.collapsed)
+
+        app.window.geometry("1200x800")
+        app.window.update()
+        self.assertTrue(app.sidebar.collapsed)
+
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_sidebar_initial_state_large_window(self) -> None:
         app = CoolBoxApp()
         app.window.update()
