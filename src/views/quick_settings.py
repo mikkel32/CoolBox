@@ -21,14 +21,12 @@ class QuickSettingsDialog(ctk.CTkToplevel):
         self.menu_var = ctk.BooleanVar(value=app.config.get("show_menu", True))
         self.toolbar_var = ctk.BooleanVar(value=app.config.get("show_toolbar", True))
         self.status_var = ctk.BooleanVar(value=app.config.get("show_statusbar", True))
-        self.sidebar_var = ctk.BooleanVar(value=not app.config.get("sidebar_collapsed", False))
         self.theme_var = ctk.StringVar(value=app.config.get("appearance_mode", "dark").title())
         self.color_var = ctk.StringVar(value=app.config.get("color_theme", "blue"))
 
         ctk.CTkCheckBox(self, text="Show Menu Bar", variable=self.menu_var).pack(anchor="w", padx=20, pady=5)
         ctk.CTkCheckBox(self, text="Show Toolbar", variable=self.toolbar_var).pack(anchor="w", padx=20, pady=5)
         ctk.CTkCheckBox(self, text="Show Status Bar", variable=self.status_var).pack(anchor="w", padx=20, pady=5)
-        ctk.CTkCheckBox(self, text="Show Sidebar", variable=self.sidebar_var).pack(anchor="w", padx=20, pady=5)
 
         ctk.CTkLabel(self, text="Appearance:").pack(anchor="w", padx=20, pady=(10, 0))
         ctk.CTkOptionMenu(
@@ -58,7 +56,6 @@ class QuickSettingsDialog(ctk.CTkToplevel):
         cfg.set("show_menu", self.menu_var.get())
         cfg.set("show_toolbar", self.toolbar_var.get())
         cfg.set("show_statusbar", self.status_var.get())
-        cfg.set("sidebar_collapsed", not self.sidebar_var.get())
         cfg.set("appearance_mode", self.theme_var.get().lower())
         cfg.set("color_theme", self.color_var.get())
         cfg.save()
@@ -66,7 +63,6 @@ class QuickSettingsDialog(ctk.CTkToplevel):
         ctk.set_appearance_mode(cfg.get("appearance_mode", "dark"))
         ctk.set_default_color_theme(cfg.get("color_theme", "blue"))
         self.app.theme.apply_theme(cfg.get("theme", {}))
-        self.app.sidebar.set_collapsed(cfg.get("sidebar_collapsed", False))
         self.app.update_ui_visibility()
         self.destroy()
 

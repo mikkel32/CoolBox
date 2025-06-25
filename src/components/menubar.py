@@ -40,9 +40,6 @@ class MenuBar:
         self.status_var = tk.BooleanVar(
             value=self.app.config.get("show_statusbar", True)
         )
-        self.sidebar_var = tk.BooleanVar(
-            value=not self.app.config.get("sidebar_collapsed", False)
-        )
         self.fullscreen_var = tk.BooleanVar(
             value=self.app.window.attributes("-fullscreen")
         )
@@ -52,9 +49,6 @@ class MenuBar:
         )
         view_menu.add_checkbutton(
             label="Status Bar", variable=self.status_var, command=self._toggle_statusbar
-        )
-        view_menu.add_checkbutton(
-            label="Sidebar", variable=self.sidebar_var, command=self._toggle_sidebar
         )
         view_menu.add_checkbutton(
             label="Full Screen", variable=self.fullscreen_var, command=self._toggle_fullscreen
@@ -75,7 +69,6 @@ class MenuBar:
         """Sync toggle states with current config."""
         self.toolbar_var.set(self.app.config.get("show_toolbar", True))
         self.status_var.set(self.app.config.get("show_statusbar", True))
-        self.sidebar_var.set(not self.app.config.get("sidebar_collapsed", False))
         self.fullscreen_var.set(self.app.window.attributes("-fullscreen"))
 
     # ------------------------------------------------------------------
@@ -97,14 +90,6 @@ class MenuBar:
     def _toggle_statusbar(self) -> None:
         self.app.config.set("show_statusbar", self.status_var.get())
         self.app.update_ui_visibility()
-
-    def _toggle_sidebar(self) -> None:
-        collapsed = not self.sidebar_var.get()
-        self.app.sidebar.set_collapsed(collapsed)
-        self.app.config.set("sidebar_collapsed", collapsed)
-        if self.app.status_bar is not None:
-            state = "collapsed" if collapsed else "expanded"
-            self.app.status_bar.set_message(f"Sidebar {state}", "info")
 
     # ------------------------------------------------------------------
     def update_recent_files(self) -> None:
