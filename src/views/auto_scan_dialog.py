@@ -15,7 +15,12 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         self.app = app
         self.title("Auto Network Scan")
         self.resizable(False, False)
-        self.geometry("700x520")
+        # Increase default size for better readability and configure
+        # grid weights so widgets expand properly within the window
+        self.geometry("800x600")
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(
             self,
@@ -83,6 +88,7 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         self.result_area = ctk.CTkScrollableFrame(result_panel)
         self.result_area.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         self.result_area.grid_columnconfigure(0, weight=1)
+        self.result_area.grid_rowconfigure(1, weight=1)
 
         header = ctk.CTkFrame(self.result_area, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew")
