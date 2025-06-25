@@ -18,6 +18,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
   support, host lookup caching, and configurable timeouts.
+- **Auto Network Scan**: Detects local networks, pings for active hosts and
+  scans them automatically.
 
 ## 📋 Requirements
 
@@ -110,6 +112,13 @@ and supports a few useful options:
 ```
 * ``--timeout`` sets the connection timeout in seconds
 * ``--family`` forces IPv4 or IPv6 resolution (``auto`` by default)
+
+### Auto Network Scan
+
+From the **Tools** view choose *Auto Network Scan* and specify a port or range.
+CoolBox detects local subnets using ``psutil`` and pings each address to find
+active hosts before scanning. Progress is shown in the status bar during both
+detection and scanning stages and results are displayed once complete.
 
 ### Debugging in a Dev Container
 
