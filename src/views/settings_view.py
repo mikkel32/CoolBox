@@ -198,17 +198,6 @@ class SettingsView(ctk.CTkFrame):
         )
         menu_check.pack(anchor="w", padx=20, pady=5)
 
-        # Collapse sidebar
-        self.collapse_sidebar_var = ctk.BooleanVar(
-            value=self.app.config.get("sidebar_collapsed", False)
-        )
-        sidebar_check = ctk.CTkCheckBox(
-            section,
-            text="Collapse sidebar",
-            variable=self.collapse_sidebar_var,
-        )
-        sidebar_check.pack(anchor="w", padx=20, pady=5)
-
         # Recent files limit
         recent_frame = ctk.CTkFrame(section)
         recent_frame.pack(fill="x", padx=20, pady=10)
@@ -412,7 +401,6 @@ class SettingsView(ctk.CTkFrame):
         self.app.config.set("show_toolbar", self.show_toolbar_var.get())
         self.app.config.set("show_statusbar", self.show_statusbar_var.get())
         self.app.config.set("show_menu", self.show_menu_var.get())
-        self.app.config.set("sidebar_collapsed", self.collapse_sidebar_var.get())
         self.app.config.set("max_recent_files", self.recent_limit_var.get())
         self.app.config.set("scan_cache_ttl", int(self.scan_ttl_var.get()))
         self.app.config.set("scan_concurrency", int(self.scan_concurrency_var.get()))
@@ -422,7 +410,6 @@ class SettingsView(ctk.CTkFrame):
         theme = self.app.theme.get_theme()
         theme["accent_color"] = self.accent_color_var.get()
         self.app.theme.apply_theme(theme)
-        self.app.sidebar.set_collapsed(self.collapse_sidebar_var.get())
 
         # Save to file
         self.app.config.save()
@@ -452,8 +439,6 @@ class SettingsView(ctk.CTkFrame):
                 self.app.status_bar.set_message("Settings reset to defaults!", "success")
             self.app.switch_view("settings")
             self.app.update_ui_visibility()
-            self.collapse_sidebar_var.set(self.app.config.get("sidebar_collapsed", False))
-            self.app.sidebar.set_collapsed(self.collapse_sidebar_var.get())
             self.show_menu_var.set(self.app.config.get("show_menu", True))
             self.scan_ttl_var.set(self.app.config.get("scan_cache_ttl", 300))
             self.scan_concurrency_var.set(self.app.config.get("scan_concurrency", 100))
