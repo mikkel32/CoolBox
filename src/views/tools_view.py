@@ -559,13 +559,20 @@ class ToolsView(ctk.CTkFrame):
             "Start CoolBox in a VM and wait for the debugger?",
         ):
             return
+
+        open_code = messagebox.askyesno(
+            "Visual Studio Code",
+            "Open VS Code once the VM starts for easier debugging?",
+        )
+
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Launching VM...", "info")
 
         def run() -> None:
             from src.utils import launch_vm_debug
+
             try:
-                launch_vm_debug()
+                launch_vm_debug(open_code=open_code)
             except Exception as exc:
                 messagebox.showerror("VM Debug", str(exc))
             finally:

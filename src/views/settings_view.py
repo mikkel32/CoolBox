@@ -189,6 +189,15 @@ class SettingsView(ctk.CTkFrame):
         )
         statusbar_check.pack(anchor="w", padx=20, pady=5)
 
+        # Show menu bar
+        self.show_menu_var = ctk.BooleanVar(value=self.app.config.get("show_menu", True))
+        menu_check = ctk.CTkCheckBox(
+            section,
+            text="Show menu bar",
+            variable=self.show_menu_var,
+        )
+        menu_check.pack(anchor="w", padx=20, pady=5)
+
         # Collapse sidebar
         self.collapse_sidebar_var = ctk.BooleanVar(
             value=self.app.config.get("sidebar_collapsed", False)
@@ -402,6 +411,7 @@ class SettingsView(ctk.CTkFrame):
         self.app.config.set("auto_save", self.auto_save_var.get())
         self.app.config.set("show_toolbar", self.show_toolbar_var.get())
         self.app.config.set("show_statusbar", self.show_statusbar_var.get())
+        self.app.config.set("show_menu", self.show_menu_var.get())
         self.app.config.set("sidebar_collapsed", self.collapse_sidebar_var.get())
         self.app.config.set("max_recent_files", self.recent_limit_var.get())
         self.app.config.set("scan_cache_ttl", int(self.scan_ttl_var.get()))
@@ -444,6 +454,7 @@ class SettingsView(ctk.CTkFrame):
             self.app.update_ui_visibility()
             self.collapse_sidebar_var.set(self.app.config.get("sidebar_collapsed", False))
             self.app.sidebar.set_collapsed(self.collapse_sidebar_var.get())
+            self.show_menu_var.set(self.app.config.get("show_menu", True))
             self.scan_ttl_var.set(self.app.config.get("scan_cache_ttl", 300))
             self.scan_concurrency_var.set(self.app.config.get("scan_concurrency", 100))
             self.scan_timeout_var.set(self.app.config.get("scan_timeout", 0.5))

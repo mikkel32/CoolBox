@@ -54,3 +54,10 @@ def test_sidebar_collapsed_default(monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp)
     cfg = Config()
     assert cfg.get("sidebar_collapsed") is False
+
+
+def test_menu_default(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    assert cfg.get("show_menu") is True

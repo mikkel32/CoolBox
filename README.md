@@ -8,7 +8,10 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Modular Architecture**: Clean, maintainable code structure
 - **Rich Toolset**: File tools, system utilities, text processing, and more
 - **Customizable**: Extensive settings and preferences
-- **Configurable UI**: Show or hide the toolbar and status bar on demand
+- **Configurable UI**: Toggle the menu bar, toolbar and status bar on demand. The
+  menu bar now includes recent files, a Quick Settings dialog and a fullscreen
+  toggle. Quick Settings can also be launched from the toolbar or with the
+  `Ctrl+Q` shortcut.
 - **Collapsible Sidebar**: Quickly hide the sidebar using the toolbar button,
   arrow icon or `Ctrl+B`. CoolBox remembers your preference across sessions.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
@@ -149,7 +152,9 @@ As a shortcut you can use ``./scripts/run_vm_debug.sh`` or
 neither is found the script falls back to running ``run_debug.sh`` in the
 current environment.  You can set ``PREFER_VM=docker``, ``PREFER_VM=podman`` or
 ``PREFER_VM=vagrant`` to force a specific backend or pass ``--prefer`` to
-``run_vm_debug.py``.
+``run_vm_debug.py``. The ``run_vm_debug.sh`` wrapper now simply calls this
+Python script so all command line options like ``--prefer`` and ``--code`` are
+available on both Unix and Windows.
 Use the ``--code`` flag to open Visual Studio Code before launching the
 environment so it's ready to attach to the debug server.
 
@@ -172,7 +177,8 @@ debug server on port `5678` using the **Python: Attach** configuration.
 6. Alternatively, run the scripts manually and select the **Python: Attach**
    configuration to connect the debugger.
 7. Within the application, open **Tools > System Tools > Launch VM Debug** to
-   start the same environment directly from the GUI.
+   start the same environment directly from the GUI. The tool now asks whether
+   to open Visual Studio Code automatically once the VM starts.
 
 ## 📁 Project Structure
 

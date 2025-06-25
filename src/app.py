@@ -2,19 +2,21 @@
 CoolBox Application Class
 Manages the main application window and navigation
 """
+from __future__ import annotations
 try:
     import customtkinter as ctk
 except ImportError:  # pragma: no cover - runtime dependency check
     from .ensure_deps import ensure_customtkinter
 
     ctk = ensure_customtkinter()
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
 import sys
 
 from .config import Config
 from .components.sidebar import Sidebar
 from .components.toolbar import Toolbar
 from .components.status_bar import StatusBar
+from .components.menubar import MenuBar
 from .views.home_view import HomeView
 from .views.tools_view import ToolsView
 from .views.settings_view import SettingsView
@@ -22,6 +24,9 @@ from .views.about_view import AboutView
 from .models.app_state import AppState
 from .utils.theme import ThemeManager
 from .utils.helpers import log
+
+if TYPE_CHECKING:  # pragma: no cover - used for type hints only
+    from .views.quick_settings import QuickSettingsDialog
 
 
 class CoolBoxApp:
@@ -53,6 +58,7 @@ class CoolBoxApp:
         # Initialize views dict
         self.views: Dict[str, ctk.CTkFrame] = {}
         self.current_view: Optional[str] = None
+        self.quick_settings_window: "QuickSettingsDialog | None" = None
 
         # Setup UI
         self._setup_ui()
@@ -68,6 +74,11 @@ class CoolBoxApp:
         # Create main container
         self.main_container = ctk.CTkFrame(self.window, corner_radius=0)
         self.main_container.pack(fill="both", expand=True)
+
+        # Create menu bar if enabled
+        self.menu_bar: MenuBar | None = None
+        if self.config.get("show_menu", True):
+            self.menu_bar = MenuBar(self.window, self)
 
         # Create toolbar if enabled in config
         self.toolbar: Toolbar | None = None
@@ -103,6 +114,9 @@ class CoolBoxApp:
 
         # Initialize views
         self._init_views()
+        self.refresh_recent_files()
+        if self.menu_bar is not None:
+            self.menu_bar.refresh_toggles()
 
     def update_ui_visibility(self) -> None:
         """Show or hide optional UI elements based on config."""
@@ -114,6 +128,16 @@ class CoolBoxApp:
             self.toolbar.destroy()
             self.toolbar = None
 
+        if self.config.get("show_menu", True):
+            if self.menu_bar is None:
+                self.menu_bar = MenuBar(self.window, self)
+            self.menu_bar.update_recent_files()
+        elif self.menu_bar is not None:
+            self.window.config(menu=None)
+            self.menu_bar = None
+        if self.menu_bar is not None:
+            self.menu_bar.refresh_toggles()
+
         if self.config.get("show_statusbar", True):
             if self.status_bar is None:
                 self.status_bar = StatusBar(self.main_container)
@@ -121,6 +145,13 @@ class CoolBoxApp:
         elif self.status_bar is not None:
             self.status_bar.destroy()
             self.status_bar = None
+
+    def refresh_recent_files(self) -> None:
+        """Update recent file menus across the UI."""
+        if self.toolbar is not None:
+            self.toolbar.update_recent_files()
+        if self.menu_bar is not None:
+            self.menu_bar.update_recent_files()
 
     def _init_views(self):
         """Initialize all application views"""
@@ -138,6 +169,7 @@ class CoolBoxApp:
         self.window.bind("<Control-h>", lambda e: self.switch_view("home"))
         self.window.bind("<Control-t>", lambda e: self.switch_view("tools"))
         self.window.bind("<Control-s>", lambda e: self.switch_view("settings"))
+        self.window.bind("<Control-q>", lambda e: self.open_quick_settings())
         self.window.bind("<F11>", lambda e: self.toggle_fullscreen())
         self.window.bind("<Control-b>", lambda e: self.toggle_sidebar())
         self.window.bind("<Configure>", self._on_resize)
@@ -175,6 +207,26 @@ class CoolBoxApp:
         """Toggle fullscreen mode"""
         current_state = self.window.attributes("-fullscreen")
         self.window.attributes("-fullscreen", not current_state)
+        if self.menu_bar is not None:
+            self.menu_bar.refresh_toggles()
+
+    def open_quick_settings(self) -> None:
+        """Launch the Quick Settings dialog or focus the existing one."""
+        from .views.quick_settings import QuickSettingsDialog
+
+        if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():
+            self.quick_settings_window.focus()
+            return
+
+        self.quick_settings_window = QuickSettingsDialog(self)
+        self.quick_settings_window.protocol(
+            "WM_DELETE_WINDOW", self._on_quick_settings_closed
+        )
+
+    def _on_quick_settings_closed(self) -> None:
+        if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():
+            self.quick_settings_window.destroy()
+        self.quick_settings_window = None
 
     def toggle_sidebar(self) -> None:
         """Collapse or expand the sidebar."""
@@ -183,6 +235,8 @@ class CoolBoxApp:
         if self.status_bar is not None:
             state = "collapsed" if self.sidebar.collapsed else "expanded"
             self.status_bar.set_message(f"Sidebar {state}", "info")
+        if self.menu_bar is not None:
+            self.menu_bar.refresh_toggles()
 
     def _on_resize(self, event) -> None:
         """Handle window resize events for responsive UI."""
@@ -194,6 +248,8 @@ class CoolBoxApp:
             if self.status_bar is not None:
                 state = "collapsed" if self.sidebar.collapsed else "expanded"
                 self.status_bar.set_message(f"Sidebar {state}", "info")
+            if self.menu_bar is not None:
+                self.menu_bar.refresh_toggles()
 
     def _on_closing(self):
         """Handle window closing event"""
