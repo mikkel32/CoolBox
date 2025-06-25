@@ -26,6 +26,7 @@ class Sidebar(ctk.CTkFrame):
         self.collapsed: bool = False
         self._auto_collapsed = False
         self._animating = False
+        self._anim_job: str | None = None
         # Prevent grid geometry from overriding the specified width so
         # collapsing the sidebar actually changes its visible size.
         self.grid_propagate(False)
@@ -118,9 +119,13 @@ class Sidebar(ctk.CTkFrame):
             if i > steps:
                 self.configure(width=target)
                 self._animating = False
+                self._anim_job = None
                 return
             self.configure(width=int(start + delta * i))
-            self.after(15, lambda: step(i + 1))
+            self._anim_job = self.after(15, lambda: step(i + 1))
+
+        if self._anim_job is not None:
+            self.after_cancel(self._anim_job)
 
         self._animating = True
         step()
