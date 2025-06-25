@@ -180,8 +180,7 @@ class HomeView(ctk.CTkFrame):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("")
             self.app.config.add_recent_file(filename)
-            if self.app.toolbar is not None:
-                self.app.toolbar.update_recent_files()
+            self.app.refresh_recent_files()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(f"Created {filename}", "success")
             open_path(str(path))

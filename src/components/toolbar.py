@@ -51,6 +51,13 @@ class Toolbar(ctk.CTkFrame):
             left_frame, "☰", "Toggle Sidebar", self.app.toggle_sidebar
         ).pack(side="left", padx=5)
 
+        self._create_button(
+            left_frame,
+            "⚡",
+            "Quick Settings",
+            self._open_quick_settings,
+        ).pack(side="left", padx=5)
+
         # Separator
         separator = ctk.CTkFrame(self, width=2, fg_color="gray50")
         separator.pack(side="left", fill="y", padx=10, pady=10)
@@ -113,7 +120,7 @@ class Toolbar(ctk.CTkFrame):
         if filename:
             open_path(filename)
             self.app.config.add_recent_file(filename)
-            self.update_recent_files()
+            self.app.refresh_recent_files()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(f"Opened: {filename}", "info")
 
@@ -131,7 +138,7 @@ class Toolbar(ctk.CTkFrame):
         if filename:
             file_manager.write_text(filename, "")
             self.app.config.add_recent_file(filename)
-            self.update_recent_files()
+            self.app.refresh_recent_files()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(f"Saved: {filename}", "success")
 
@@ -155,6 +162,10 @@ class Toolbar(ctk.CTkFrame):
         except Exception:
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message("Nothing to paste", "warning")
+
+    def _open_quick_settings(self) -> None:
+        """Launch the app's Quick Settings dialog."""
+        self.app.open_quick_settings()
 
     def _search(self):
         """Perform a simple filename search and show results."""
@@ -216,6 +227,6 @@ class Toolbar(ctk.CTkFrame):
         if value and value != "Recent":
             open_path(value)
             self.app.config.add_recent_file(value)
-            self.update_recent_files()
+            self.app.refresh_recent_files()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(f"Opened: {value}", "info")
