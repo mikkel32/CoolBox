@@ -40,6 +40,18 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   pool so updates remain fast even with hundreds of processes. Expensive metrics
   like open files and network connections are refreshed only every few cycles to
   further reduce overhead without losing accuracy.
+  The dialog now skips UI updates when nothing has changed and supports several
+  environment variables to tune performance. ``FORCE_QUIT_INTERVAL`` sets the
+  refresh delay, ``FORCE_QUIT_DETAIL_INTERVAL`` controls how often expensive
+  metrics are gathered, ``FORCE_QUIT_MAX`` limits displayed rows and
+  ``FORCE_QUIT_WORKERS`` defines the worker thread count. ``FORCE_QUIT_CPU_ALERT``
+  and ``FORCE_QUIT_MEM_ALERT`` change the CPU and memory thresholds that trigger
+  row highlighting. ``FORCE_QUIT_SAMPLES`` controls how many samples are kept for
+  average CPU/IO calculations. Row data is cached so only changed entries are
+  redrawn for smoother updates. Pausing the dialog now halts the background
+  watcher thread so no resources are wasted while inspecting a snapshot.
+  Set ``FORCE_QUIT_AUTO_KILL`` to ``cpu``, ``mem`` or ``both`` to automatically
+  terminate processes exceeding the configured thresholds.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
   support, host lookup caching, and configurable timeouts.
 - **Auto Network Scan**: Detects local networks, pings for active hosts and

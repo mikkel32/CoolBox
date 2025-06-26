@@ -11,9 +11,10 @@ import re
 import time
 import socket
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty, Full
 from dataclasses import dataclass, field
+from collections import deque
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter import ttk
@@ -40,16 +41,17 @@ class ProcessEntry:
     files: int
     conns: int
     io_rate: float = 0.0
-    samples: list[float] = field(default_factory=list)
-    io_samples: list[float] = field(default_factory=list)
+    samples: deque[float] = field(default_factory=deque)
+    io_samples: deque[float] = field(default_factory=deque)
+    max_samples: int = 5
+
+    def __post_init__(self) -> None:
+        self.samples = deque(self.samples, maxlen=self.max_samples)
+        self.io_samples = deque(self.io_samples, maxlen=self.max_samples)
 
     def add_sample(self, cpu: float, io: float) -> None:
         self.samples.append(cpu)
         self.io_samples.append(io)
-        if len(self.samples) > 5:
-            self.samples.pop(0)
-        if len(self.io_samples) > 5:
-            self.io_samples.pop(0)
 
     @property
     def avg_cpu(self) -> float:
@@ -87,7 +89,9 @@ class ProcessWatcher(threading.Thread):
     cycles to keep overhead low. Updates are pushed through ``queue`` as
     ``(updates, removed)`` pairs where ``updates`` is a mapping of PID to
     ``ProcessEntry`` instances and ``removed`` is the set of PIDs that have
-    disappeared since the last refresh.
+    disappeared since the last refresh. ``process_count`` tracks how many
+    processes were seen in the most recent refresh cycle so the UI can display
+    totals without recalculating them each time.
     """
 
     def __init__(
@@ -96,23 +100,38 @@ class ProcessWatcher(threading.Thread):
         interval: float = 2.0,
         detail_interval: int = 3,
         max_workers: int | None = None,
+        sample_size: int = 5,
     ) -> None:
         super().__init__(daemon=True)
         self.queue = queue
         self.interval = interval
         self.detail_interval = max(1, detail_interval)
         self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
         self._snapshot: dict[int, ProcessEntry] = {}
         self._last_ts = time.monotonic()
         self._tick = 0
         workers = max_workers or min(8, (os.cpu_count() or 1) * 2)
         self._executor = ThreadPoolExecutor(max_workers=workers)
+        self._cpu_count = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
+        self.sample_size = max(1, sample_size)
+        self.process_count = 0
 
     def set_interval(self, interval: float) -> None:
         self.interval = max(0.5, float(interval))
 
+    def pause(self) -> None:
+        self._pause_event.set()
+
+    def resume(self) -> None:
+        self._pause_event.clear()
+
     def run(self) -> None:
         while not self._stop_event.is_set():
+            if self._pause_event.is_set():
+                if self._stop_event.wait(self.interval):
+                    break
+                continue
             now = time.monotonic()
             delta = max(now - self._last_ts, 0.001)
             self._last_ts = now
@@ -178,10 +197,12 @@ class ProcessWatcher(threading.Thread):
                 if prev is None:
                     cpu = 0.0
                     samples: list[float] = []
+                    io_samples: list[float] = []
                     io_rate = 0.0
                 else:
-                    cpu = (cpu_time - prev.cpu_time) / delta / psutil.cpu_count() * 100
+                    cpu = (cpu_time - prev.cpu_time) / delta / self._cpu_count * 100
                     samples = prev.samples
+                    io_samples = prev.io_samples
                     io_rate = (
                         (read_bytes - prev.read_bytes + write_bytes - prev.write_bytes)
                         / delta
@@ -204,13 +225,13 @@ class ProcessWatcher(threading.Thread):
                     conns=conns,
                     io_rate=round(io_rate, 1),
                     samples=samples,
+                    io_samples=io_samples,
+                    max_samples=self.sample_size,
                 )
                 entry.add_sample(entry.cpu, entry.io_rate)
                 return entry
 
-            futures = {self._executor.submit(collect, p): p.info["pid"] for p in procs}
-            for fut in as_completed(futures):
-                entry = fut.result()
+            for entry in self._executor.map(collect, procs):
                 if entry is None:
                     continue
                 pid = entry.pid
@@ -220,6 +241,7 @@ class ProcessWatcher(threading.Thread):
                     updates[pid] = entry
                 self._snapshot[pid] = entry
             removed = set(self._snapshot) - current
+            self.process_count = len(self._snapshot)
             if updates or removed:
                 try:
                     self.queue.put_nowait((updates, removed))
@@ -251,12 +273,37 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self._after_id: int | None = None
         self._debounce_id: int | None = None
         self.process_snapshot: dict[int, ProcessEntry] = {}
+        self._row_cache: dict[int, tuple[tuple, tuple]] = {}
         self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue(maxsize=1)
         self.paused = False
         self.sort_reverse = True
+        self._filter_cache: tuple[str, str, str, bool] | None = None
+        self._snapshot_changed = False
+        interval_env = os.getenv("FORCE_QUIT_INTERVAL")
+        detail_env = os.getenv("FORCE_QUIT_DETAIL_INTERVAL")
+        max_env = os.getenv("FORCE_QUIT_MAX")
         worker_env = os.getenv("FORCE_QUIT_WORKERS")
+        cpu_alert_env = os.getenv("FORCE_QUIT_CPU_ALERT")
+        mem_alert_env = os.getenv("FORCE_QUIT_MEM_ALERT")
+        sample_env = os.getenv("FORCE_QUIT_SAMPLES")
+        auto_env = os.getenv("FORCE_QUIT_AUTO_KILL", "").lower()
+
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
-        self._watcher = ProcessWatcher(self._queue, max_workers=workers)
+        interval = float(interval_env) if interval_env else 2.0
+        detail = int(detail_env) if detail_env and detail_env.isdigit() else 5
+        samples = int(sample_env) if sample_env and sample_env.isdigit() else 5
+        self.cpu_alert = float(cpu_alert_env) if cpu_alert_env else 80.0
+        self.mem_alert = float(mem_alert_env) if mem_alert_env else 500.0
+        self.max_processes = int(max_env) if max_env and max_env.isdigit() else 300
+        self.auto_kill_cpu = "cpu" in auto_env or "both" in auto_env
+        self.auto_kill_mem = "mem" in auto_env or "both" in auto_env
+        self._watcher = ProcessWatcher(
+            self._queue,
+            interval=interval,
+            detail_interval=detail,
+            max_workers=workers,
+            sample_size=samples,
+        )
         self._watcher.start()
         self.after(0, self._auto_refresh)
 
@@ -485,11 +532,36 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self._auto_refresh()
 
     def _drain_queue(self) -> None:
+        changed = False
         while not self._queue.empty():
             updates, removed = self._queue.get_nowait()
+            if updates or removed:
+                changed = True
             self.process_snapshot.update(updates)
             for pid in removed:
                 self.process_snapshot.pop(pid, None)
+        if changed:
+            self._snapshot_changed = True
+
+    @staticmethod
+    def _find_over_threshold(
+        snapshot: dict[int, ProcessEntry],
+        *,
+        kill_cpu: bool,
+        kill_mem: bool,
+        cpu_alert: float,
+        mem_alert: float,
+    ) -> list[int]:
+        """Return PIDs exceeding the configured CPU or memory thresholds."""
+
+        pids: list[int] = []
+        for entry in snapshot.values():
+            if kill_cpu and entry.avg_cpu >= cpu_alert:
+                pids.append(entry.pid)
+                continue
+            if kill_mem and entry.mem >= mem_alert:
+                pids.append(entry.pid)
+        return pids
 
     @staticmethod
     def force_kill(pid: int, *, timeout: float = 3.0) -> bool:
@@ -873,6 +945,14 @@ class ForceQuitDialog(ctk.CTkToplevel):
             self.after_cancel(self._debounce_id)
         self._debounce_id = self.after(150, self._apply_filter_sort)
 
+    def _current_filter_key(self) -> tuple[str, str, str, bool]:
+        return (
+            self.search_var.get().lower(),
+            self.filter_var.get(),
+            self.sort_var.get(),
+            self.sort_reverse,
+        )
+
     def _apply_filter_sort(self) -> None:
         query = self.search_var.get().lower()
         sort_key = self.sort_var.get()
@@ -971,7 +1051,10 @@ class ForceQuitDialog(ctk.CTkToplevel):
             "Age": lambda p: time.time() - p.start,
         }.get(sort_key, lambda p: p.cpu)
         processes.sort(key=key_func, reverse=self.sort_reverse)
+        if self.max_processes:
+            processes = processes[: self.max_processes]
         self._update_list(processes)
+        self._filter_cache = self._current_filter_key()
 
     def _update_list(self, processes: list[ProcessEntry]) -> None:
         def update_tree() -> None:
@@ -994,18 +1077,29 @@ class ForceQuitDialog(ctk.CTkToplevel):
                     entry.status[:6],
                     age,
                 )
-                tags = []
-                if entry.cpu >= 80.0 or entry.avg_cpu >= 80.0:
+                tags: list[str] = []
+                if entry.cpu >= self.cpu_alert or entry.avg_cpu >= self.cpu_alert:
                     tags.append("high_cpu")
-                if entry.mem >= 500.0:
+                if entry.mem >= self.mem_alert:
                     tags.append("high_mem")
-                if self.tree.exists(pid):
-                    self.tree.item(pid, values=values, tags=tags)
-                    existing.discard(pid)
+                prev = self._row_cache.get(entry.pid)
+                current = (values, tuple(tags))
+                if prev != current:
+                    if self.tree.exists(pid):
+                        self.tree.item(pid, values=values, tags=tags)
+                    else:
+                        self.tree.insert("", "end", iid=pid, values=values, tags=tags)
+                    self._row_cache[entry.pid] = current
                 else:
-                    self.tree.insert("", "end", iid=pid, values=values, tags=tags)
+                    if not self.tree.exists(pid):
+                        self.tree.insert("", "end", iid=pid, values=values, tags=tags)
+                existing.discard(pid)
             for iid in existing:
                 self.tree.delete(iid)
+                try:
+                    self._row_cache.pop(int(iid), None)
+                except ValueError:
+                    pass
 
         self.after_idle(update_tree)
         self._update_status(len(processes))
@@ -1114,7 +1208,10 @@ class ForceQuitDialog(ctk.CTkToplevel):
     def _toggle_pause(self) -> None:
         self.paused = not self.paused
         self.pause_btn.configure(text="Resume" if self.paused else "Pause")
-        if not self.paused:
+        if self.paused:
+            self._watcher.pause()
+        else:
+            self._watcher.resume()
             self._auto_refresh()
 
     def _update_status(self, count: int) -> None:
@@ -1397,11 +1494,26 @@ class ForceQuitDialog(ctk.CTkToplevel):
             self._after_id = self.after(1000, self._auto_refresh)
             return
         self._drain_queue()
-        self._apply_filter_sort()
+        key = self._current_filter_key()
+        if self._snapshot_changed or key != self._filter_cache:
+            self._apply_filter_sort()
+            self._filter_cache = key
+        if self.auto_kill_cpu or self.auto_kill_mem:
+            pids = self._find_over_threshold(
+                self.process_snapshot,
+                kill_cpu=self.auto_kill_cpu,
+                kill_mem=self.auto_kill_mem,
+                cpu_alert=self.cpu_alert,
+                mem_alert=self.mem_alert,
+            )
+            if pids:
+                self.force_kill_multiple(pids)
+                self._snapshot_changed = True
+        self._snapshot_changed = False
         try:
             delay = int(float(self.interval_var.get()) * 1000)
         except Exception:
-            delay = 3000
+            delay = int(self._watcher.interval * 1000)
         self._after_id = self.after(delay, self._auto_refresh)
 
     def _on_close(self) -> None:
@@ -1409,4 +1521,5 @@ class ForceQuitDialog(ctk.CTkToplevel):
             self.after_cancel(self._after_id)
         self._watcher.stop()
         self._watcher.join(timeout=1.0)
+        self._row_cache.clear()
         self.destroy()
