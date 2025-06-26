@@ -123,7 +123,7 @@ class ProcessWatcher(threading.Thread):
                     with proc.oneshot():
                         pid = proc.info["pid"]
                         name = proc.info.get("name", "")
-                        user = proc.info.get("username", "")
+                        user = proc.info.get("username") or ""
                         mem = proc.info["memory_info"].rss / (1024 * 1024)
                         cpu_time = sum(proc.info.get("cpu_times"))
                         start = proc.info.get("create_time", 0.0)
@@ -915,8 +915,9 @@ class ForceQuitDialog(ctk.CTkToplevel):
         for entry in processes:
             pid = entry.pid
             age = time.time() - entry.start
+            user_display = (entry.user or "")[:8]
             text = (
-                f"{pid:6d} {entry.user[:8]:<8} {entry.name:<25} "
+                f"{pid:6d} {user_display:<8} {entry.name:<25} "
                 f"{entry.avg_cpu:5.1f}% {entry.mem:8.1f}MB "
                 f"{entry.io_rate:5.1f}/{entry.avg_io:5.1f}MB/s "
                 f"T{entry.threads:3d} F{entry.files:3d} C{entry.conns:3d} "
@@ -950,13 +951,44 @@ class ForceQuitDialog(ctk.CTkToplevel):
         if not path:
             return
         try:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(
-                    "pid,user,name,cpu,avg_cpu,mem,io_rate,avg_io,threads,files,conns,start,status\n"
+            import csv
+
+            with open(path, "w", newline="", encoding="utf-8") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(
+                    [
+                        "pid",
+                        "user",
+                        "name",
+                        "cpu",
+                        "avg_cpu",
+                        "mem",
+                        "io_rate",
+                        "avg_io",
+                        "threads",
+                        "files",
+                        "conns",
+                        "start",
+                        "status",
+                    ]
                 )
                 for entry in self.process_snapshot.values():
-                    fh.write(
-                        f"{entry.pid},{entry.user},{entry.name},{entry.cpu},{entry.avg_cpu:.1f},{entry.mem},{entry.io_rate},{entry.avg_io:.1f},{entry.threads},{entry.files},{entry.conns},{entry.start},{entry.status}\n"
+                    writer.writerow(
+                        [
+                            entry.pid,
+                            entry.user or "",
+                            entry.name,
+                            entry.cpu,
+                            f"{entry.avg_cpu:.1f}",
+                            entry.mem,
+                            entry.io_rate,
+                            f"{entry.avg_io:.1f}",
+                            entry.threads,
+                            entry.files,
+                            entry.conns,
+                            entry.start,
+                            entry.status,
+                        ]
                     )
             messagebox.showinfo("Force Quit", f"Saved to {path}", parent=self)
         except Exception as exc:
