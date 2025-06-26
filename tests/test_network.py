@@ -18,6 +18,12 @@ class _Handler(socketserver.BaseRequestHandler):
         self.request.recv(1)
 
 
+class _BannerHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        self.request.sendall(b"banner")
+        self.request.recv(1)
+
+
 class _IPv6Server(socketserver.TCPServer):
     address_family = socket.AF_INET6
 
@@ -81,6 +87,105 @@ def test_scan_ports_disk_cache(tmp_path, monkeypatch):
     assert calls == [None]
 
 
+def test_scan_ports_with_services():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = network.scan_ports("localhost", port, port, with_services=True)
+        finally:
+            server.shutdown()
+            thread.join()
+        assert isinstance(result, dict)
+        assert list(result.keys()) == [port]
+        assert isinstance(result[port], str)
+
+
+def test_scan_ports_with_banner():
+    with socketserver.TCPServer(("localhost", 0), _BannerHandler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = network.scan_ports("localhost", port, port, with_banner=True)
+        finally:
+            server.shutdown()
+            thread.join()
+        assert isinstance(result[port], network.PortInfo)
+    assert result[port].banner == "banner"
+
+
+def test_scan_ports_with_latency():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = network.scan_ports("localhost", port, port, with_latency=True)
+        finally:
+            server.shutdown()
+            thread.join()
+        assert isinstance(result[port], network.PortInfo)
+        assert result[port].latency is not None
+
+
+def test_scan_port_list():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = network.scan_port_list("localhost", [port])
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+
+def test_async_scan_port_list():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(network.async_scan_port_list("localhost", [port]))
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+
+def test_scan_top_ports(monkeypatch):
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        monkeypatch.setattr(network, "TOP_PORTS", [port])
+        try:
+            result = network.scan_top_ports("localhost", top=1)
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+
+def test_async_scan_top_ports(monkeypatch):
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        monkeypatch.setattr(network, "TOP_PORTS", [port])
+        try:
+            result = asyncio.run(
+                network.async_scan_top_ports("localhost", top=1)
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+        assert result == [port]
+
+
 def test_async_scan_ports():
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
@@ -130,6 +235,55 @@ def test_async_scan_ports_custom_concurrency():
             server.shutdown()
             thread.join()
         assert result == [port]
+
+
+def test_async_scan_ports_with_services():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_scan_ports("localhost", port, port, with_services=True)
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+        assert isinstance(result, dict)
+        assert list(result.keys()) == [port]
+        assert isinstance(result[port], str)
+
+
+def test_async_scan_ports_with_banner():
+    with socketserver.TCPServer(("localhost", 0), _BannerHandler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_scan_ports("localhost", port, port, with_banner=True)
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+        assert isinstance(result[port], network.PortInfo)
+        assert result[port].banner == "banner"
+
+
+def test_async_scan_ports_with_latency():
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_scan_ports("localhost", port, port, with_latency=True)
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+        assert isinstance(result[port], network.PortInfo)
+        assert result[port].latency is not None
 
 
 def test_scan_cache_ttl_expires(tmp_path, monkeypatch):
@@ -320,6 +474,229 @@ def test_network_scan_cli(tmp_path):
     assert f"localhost: {port}" in result.stdout
 
 
+def test_network_scan_cli_services(tmp_path):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    str(port),
+                    "localhost",
+                    "--timeout",
+                    "0.1",
+                    "--family",
+                    "ipv4",
+                    "--services",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert f"localhost: {port}(" in result.stdout
+
+
+def test_network_scan_cli_banner(tmp_path):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _BannerHandler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    str(port),
+                    "localhost",
+                    "--timeout",
+                    "0.1",
+                    "--family",
+                    "ipv4",
+                    "--banner",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert "banner" in result.stdout
+
+
+def test_network_scan_cli_latency(tmp_path):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    str(port),
+                    "localhost",
+                    "--timeout",
+                    "0.1",
+                    "--family",
+                    "ipv4",
+                    "--latency",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert "ms" in result.stdout
+
+
+def test_network_scan_cli_top(monkeypatch):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        monkeypatch.setattr(network, "TOP_PORTS", [port])
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "0",  # dummy port argument
+                    "localhost",
+                    "--timeout",
+                    "0.1",
+                    "--family",
+                    "ipv4",
+                    "--top",
+                    "1",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert "localhost:" in result.stdout
+
+
+def test_network_scan_cli_list(tmp_path):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    f"{port},{port + 1}",
+                    "localhost",
+                    "--timeout",
+                    "0.1",
+                    "--family",
+                    "ipv4",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert f"localhost: {port}" in result.stdout
+
+
+def test_network_scan_cli_host_range(tmp_path):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    str(port),
+                    "127.0.0.1-3",
+                    "--timeout",
+                    "0.1",
+                    "--family",
+                    "ipv4",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert "127.0.0.1:" in result.stdout
+
+
+def test_network_scan_cli_ping(monkeypatch):
+    script = Path("scripts/network_scan.py")
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def fake_filter(hosts, progress=None, *, concurrency=0, timeout=0):
+            assert concurrency == 5
+            assert timeout == 0.2
+            return [h for h in hosts if h == "localhost"]
+
+        monkeypatch.setattr(network, "async_filter_active_hosts", fake_filter)
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    str(port),
+                    "localhost",
+                    "other",
+                    "--ping",
+                    "--ping-timeout",
+                    "0.2",
+                    "--ping-concurrency",
+                    "5",
+                    "--timeout",
+                    "0.1",
+                    "--family",
+                    "ipv4",
+                ],
+                capture_output=True,
+                text=True,
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert result.returncode == 0
+    assert "localhost" in result.stdout
+    assert "other" not in result.stdout
+
+
 def test_parse_port_range_single():
     assert network.parse_port_range("80") == (80, 80)
 
@@ -331,6 +708,73 @@ def test_parse_port_range_range():
 def test_parse_port_range_invalid():
     with pytest.raises(ValueError):
         network.parse_port_range("70000")
+
+
+def test_parse_ports_single():
+    assert network.parse_ports("80") == [80]
+
+
+def test_parse_ports_range():
+    assert network.parse_ports("20-22") == [20, 21, 22]
+
+
+def test_parse_ports_list():
+    assert network.parse_ports("22,80,443") == [22, 80, 443]
+
+
+def test_parse_ports_combo():
+    assert network.parse_ports("22,80-82") == [22, 80, 81, 82]
+
+
+def test_parse_ports_top():
+    ports = network.parse_ports("top3")
+    assert ports == network.TOP_PORTS[:3]
+
+
+def test_parse_ports_step():
+    assert network.parse_ports("20-24:2") == [20, 22, 24]
+
+
+def test_parse_ports_step_invalid():
+    with pytest.raises(ValueError):
+        network.parse_ports("80:2")
+
+
+def test_parse_ports_service_names():
+    ports = network.parse_ports("ssh,http")
+    assert ports == [22, 80]
+
+
+def test_ports_as_range():
+    assert network.ports_as_range([20, 21, 22]) == (20, 22)
+    assert network.ports_as_range([22, 25]) is None
+
+
+def test_parse_ports_invalid():
+    with pytest.raises(ValueError):
+        network.parse_ports("70000")
+
+
+def test_parse_hosts_single():
+    assert network.parse_hosts("localhost") == ["localhost"]
+
+
+def test_parse_hosts_list():
+    assert network.parse_hosts("1.1.1.1,2.2.2.2") == ["1.1.1.1", "2.2.2.2"]
+
+
+def test_parse_hosts_cidr():
+    assert network.parse_hosts("192.168.0.0/30") == ["192.168.0.1", "192.168.0.2"]
+
+
+def test_parse_hosts_range():
+    assert network.parse_hosts("10.0.0.1-3") == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
+
+
+def test_parse_hosts_wildcard():
+    hosts = network.parse_hosts("192.168.1.*")
+    assert "192.168.1.0" not in hosts  # network address skipped
+    assert "192.168.1.1" in hosts
 
 
 def test_detect_local_hosts(monkeypatch):
@@ -359,18 +803,18 @@ def test_async_auto_scan(monkeypatch):
     def fake_detect() -> list[str]:
         return ["localhost", "other"]
 
-    def fake_ping(host: str, timeout: float = 1.0) -> bool:
+    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
         return host == "localhost"
 
     monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
-    monkeypatch.setattr(network, "_ping_host", fake_ping)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
 
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(network.async_auto_scan(port, port))
+            result = asyncio.run(network.async_auto_scan(port, port, ports=[port]))
         finally:
             server.shutdown()
             thread.join()
@@ -378,14 +822,64 @@ def test_async_auto_scan(monkeypatch):
     assert result["localhost"] == [port]
 
 
+def test_async_auto_scan_with_services(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost"]
+
+    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(network.async_auto_scan(port, port, ports=[port], with_services=True))
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert isinstance(result["localhost"], dict)
+    assert list(result["localhost"].keys()) == [port]
+
+
+def test_async_auto_scan_with_banner(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost"]
+
+    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    with socketserver.TCPServer(("localhost", 0), _BannerHandler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(network.async_auto_scan(port, port, ports=[port], with_banner=True))
+        finally:
+            server.shutdown()
+            thread.join()
+
+    assert isinstance(result["localhost"], dict)
+    info = result["localhost"][port]
+    assert isinstance(info, network.PortInfo)
+    assert info.banner == "banner"
+
+
 def test_async_filter_active_hosts(monkeypatch):
     calls: list[str] = []
 
-    def fake_ping(host: str, timeout: float = 1.0) -> bool:
+    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
         calls.append(host)
         return host == "1.1.1.1"
 
-    monkeypatch.setattr(network, "_ping_host", fake_ping)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
 
     result = asyncio.run(
         network.async_filter_active_hosts(["1.1.1.1", "2.2.2.2"], concurrency=2)

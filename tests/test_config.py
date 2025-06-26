@@ -42,6 +42,18 @@ def test_default_scan_concurrency(monkeypatch):
     assert cfg.get("scan_concurrency") == 100
 
 
+def test_new_scan_defaults(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    assert cfg.get("scan_services") is False
+    assert cfg.get("scan_banner") is False
+    assert cfg.get("scan_latency") is False
+    assert cfg.get("scan_ping") is False
+    assert cfg.get("scan_ping_timeout") == 1.0
+    assert cfg.get("scan_ping_concurrency") == 100
+
+
 def test_add_recent_file_persists(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     cfg = Config()
