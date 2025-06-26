@@ -7,7 +7,7 @@ import re
 
 import psutil
 
-from src.views.force_quit_dialog import ForceQuitDialog
+from src.views.force_quit_dialog import ForceQuitDialog, ProcessEntry
 
 
 class TestForceQuit(unittest.TestCase):
@@ -321,6 +321,47 @@ class TestForceQuit(unittest.TestCase):
         time.sleep(0.1)
         self.assertGreaterEqual(count, 1)
         self.assertFalse(psutil.pid_exists(proc.pid))
+
+    def test_find_over_threshold(self) -> None:
+        e1 = ProcessEntry(
+            pid=1,
+            name="p1",
+            cpu=90.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        e2 = ProcessEntry(
+            pid=2,
+            name="p2",
+            cpu=10.0,
+            mem=600.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        snapshot = {1: e1, 2: e2}
+        pids = ForceQuitDialog._find_over_threshold(
+            snapshot,
+            kill_cpu=True,
+            kill_mem=True,
+            cpu_alert=80.0,
+            mem_alert=500.0,
+        )
+        assert set(pids) == {1, 2}
 
 
 if __name__ == "__main__":
