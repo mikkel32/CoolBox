@@ -78,9 +78,23 @@ class ProcessEntry:
 
 
 class ProcessWatcher(threading.Thread):
-    """Background thread that continually gathers process information."""
+    """Background thread streaming process snapshots to the UI.
 
-    def __init__(self, queue: Queue[tuple[dict[int, ProcessEntry], set[int]]], interval: float = 2.0, detail_interval: int = 3) -> None:
+    Metrics are gathered concurrently using a thread pool. Expensive details
+    like open file and connection counts are refreshed every ``detail_interval``
+    cycles to keep overhead low. Updates are pushed through ``queue`` as
+    ``(updates, removed)`` pairs where ``updates`` is a mapping of PID to
+    ``ProcessEntry`` instances and ``removed`` is the set of PIDs that have
+    disappeared since the last refresh.
+    """
+
+    def __init__(
+        self,
+        queue: Queue[tuple[dict[int, ProcessEntry], set[int]]],
+        interval: float = 2.0,
+        detail_interval: int = 3,
+        max_workers: int | None = None,
+    ) -> None:
         super().__init__(daemon=True)
         self.queue = queue
         self.interval = interval
@@ -89,6 +103,8 @@ class ProcessWatcher(threading.Thread):
         self._snapshot: dict[int, ProcessEntry] = {}
         self._last_ts = time.monotonic()
         self._tick = 0
+        workers = max_workers or min(8, (os.cpu_count() or 1) * 2)
+        self._executor = ThreadPoolExecutor(max_workers=workers)
 
     def set_interval(self, interval: float) -> None:
         self.interval = max(0.5, float(interval))
@@ -190,18 +206,17 @@ class ProcessWatcher(threading.Thread):
                 entry.add_sample(entry.cpu, entry.io_rate)
                 return entry
 
-            with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 1) * 2)) as ex:
-                futures = {ex.submit(collect, p): p.info["pid"] for p in procs}
-                for fut in as_completed(futures):
-                    entry = fut.result()
-                    if entry is None:
-                        continue
-                    pid = entry.pid
-                    current.add(pid)
-                    prev = self._snapshot.get(pid)
-                    if prev is None or entry.changed_since(prev):
-                        updates[pid] = entry
-                    self._snapshot[pid] = entry
+            futures = {self._executor.submit(collect, p): p.info["pid"] for p in procs}
+            for fut in as_completed(futures):
+                entry = fut.result()
+                if entry is None:
+                    continue
+                pid = entry.pid
+                current.add(pid)
+                prev = self._snapshot.get(pid)
+                if prev is None or entry.changed_since(prev):
+                    updates[pid] = entry
+                self._snapshot[pid] = entry
             removed = set(self._snapshot) - current
             if updates or removed:
                 self.queue.put((updates, removed))
@@ -212,6 +227,7 @@ class ProcessWatcher(threading.Thread):
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._executor.shutdown(wait=False)
 
 
 class ForceQuitDialog(ctk.CTkToplevel):
@@ -229,7 +245,9 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.process_snapshot: dict[int, ProcessEntry] = {}
         self.rows: dict[int, tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.IntVar]] = {}
         self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
-        self._watcher = ProcessWatcher(self._queue)
+        worker_env = os.getenv("FORCE_QUIT_WORKERS")
+        workers = int(worker_env) if worker_env and worker_env.isdigit() else None
+        self._watcher = ProcessWatcher(self._queue, max_workers=workers)
         self._watcher.start()
         self.after(0, self._auto_refresh)
 
@@ -419,61 +437,90 @@ class ForceQuitDialog(ctk.CTkToplevel):
                 self.process_snapshot.pop(pid, None)
 
     @staticmethod
-    def force_kill(pid: int) -> None:
-        """Forcefully kill a PID using platform specific fallbacks."""
+    def force_kill(pid: int, *, timeout: float = 3.0) -> bool:
+        """Forcefully terminate ``pid`` and return ``True`` if it exited."""
         try:
             proc = psutil.Process(pid)
-            proc.kill()
-            try:
-                proc.wait(timeout=3)
-            except (psutil.TimeoutExpired, ChildProcessError):
-                pass
-            return
-        except (psutil.NoSuchProcess, PermissionError, psutil.AccessDenied):
+        except psutil.NoSuchProcess:
+            return False
+
+        try:
+            proc.terminate()
+            proc.wait(timeout=timeout / 2)
+            return True
+        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
             pass
+        except (psutil.AccessDenied, PermissionError):
+            pass
+
+        try:
+            proc.kill()
+            proc.wait(timeout=timeout / 2)
+            return True
+        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+            pass
+        except (psutil.AccessDenied, PermissionError):
+            pass
+
         if os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=False)
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], check=False)
         else:
-            os.kill(pid, signal.SIGKILL)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                return False
+        try:
+            psutil.Process(pid).wait(timeout=timeout)
+            return True
+        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+            pass
+
+        try:
+            status = psutil.Process(pid).status()
+            return status in {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD}
+        except psutil.NoSuchProcess:
+            return True
+        except Exception:
+            return False
 
     @classmethod
     def force_kill_multiple(cls, pids: list[int]) -> int:
-        """Kill multiple PIDs, returning number successfully killed."""
-        count = 0
-        for pid in pids:
+        """Kill multiple PIDs concurrently and return number successfully killed."""
+
+        def kill_one(pid: int) -> bool:
             try:
-                cls.force_kill(pid)
-                count += 1
+                return cls.force_kill(pid)
             except Exception:
-                continue
-        return count
+                return False
+
+        if not pids:
+            return 0
+        if len(pids) == 1:
+            return int(kill_one(pids[0]))
+
+        with ThreadPoolExecutor(max_workers=min(len(pids), 8)) as ex:
+            results = ex.map(kill_one, pids)
+        return sum(1 for ok in results if ok)
 
     @classmethod
     def force_kill_by_name(cls, name: str) -> int:
         """Kill all processes with the given name. Returns number killed."""
-        count = 0
-        for proc in psutil.process_iter(["pid", "name"]):
-            if proc.info.get("name", "").lower() == name.lower():
-                try:
-                    cls.force_kill(proc.pid)
-                    count += 1
-                except Exception:
-                    pass
-        return count
+        pids: list[int] = [
+            proc.pid
+            for proc in psutil.process_iter(["pid", "name"])
+            if proc.info.get("name", "").lower() == name.lower()
+        ]
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_by_pattern(cls, regex: re.Pattern[str]) -> int:
         """Kill processes whose names match regex. Returns number killed."""
-        count = 0
-        for proc in psutil.process_iter(["pid", "name"]):
-            name = proc.info.get("name", "")
-            if regex.search(name):
-                try:
-                    cls.force_kill(proc.pid)
-                    count += 1
-                except Exception:
-                    pass
-        return count
+        pids: list[int] = [
+            proc.pid
+            for proc in psutil.process_iter(["pid", "name"])
+            if regex.search(proc.info.get("name", ""))
+        ]
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_by_port(cls, port: int) -> int:
@@ -505,37 +552,27 @@ class ForceQuitDialog(ctk.CTkToplevel):
     @classmethod
     def force_kill_by_file(cls, path: str) -> int:
         """Kill processes that have the specified file open."""
-        count = 0
         target = os.path.abspath(path)
         lsof = shutil.which("lsof")
+        pids: set[int] = set()
         if lsof:
-            result = subprocess.run([lsof, "-t", target], capture_output=True, text=True)
+            result = subprocess.run(
+                [lsof, "-t", target], capture_output=True, text=True
+            )
             for line in result.stdout.splitlines():
                 try:
-                    pid = int(line.strip())
+                    pids.add(int(line.strip()))
                 except ValueError:
                     continue
+        if not pids:
+            for proc in psutil.process_iter(["pid"]):
                 try:
-                    cls.force_kill(pid)
-                    count += 1
-                except Exception:
-                    pass
-            if count:
-                return count
-        for proc in psutil.process_iter(["pid"]):
-            try:
-                files = proc.open_files()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-            for f in files:
-                try:
-                    if os.path.abspath(f.path) == target:
-                        cls.force_kill(proc.pid)
-                        count += 1
-                        break
-                except Exception:
+                    files = proc.open_files()
+                    if any(os.path.abspath(f.path) == target for f in files):
+                        pids.add(proc.pid)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-        return count
+        return cls.force_kill_multiple(list(pids))
 
     @staticmethod
     def terminate_tree(pid: int, timeout: float = 3.0) -> None:
@@ -551,30 +588,24 @@ class ForceQuitDialog(ctk.CTkToplevel):
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
         _, alive = psutil.wait_procs([root, *children], timeout=timeout)
-        for p in alive:
-            try:
-                ForceQuitDialog.force_kill(p.pid)
-            except Exception:
-                pass
+        if alive:
+            ForceQuitDialog.force_kill_multiple([p.pid for p in alive])
+            psutil.wait_procs(alive, timeout=timeout)
 
     @classmethod
     def force_kill_by_executable(
         cls, regex: re.Pattern[str], *, exclude_self: bool = True
     ) -> int:
         """Kill processes whose executable path matches regex."""
-        count = 0
         self_pid = os.getpid() if exclude_self else None
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "exe"]):
             if exclude_self and proc.pid == self_pid:
                 continue
             exe = proc.info.get("exe") or ""
             if exe and regex.search(exe):
-                try:
-                    cls.force_kill(proc.pid)
-                    count += 1
-                except Exception:
-                    pass
-        return count
+                pids.append(proc.pid)
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_by_user(
@@ -585,8 +616,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
         exclude_self: bool = True,
     ) -> int:
         """Kill processes for a user optionally filtered by executable regex."""
-        count = 0
         self_pid = os.getpid() if exclude_self else None
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "username", "exe"]):
             if exclude_self and proc.pid == self_pid:
                 continue
@@ -597,69 +628,58 @@ class ForceQuitDialog(ctk.CTkToplevel):
                 exe = proc.info.get("exe") or ""
                 if not exe_regex.search(exe):
                     continue
-            try:
-                cls.force_kill(proc.pid)
-                count += 1
-            except Exception:
-                pass
-        return count
+            pids.append(proc.pid)
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_by_cmdline(cls, regex: re.Pattern[str]) -> int:
         """Kill processes whose command line matches regex."""
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "cmdline"]):
             try:
                 cmd = " ".join(proc.info.get("cmdline") or [])
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
             if regex.search(cmd):
-                try:
-                    cls.force_kill(proc.pid)
-                    count += 1
-                except Exception:
-                    pass
-        return count
+                pids.append(proc.pid)
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_above_cpu(cls, threshold: float) -> int:
         """Kill processes using more CPU percent than threshold."""
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid"]):
             try:
                 if proc.cpu_percent(interval=0.1) > threshold:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_above_memory(cls, threshold_mb: float) -> int:
         """Kill processes using more memory (MB) than threshold."""
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "memory_info"]):
             try:
                 mem_mb = proc.info["memory_info"].rss / (1024 * 1024)
                 if mem_mb > threshold_mb:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_above_threads(cls, threshold: int) -> int:
         """Kill processes with thread count greater than threshold."""
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "num_threads"]):
             try:
                 if proc.info.get("num_threads", 0) > threshold:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_above_io(
@@ -674,7 +694,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
                 continue
         time.sleep(interval)
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid"]):
             try:
                 io = proc.io_counters()
@@ -687,37 +707,34 @@ class ForceQuitDialog(ctk.CTkToplevel):
                     - prev
                 ) / interval / (1024 * 1024)
                 if rate > threshold_mb:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_above_files(cls, threshold: int) -> int:
         """Kill processes with more open files than ``threshold``."""
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid"]):
             try:
                 if len(proc.open_files()) > threshold:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_above_conns(cls, threshold: int) -> int:
         """Kill processes with more network connections than ``threshold``."""
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid"]):
             try:
-                if len(proc.connections(kind="inet")) > threshold:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                if len(proc.net_connections(kind="inet")) > threshold:
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_sustained_cpu(
@@ -731,7 +748,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         time.sleep(duration)
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "cpu_times"]):
             try:
                 start = snapshot.get(proc.pid)
@@ -739,18 +756,16 @@ class ForceQuitDialog(ctk.CTkToplevel):
                     continue
                 cpu = (sum(proc.cpu_times()) - start) / duration / psutil.cpu_count() * 100
                 if cpu > threshold:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_by_parent(
         cls, parent_pid: int, *, include_parent: bool = False
     ) -> int:
         """Kill processes by parent PID."""
-        count = 0
         try:
             parent = psutil.Process(parent_pid)
         except psutil.NoSuchProcess:
@@ -758,13 +773,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
         procs = parent.children(recursive=True)
         if include_parent:
             procs.append(parent)
-        for proc in procs:
-            try:
-                cls.force_kill(proc.pid)
-                count += 1
-            except Exception:
-                pass
-        return count
+        pids = [p.pid for p in procs]
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_children(cls, parent_pid: int) -> int:
@@ -776,8 +786,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
         cls, seconds: float, cmd_regex: re.Pattern[str] | None = None
     ) -> int:
         """Kill processes older than ``seconds`` optionally filtered by command line."""
-        count = 0
         now = time.time()
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "create_time", "cmdline"]):
             try:
                 if proc.pid == os.getpid() or now - proc.info["create_time"] <= seconds:
@@ -786,24 +796,22 @@ class ForceQuitDialog(ctk.CTkToplevel):
                     cmd = " ".join(proc.info.get("cmdline") or [])
                     if not cmd_regex.search(cmd):
                         continue
-                cls.force_kill(proc.pid)
-                count += 1
+                pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     @classmethod
     def force_kill_zombies(cls) -> int:
         """Terminate processes in a zombie state."""
-        count = 0
+        pids: list[int] = []
         for proc in psutil.process_iter(["pid", "status"]):
             try:
                 if proc.info.get("status") == psutil.STATUS_ZOMBIE:
-                    cls.force_kill(proc.pid)
-                    count += 1
+                    pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
-        return count
+        return cls.force_kill_multiple(pids)
 
     def _populate(self) -> None:
         if self._debounce_id is not None:
