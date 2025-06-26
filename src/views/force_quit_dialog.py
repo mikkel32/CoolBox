@@ -12,9 +12,11 @@ import time
 import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
+from queue import Queue, Empty, Full
 from dataclasses import dataclass, field
+import tkinter as tk
 from tkinter import messagebox, filedialog
+from tkinter import ttk
 
 import customtkinter as ctk
 import psutil
@@ -219,7 +221,14 @@ class ProcessWatcher(threading.Thread):
                 self._snapshot[pid] = entry
             removed = set(self._snapshot) - current
             if updates or removed:
-                self.queue.put((updates, removed))
+                try:
+                    self.queue.put_nowait((updates, removed))
+                except Full:
+                    try:
+                        self.queue.get_nowait()
+                    except Empty:
+                        pass
+                    self.queue.put_nowait((updates, removed))
                 for pid in removed:
                     self._snapshot.pop(pid, None)
             if self._stop_event.wait(self.interval):
@@ -238,13 +247,13 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.app = app
         self.title("Force Quit")
         self.resizable(False, False)
-        self.geometry("650x450")
+        self.geometry("750x500")
         self._after_id: int | None = None
-        self.pid_vars: dict[int, ctk.IntVar] = {}
         self._debounce_id: int | None = None
         self.process_snapshot: dict[int, ProcessEntry] = {}
-        self.rows: dict[int, tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.IntVar]] = {}
-        self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue(maxsize=1)
+        self.paused = False
+        self.sort_reverse = True
         worker_env = os.getenv("FORCE_QUIT_WORKERS")
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
         self._watcher = ProcessWatcher(self._queue, max_workers=workers)
@@ -317,6 +326,10 @@ class ForceQuitDialog(ctk.CTkToplevel):
             command=lambda v: self._watcher.set_interval(float(v)),
         )
         interval_menu.pack(side="left", padx=5)
+        self.pause_btn = ctk.CTkButton(
+            search_frame, text="Pause", command=self._toggle_pause
+        )
+        self.pause_btn.pack(side="left", padx=5)
         ctk.CTkButton(search_frame, text="Refresh", command=self._populate).pack(
             side="left", padx=5
         )
@@ -417,13 +430,55 @@ class ForceQuitDialog(ctk.CTkToplevel):
             command=self._kill_zombies,
         ).pack(side="left", padx=5)
 
-        self.list_frame = ctk.CTkScrollableFrame(self)
-        self.list_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        self.list_frame.grid_columnconfigure(0, weight=1)
+        self.tree_frame = ctk.CTkFrame(self)
+        self.tree_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        columns = [
+            "PID",
+            "User",
+            "Name",
+            "CPU",
+            "Avg CPU",
+            "Mem",
+            "IO",
+            "Avg IO",
+            "Threads",
+            "Files",
+            "Conns",
+            "Status",
+            "Age",
+        ]
+        self.tree = ttk.Treeview(
+            self.tree_frame,
+            columns=columns,
+            show="headings",
+            selectmode="extended",
+        )
+        vsb = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview)
+        hsb = ttk.Scrollbar(self.tree_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        self.tree_frame.grid_rowconfigure(0, weight=1)
+        self.tree_frame.grid_columnconfigure(0, weight=1)
+        for col in columns:
+            self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
+            width = 60 if col in {"PID", "CPU", "Mem", "Avg CPU", "Avg IO"} else 90
+            self.tree.column(col, width=width, anchor="w")
+        default_col = self.sort_var.get()
+        self.tree.heading(default_col, text=default_col + " \u25BC")
+        self.tree.tag_configure("high_cpu", background="#ffdddd")
+        self.tree.tag_configure("high_mem", background="#fff5cc")
+        self.tree.bind("<Double-1>", self._on_double_click)
+        self.tree.bind("<Button-3>", self._on_right_click)
+        self.tree.bind("<<TreeviewSelect>>", lambda _e: self._update_status(len(self.tree.get_children())))
 
         ctk.CTkButton(
             self, text="Force Quit Selected", command=self._kill_selected
         ).pack(pady=(5, 0))
+
+        self.status_var = ctk.StringVar(value="0 processes")
+        ctk.CTkLabel(self, textvariable=self.status_var).pack(pady=(0, 5))
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -915,40 +970,45 @@ class ForceQuitDialog(ctk.CTkToplevel):
             "Start": lambda p: p.start,
             "Age": lambda p: time.time() - p.start,
         }.get(sort_key, lambda p: p.cpu)
-        processes.sort(key=key_func, reverse=True)
+        processes.sort(key=key_func, reverse=self.sort_reverse)
         self._update_list(processes)
 
     def _update_list(self, processes: list[ProcessEntry]) -> None:
-        existing = set(self.rows)
-        for entry in processes:
-            pid = entry.pid
-            age = time.time() - entry.start
-            user_display = (entry.user or "")[:8]
-            text = (
-                f"{pid:6d} {user_display:<8} {entry.name:<25} "
-                f"{entry.avg_cpu:5.1f}% {entry.mem:8.1f}MB "
-                f"{entry.io_rate:5.1f}/{entry.avg_io:5.1f}MB/s "
-                f"T{entry.threads:3d} F{entry.files:3d} C{entry.conns:3d} "
-                f"{entry.status[:6]:<6} {age:7.1f}s"
-            )
-            if pid in self.rows:
-                frame, label, var = self.rows[pid]
-                label.configure(text=text)
-                existing.remove(pid)
-            else:
-                frame = ctk.CTkFrame(self.list_frame, fg_color="transparent")
-                label = ctk.CTkLabel(frame, text=text, anchor="w")
-                label.pack(side="left", fill="x", expand=True)
-                label.bind("<Double-Button-1>", lambda _e, p=pid: self._confirm_kill(p))
-                var = ctk.IntVar(value=0)
-                ctk.CTkCheckBox(frame, variable=var, width=15, text="").pack(side="right")
-                frame.pack(fill="x", pady=2)
-                self.pid_vars[pid] = var
-                self.rows[pid] = (frame, label, var)
-        for pid in existing:
-            frame, _label, _var = self.rows.pop(pid)
-            frame.destroy()
-            self.pid_vars.pop(pid, None)
+        def update_tree() -> None:
+            existing = set(self.tree.get_children())
+            for entry in processes:
+                pid = str(entry.pid)
+                age = round(time.time() - entry.start, 1)
+                values = (
+                    entry.pid,
+                    (entry.user or "")[:8],
+                    entry.name,
+                    f"{entry.cpu:.1f}",
+                    f"{entry.avg_cpu:.1f}",
+                    f"{entry.mem:.1f}",
+                    f"{entry.io_rate:.1f}",
+                    f"{entry.avg_io:.1f}",
+                    entry.threads,
+                    entry.files,
+                    entry.conns,
+                    entry.status[:6],
+                    age,
+                )
+                tags = []
+                if entry.cpu >= 80.0 or entry.avg_cpu >= 80.0:
+                    tags.append("high_cpu")
+                if entry.mem >= 500.0:
+                    tags.append("high_mem")
+                if self.tree.exists(pid):
+                    self.tree.item(pid, values=values, tags=tags)
+                    existing.discard(pid)
+                else:
+                    self.tree.insert("", "end", iid=pid, values=values, tags=tags)
+            for iid in existing:
+                self.tree.delete(iid)
+
+        self.after_idle(update_tree)
+        self._update_status(len(processes))
 
     def _export_csv(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -1003,7 +1063,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             messagebox.showerror("Force Quit", str(exc), parent=self)
 
     def _kill_selected(self) -> None:
-        pids = [pid for pid, var in self.pid_vars.items() if var.get()]
+        pids = [int(pid) for pid in self.tree.selection()]
         if not pids:
             messagebox.showerror("Force Quit", "No process selected", parent=self)
             return
@@ -1024,6 +1084,42 @@ class ForceQuitDialog(ctk.CTkToplevel):
                 "Force Quit", f"Terminated {len(pids)} process(es)", parent=self
             )
         self._populate()
+
+    def _on_double_click(self, event) -> None:
+        item = self.tree.identify_row(event.y)
+        if item:
+            self._confirm_kill(int(item))
+
+    def _on_right_click(self, event) -> None:
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        self.tree.selection_set(iid)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Terminate", command=lambda pid=int(iid): self._confirm_kill(pid))
+        menu.post(event.x_root, event.y_root)
+
+    def _sort_by_column(self, col: str) -> None:
+        current = self.sort_var.get()
+        if col == current:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.tree.heading(current, text=current)
+            self.sort_var.set(col)
+            self.sort_reverse = True
+        arrow = " \u25BC" if self.sort_reverse else " \u25B2"
+        self.tree.heading(col, text=col + arrow)
+        self._populate()
+
+    def _toggle_pause(self) -> None:
+        self.paused = not self.paused
+        self.pause_btn.configure(text="Resume" if self.paused else "Pause")
+        if not self.paused:
+            self._auto_refresh()
+
+    def _update_status(self, count: int) -> None:
+        selected = len(self.tree.selection())
+        self.status_var.set(f"{count} processes ({selected} selected)")
 
     def _confirm_kill(self, pid: int) -> None:
         if messagebox.askyesno("Force Quit", f"Terminate PID {pid}?", parent=self):
@@ -1296,6 +1392,9 @@ class ForceQuitDialog(ctk.CTkToplevel):
 
     def _auto_refresh(self) -> None:
         if not self.winfo_exists():
+            return
+        if self.paused:
+            self._after_id = self.after(1000, self._auto_refresh)
             return
         self._drain_queue()
         self._apply_filter_sort()

@@ -30,6 +30,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   open file and connection count metrics, and average I/O rate checks. It includes buttons to terminate high I/O or sustained high CPU processes,
   or processes with many files or network connections,
   an adjustable refresh interval, and an option to export the process list to CSV.
+  The table shows the total number of processes and how many are currently selected.
+  Automatic refresh can be paused when investigating specific entries and columns
+  support toggling ascending/descending sort by clicking their headers.
   It allows filtering by user, name or PID and can be opened quickly with
   `Ctrl+Alt+F`. Zombie processes can be terminated with a single click and the
   list includes each process status, runtime and live I/O rate for quick
