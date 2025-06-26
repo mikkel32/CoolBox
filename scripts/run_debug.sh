@@ -6,9 +6,11 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# Ensure debugpy and runtime deps are installed
-python -m pip install --quiet debugpy
-python -m pip install --quiet -r requirements.txt
+# Ensure debugpy and runtime deps are installed unless SKIP_DEPS=1
+if [ "$SKIP_DEPS" != "1" ]; then
+    python -m pip install --quiet debugpy
+    python -m pip install --quiet -r requirements.txt
+fi
 
 # Choose debug port
 DEBUG_PORT=${DEBUG_PORT:-5678}

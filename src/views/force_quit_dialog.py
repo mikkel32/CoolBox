@@ -270,6 +270,9 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.title("Force Quit")
         width_env = os.getenv("FORCE_QUIT_WIDTH")
         height_env = os.getenv("FORCE_QUIT_HEIGHT")
+        sort_env = os.getenv("FORCE_QUIT_SORT")
+        reverse_env = os.getenv("FORCE_QUIT_SORT_REVERSE")
+        on_top_env = os.getenv("FORCE_QUIT_ON_TOP")
         cfg = app.config
         width = (
             int(width_env)
@@ -309,9 +312,6 @@ class ForceQuitDialog(ctk.CTkToplevel):
         mem_alert_env = os.getenv("FORCE_QUIT_MEM_ALERT")
         sample_env = os.getenv("FORCE_QUIT_SAMPLES")
         auto_env = os.getenv("FORCE_QUIT_AUTO_KILL", "").lower()
-        sort_env = os.getenv("FORCE_QUIT_SORT")
-        reverse_env = os.getenv("FORCE_QUIT_SORT_REVERSE")
-        on_top_env = os.getenv("FORCE_QUIT_ON_TOP")
 
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
         interval = (
