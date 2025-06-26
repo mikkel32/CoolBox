@@ -50,6 +50,20 @@ class ProcessEntry:
         self.samples = deque(self.samples, maxlen=self.max_samples)
         self.io_samples = deque(self.io_samples, maxlen=self.max_samples)
 
+    def __lt__(self, other: "ProcessEntry") -> bool:
+        """Order entries by average CPU then memory then PID."""
+        if not isinstance(other, ProcessEntry):
+            return NotImplemented
+        return (
+            self.avg_cpu,
+            self.mem,
+            self.pid,
+        ) < (
+            other.avg_cpu,
+            other.mem,
+            other.pid,
+        )
+
     def add_sample(self, cpu: float, io: float) -> None:
         self.samples.append(cpu)
         self.io_samples.append(io)
@@ -232,17 +246,18 @@ class ProcessWatcher(threading.Thread):
 
             entries = [e for e in self._executor.map(collect, procs) if e is not None]
 
-            heap: list[tuple[float, ProcessEntry]] = []
+            heap: list[tuple[tuple[float, float, int], ProcessEntry]] = []
             detail_candidates: list[ProcessEntry] = []
             now_ts = time.monotonic()
 
             for entry in entries:
                 if self.limit:
-                    score = entry.cpu + entry.mem / 100
+                    score = (entry.avg_cpu, entry.mem, entry.pid)
+                    item = (score, entry)
                     if len(heap) < self.limit:
-                        heapq.heappush(heap, (score, entry))
+                        heapq.heappush(heap, item)
                     else:
-                        heapq.heappushpop(heap, (score, entry))
+                        heapq.heappushpop(heap, item)
                 else:
                     current.add(entry.pid)
                     prev = self._snapshot.get(entry.pid)
@@ -254,7 +269,7 @@ class ProcessWatcher(threading.Thread):
                     self._snapshot[entry.pid] = entry
 
             if self.limit:
-                entries = [e for _s, e in heapq.nlargest(self.limit, heap)]
+                entries = [e for _score, e in heapq.nlargest(self.limit, heap)]
                 for e in entries:
                     current.add(e.pid)
                     prev = self._snapshot.get(e.pid)
