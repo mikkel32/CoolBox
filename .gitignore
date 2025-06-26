@@ -5,3 +5,4 @@ __pycache__/
 *.swp
 __pycache__/
 .pytest_cache/
+io_test.tmp
