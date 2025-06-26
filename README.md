@@ -14,6 +14,14 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   `Ctrl+Q` shortcut.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
+  It also includes an advanced Force Quit utility with a searchable process
+  list, automatic refresh, sort options, and multi-select termination. It can
+  kill processes by name, command line pattern, port, host, open file, executable path
+  or user. It can terminate entire process trees, children of a parent process
+  or all processes older than a specified runtime, in addition to killing above
+  configurable CPU or memory thresholds using platform-aware logic. The dialog
+  can be opened quickly with
+  `Ctrl+Alt+F`.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
   support, host lookup caching, and configurable timeouts.
 - **Auto Network Scan**: Detects local networks, pings for active hosts and

@@ -3,6 +3,7 @@ Tools view - Various utilities and tools
 """
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, simpledialog
+
 import socket
 import subprocess
 import platform
@@ -64,6 +65,7 @@ class ToolsView(ctk.CTkFrame):
         tools = [
             ("System Info", "View system information", self._system_info),
             ("Process Manager", "Manage running processes", self._process_manager),
+            ("Force Quit", "Forcefully terminate a process", self._force_quit),
             ("Disk Cleanup", "Clean temporary files", self._disk_cleanup),
             (
                 "Screenshot",
@@ -503,6 +505,10 @@ class ToolsView(ctk.CTkFrame):
         ctk.CTkButton(button_frame, text="Kill PID", command=kill_selected, width=100).pack(side="left", padx=5)
 
         schedule_refresh()
+
+    def _force_quit(self) -> None:
+        """Open the advanced Force Quit dialog."""
+        self.app.open_force_quit()
 
     def _disk_cleanup(self):
         """Remove temporary files in the system temp directory."""
