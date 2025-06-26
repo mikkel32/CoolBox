@@ -10,10 +10,208 @@ import shutil
 import re
 import time
 import socket
-from tkinter import messagebox
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+from dataclasses import dataclass, field
+from tkinter import messagebox, filedialog
 
 import customtkinter as ctk
 import psutil
+
+
+@dataclass(slots=True)
+class ProcessEntry:
+    """Snapshot of a running process."""
+
+    pid: int
+    name: str
+    cpu: float
+    mem: float
+    user: str
+    start: float
+    status: str
+    cpu_time: float
+    threads: int
+    read_bytes: int
+    write_bytes: int
+    files: int
+    conns: int
+    io_rate: float = 0.0
+    samples: list[float] = field(default_factory=list)
+    io_samples: list[float] = field(default_factory=list)
+
+    def add_sample(self, cpu: float, io: float) -> None:
+        self.samples.append(cpu)
+        self.io_samples.append(io)
+        if len(self.samples) > 5:
+            self.samples.pop(0)
+        if len(self.io_samples) > 5:
+            self.io_samples.pop(0)
+
+    @property
+    def avg_cpu(self) -> float:
+        if not self.samples:
+            return self.cpu
+        return sum(self.samples) / len(self.samples)
+
+    @property
+    def avg_io(self) -> float:
+        if not self.io_samples:
+            return self.io_rate
+        return sum(self.io_samples) / len(self.io_samples)
+
+    def changed_since(self, other: "ProcessEntry") -> bool:
+        return any(
+            [
+                self.name != other.name,
+                self.user != other.user,
+                self.mem != other.mem,
+                self.status != other.status,
+                abs(self.cpu - other.cpu) > 0.1,
+                self.threads != other.threads,
+                abs(self.io_rate - other.io_rate) > 0.1,
+                self.files != other.files,
+                self.conns != other.conns,
+            ]
+        )
+
+
+class ProcessWatcher(threading.Thread):
+    """Background thread that continually gathers process information."""
+
+    def __init__(self, queue: Queue[tuple[dict[int, ProcessEntry], set[int]]], interval: float = 2.0, detail_interval: int = 3) -> None:
+        super().__init__(daemon=True)
+        self.queue = queue
+        self.interval = interval
+        self.detail_interval = max(1, detail_interval)
+        self._stop_event = threading.Event()
+        self._snapshot: dict[int, ProcessEntry] = {}
+        self._last_ts = time.monotonic()
+        self._tick = 0
+
+    def set_interval(self, interval: float) -> None:
+        self.interval = max(0.5, float(interval))
+
+    def run(self) -> None:
+        while not self._stop_event.is_set():
+            now = time.monotonic()
+            delta = max(now - self._last_ts, 0.001)
+            self._last_ts = now
+            self._tick += 1
+            updates: dict[int, ProcessEntry] = {}
+            current: set[int] = set()
+            procs = list(
+                psutil.process_iter(
+                    [
+                        "pid",
+                        "name",
+                        "username",
+                        "create_time",
+                        "memory_info",
+                        "status",
+                        "cpu_times",
+                        "num_threads",
+                    ]
+                )
+            )
+
+            detail = self._tick % self.detail_interval == 0
+
+            def collect(proc: psutil.Process) -> ProcessEntry | None:
+                try:
+                    with proc.oneshot():
+                        pid = proc.info["pid"]
+                        name = proc.info.get("name", "")
+                        user = proc.info.get("username", "")
+                        mem = proc.info["memory_info"].rss / (1024 * 1024)
+                        cpu_time = sum(proc.info.get("cpu_times"))
+                        start = proc.info.get("create_time", 0.0)
+                        status = proc.info.get("status", "")
+                        threads = proc.info.get("num_threads", 0)
+                        prev_entry = self._snapshot.get(pid)
+                        try:
+                            io = proc.io_counters()
+                            read_bytes = io.read_bytes
+                            write_bytes = io.write_bytes
+                        except Exception:
+                            read_bytes = write_bytes = 0
+                        if detail:
+                            try:
+                                if hasattr(proc, "num_handles"):
+                                    files = proc.num_handles()
+                                elif hasattr(proc, "num_fds"):
+                                    files = proc.num_fds()
+                                else:
+                                    files = len(proc.open_files())
+                            except Exception:
+                                files = prev_entry.files if prev_entry else 0
+                            try:
+                                conns = len(proc.connections(kind="inet"))
+                            except Exception:
+                                conns = prev_entry.conns if prev_entry else 0
+                        else:
+                            files = prev_entry.files if prev_entry else 0
+                            conns = prev_entry.conns if prev_entry else 0
+                except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
+                    return None
+
+                prev = self._snapshot.get(pid)
+                if prev is None:
+                    cpu = 0.0
+                    samples: list[float] = []
+                    io_rate = 0.0
+                else:
+                    cpu = (cpu_time - prev.cpu_time) / delta / psutil.cpu_count() * 100
+                    samples = prev.samples
+                    io_rate = (
+                        (read_bytes - prev.read_bytes + write_bytes - prev.write_bytes)
+                        / delta
+                        / (1024 * 1024)
+                    )
+
+                entry = ProcessEntry(
+                    pid=pid,
+                    name=name,
+                    cpu=round(cpu, 1),
+                    mem=round(mem, 1),
+                    user=user,
+                    start=start,
+                    status=status,
+                    cpu_time=cpu_time,
+                    threads=threads,
+                    read_bytes=read_bytes,
+                    write_bytes=write_bytes,
+                    files=files,
+                    conns=conns,
+                    io_rate=round(io_rate, 1),
+                    samples=samples,
+                )
+                entry.add_sample(entry.cpu, entry.io_rate)
+                return entry
+
+            with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 1) * 2)) as ex:
+                futures = {ex.submit(collect, p): p.info["pid"] for p in procs}
+                for fut in as_completed(futures):
+                    entry = fut.result()
+                    if entry is None:
+                        continue
+                    pid = entry.pid
+                    current.add(pid)
+                    prev = self._snapshot.get(pid)
+                    if prev is None or entry.changed_since(prev):
+                        updates[pid] = entry
+                    self._snapshot[pid] = entry
+            removed = set(self._snapshot) - current
+            if updates or removed:
+                self.queue.put((updates, removed))
+                for pid in removed:
+                    self._snapshot.pop(pid, None)
+            if self._stop_event.wait(self.interval):
+                break
+
+    def stop(self) -> None:
+        self._stop_event.set()
 
 
 class ForceQuitDialog(ctk.CTkToplevel):
@@ -24,9 +222,16 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.app = app
         self.title("Force Quit")
         self.resizable(False, False)
-        self.geometry("500x400")
+        self.geometry("650x450")
         self._after_id: int | None = None
         self.pid_vars: dict[int, ctk.IntVar] = {}
+        self._debounce_id: int | None = None
+        self.process_snapshot: dict[int, ProcessEntry] = {}
+        self.rows: dict[int, tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.IntVar]] = {}
+        self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        self._watcher = ProcessWatcher(self._queue)
+        self._watcher.start()
+        self.after(0, self._auto_refresh)
 
         ctk.CTkLabel(
             self,
@@ -41,15 +246,63 @@ class ForceQuitDialog(ctk.CTkToplevel):
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<KeyRelease>", lambda _e: self._populate())
 
+        self.filter_var = ctk.StringVar(value="Name")
+        filter_menu = ctk.CTkOptionMenu(
+            search_frame,
+            variable=self.filter_var,
+            values=[
+                "Name",
+                "User",
+                "PID",
+                "CPU ≥",
+                "Avg CPU ≥",
+                "Memory ≥",
+                "Threads ≥",
+                "Age ≥",
+                "IO ≥",
+                "Avg IO ≥",
+                "Files ≥",
+                "Conns ≥",
+                "Status",
+            ],
+            command=lambda _v: self._populate(),
+        )
+        filter_menu.pack(side="left", padx=5)
+
         self.sort_var = ctk.StringVar(value="CPU")
         sort_menu = ctk.CTkOptionMenu(
             search_frame,
             variable=self.sort_var,
-            values=["CPU", "Memory", "PID"],
+            values=[
+                "CPU",
+                "Avg CPU",
+                "Memory",
+                "Threads",
+                "IO",
+                "Avg IO",
+                "Files",
+                "Conns",
+                "PID",
+                "User",
+                "Start",
+                "Age",
+            ],
             command=lambda _v: self._populate(),
         )
         sort_menu.pack(side="left", padx=5)
+
+        self.interval_var = ctk.StringVar(value="2")
+        interval_menu = ctk.CTkOptionMenu(
+            search_frame,
+            variable=self.interval_var,
+            values=["1", "2", "5"],
+            command=lambda v: self._watcher.set_interval(float(v)),
+        )
+        interval_menu.pack(side="left", padx=5)
         ctk.CTkButton(search_frame, text="Refresh", command=self._populate).pack(
+            side="left", padx=5
+        )
+        ctk.CTkButton(search_frame, text="Save CSV", command=self._export_csv).pack(
             side="left", padx=5
         )
         ctk.CTkButton(
@@ -102,6 +355,31 @@ class ForceQuitDialog(ctk.CTkToplevel):
         ).pack(side="left", padx=5)
         ctk.CTkButton(
             search_frame,
+            text="Kill High IO",
+            command=self._kill_high_io,
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            search_frame,
+            text="Kill CPU Avg",
+            command=self._kill_high_cpu_avg,
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            search_frame,
+            text="Kill Many Threads",
+            command=self._kill_high_threads,
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            search_frame,
+            text="Kill Many Files",
+            command=self._kill_high_files,
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            search_frame,
+            text="Kill Many Conns",
+            command=self._kill_high_conns,
+        ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            search_frame,
             text="Kill by Parent",
             command=self._kill_by_parent,
         ).pack(side="left", padx=5)
@@ -115,6 +393,11 @@ class ForceQuitDialog(ctk.CTkToplevel):
             text="Kill by Age",
             command=self._kill_by_age,
         ).pack(side="left", padx=5)
+        ctk.CTkButton(
+            search_frame,
+            text="Kill Zombies",
+            command=self._kill_zombies,
+        ).pack(side="left", padx=5)
 
         self.list_frame = ctk.CTkScrollableFrame(self)
         self.list_frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -127,6 +410,13 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._auto_refresh()
+
+    def _drain_queue(self) -> None:
+        while not self._queue.empty():
+            updates, removed = self._queue.get_nowait()
+            self.process_snapshot.update(updates)
+            for pid in removed:
+                self.process_snapshot.pop(pid, None)
 
     @staticmethod
     def force_kill(pid: int) -> None:
@@ -359,6 +649,103 @@ class ForceQuitDialog(ctk.CTkToplevel):
         return count
 
     @classmethod
+    def force_kill_above_threads(cls, threshold: int) -> int:
+        """Kill processes with thread count greater than threshold."""
+        count = 0
+        for proc in psutil.process_iter(["pid", "num_threads"]):
+            try:
+                if proc.info.get("num_threads", 0) > threshold:
+                    cls.force_kill(proc.pid)
+                    count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
+                continue
+        return count
+
+    @classmethod
+    def force_kill_above_io(
+        cls, threshold_mb: float, interval: float = 1.0
+    ) -> int:
+        """Kill processes with I/O rate greater than threshold."""
+        snapshot: dict[int, int] = {}
+        for proc in psutil.process_iter(["pid"]):
+            try:
+                io = proc.io_counters()
+                snapshot[proc.pid] = io.read_bytes + io.write_bytes
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+                continue
+        time.sleep(interval)
+        count = 0
+        for proc in psutil.process_iter(["pid"]):
+            try:
+                io = proc.io_counters()
+                prev = snapshot.get(proc.pid)
+                if prev is None:
+                    continue
+                rate = (
+                    io.read_bytes
+                    + io.write_bytes
+                    - prev
+                ) / interval / (1024 * 1024)
+                if rate > threshold_mb:
+                    cls.force_kill(proc.pid)
+                    count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+                continue
+        return count
+
+    @classmethod
+    def force_kill_above_files(cls, threshold: int) -> int:
+        """Kill processes with more open files than ``threshold``."""
+        count = 0
+        for proc in psutil.process_iter(["pid"]):
+            try:
+                if len(proc.open_files()) > threshold:
+                    cls.force_kill(proc.pid)
+                    count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                continue
+        return count
+
+    @classmethod
+    def force_kill_above_conns(cls, threshold: int) -> int:
+        """Kill processes with more network connections than ``threshold``."""
+        count = 0
+        for proc in psutil.process_iter(["pid"]):
+            try:
+                if len(proc.connections(kind="inet")) > threshold:
+                    cls.force_kill(proc.pid)
+                    count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return count
+
+    @classmethod
+    def force_kill_sustained_cpu(
+        cls, threshold: float, duration: float = 1.0
+    ) -> int:
+        """Kill processes averaging above CPU ``threshold`` during ``duration``."""
+        snapshot: dict[int, float] = {}
+        for proc in psutil.process_iter(["pid", "cpu_times"]):
+            try:
+                snapshot[proc.pid] = sum(proc.cpu_times())
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        time.sleep(duration)
+        count = 0
+        for proc in psutil.process_iter(["pid", "cpu_times"]):
+            try:
+                start = snapshot.get(proc.pid)
+                if start is None:
+                    continue
+                cpu = (sum(proc.cpu_times()) - start) / duration / psutil.cpu_count() * 100
+                if cpu > threshold:
+                    cls.force_kill(proc.pid)
+                    count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return count
+
+    @classmethod
     def force_kill_by_parent(
         cls, parent_pid: int, *, include_parent: bool = False
     ) -> int:
@@ -405,42 +792,175 @@ class ForceQuitDialog(ctk.CTkToplevel):
                 continue
         return count
 
-    def _populate(self) -> None:
-        for child in self.list_frame.winfo_children():
-            child.destroy()
-        self.pid_vars.clear()
-        query = self.search_var.get().lower()
-        processes = list(
-            psutil.process_iter(["pid", "name", "cpu_percent", "memory_info"])
-        )
-        key_func = {
-            "CPU": lambda p: p.info.get("cpu_percent", 0.0),
-            "Memory": lambda p: p.info.get("memory_info").rss,
-            "PID": lambda p: p.info.get("pid"),
-        }.get(self.sort_var.get(), lambda p: p.info.get("cpu_percent", 0.0))
-        processes.sort(key=key_func, reverse=True)
-        for proc in processes:
-            name = proc.info.get("name", "")
-            if query and query not in name.lower():
+    @classmethod
+    def force_kill_zombies(cls) -> int:
+        """Terminate processes in a zombie state."""
+        count = 0
+        for proc in psutil.process_iter(["pid", "status"]):
+            try:
+                if proc.info.get("status") == psutil.STATUS_ZOMBIE:
+                    cls.force_kill(proc.pid)
+                    count += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
-            pid = proc.info["pid"]
-            cpu = proc.info.get("cpu_percent", 0.0)
-            mem = proc.info.get("memory_info").rss / (1024 * 1024)
-            row = ctk.CTkFrame(self.list_frame, fg_color="transparent")
-            row.pack(fill="x", pady=2)
-            label = ctk.CTkLabel(
-                row,
-                text=f"{pid:6d} {name:<25} {cpu:5.1f}% {mem:8.1f}MB",
-                anchor="w",
+        return count
+
+    def _populate(self) -> None:
+        if self._debounce_id is not None:
+            self.after_cancel(self._debounce_id)
+        self._debounce_id = self.after(150, self._apply_filter_sort)
+
+    def _apply_filter_sort(self) -> None:
+        query = self.search_var.get().lower()
+        sort_key = self.sort_var.get()
+        filter_by = self.filter_var.get()
+
+        processes = list(self.process_snapshot.values())
+        if query:
+            if filter_by == "Name":
+                processes = [p for p in processes if query in p.name.lower()]
+            elif filter_by == "User":
+                processes = [p for p in processes if query in p.user.lower()]
+            elif filter_by == "PID" and query.isdigit():
+                pid_val = int(query)
+                processes = [p for p in processes if p.pid == pid_val]
+            elif filter_by == "CPU ≥":
+                try:
+                    threshold = float(query)
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.cpu >= threshold]
+            elif filter_by == "Avg CPU ≥":
+                try:
+                    threshold = float(query)
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.avg_cpu >= threshold]
+            elif filter_by == "Memory ≥":
+                try:
+                    threshold = float(query)
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.mem >= threshold]
+            elif filter_by == "Threads ≥":
+                try:
+                    threshold = int(float(query))
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.threads >= threshold]
+            elif filter_by == "Age ≥":
+                try:
+                    threshold = float(query)
+                except ValueError:
+                    processes = []
+                else:
+                    now = time.time()
+                    processes = [p for p in processes if now - p.start >= threshold]
+            elif filter_by == "IO ≥":
+                try:
+                    threshold = float(query)
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.io_rate >= threshold]
+            elif filter_by == "Avg IO ≥":
+                try:
+                    threshold = float(query)
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.avg_io >= threshold]
+            elif filter_by == "Files ≥":
+                try:
+                    threshold = int(float(query))
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.files >= threshold]
+            elif filter_by == "Conns ≥":
+                try:
+                    threshold = int(float(query))
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.conns >= threshold]
+            elif filter_by == "Status":
+                processes = [p for p in processes if query in p.status.lower()]
+            else:
+                processes = []
+
+        key_func = {
+            "CPU": lambda p: p.cpu,
+            "Avg CPU": lambda p: p.avg_cpu,
+            "Memory": lambda p: p.mem,
+            "Threads": lambda p: p.threads,
+            "IO": lambda p: p.io_rate,
+            "Avg IO": lambda p: p.avg_io,
+            "Files": lambda p: p.files,
+            "Conns": lambda p: p.conns,
+            "PID": lambda p: p.pid,
+            "User": lambda p: p.user.lower(),
+            "Start": lambda p: p.start,
+            "Age": lambda p: time.time() - p.start,
+        }.get(sort_key, lambda p: p.cpu)
+        processes.sort(key=key_func, reverse=True)
+        self._update_list(processes)
+
+    def _update_list(self, processes: list[ProcessEntry]) -> None:
+        existing = set(self.rows)
+        for entry in processes:
+            pid = entry.pid
+            age = time.time() - entry.start
+            text = (
+                f"{pid:6d} {entry.user[:8]:<8} {entry.name:<25} "
+                f"{entry.avg_cpu:5.1f}% {entry.mem:8.1f}MB "
+                f"{entry.io_rate:5.1f}/{entry.avg_io:5.1f}MB/s "
+                f"T{entry.threads:3d} F{entry.files:3d} C{entry.conns:3d} "
+                f"{entry.status[:6]:<6} {age:7.1f}s"
             )
-            label.pack(side="left", fill="x", expand=True)
-            label.bind(
-                "<Double-Button-1>",
-                lambda _e, p=pid: self._confirm_kill(p),
-            )
-            var = ctk.IntVar(value=0)
-            self.pid_vars[pid] = var
-            ctk.CTkCheckBox(row, variable=var, width=15, text="").pack(side="right")
+            if pid in self.rows:
+                frame, label, var = self.rows[pid]
+                label.configure(text=text)
+                existing.remove(pid)
+            else:
+                frame = ctk.CTkFrame(self.list_frame, fg_color="transparent")
+                label = ctk.CTkLabel(frame, text=text, anchor="w")
+                label.pack(side="left", fill="x", expand=True)
+                label.bind("<Double-Button-1>", lambda _e, p=pid: self._confirm_kill(p))
+                var = ctk.IntVar(value=0)
+                ctk.CTkCheckBox(frame, variable=var, width=15, text="").pack(side="right")
+                frame.pack(fill="x", pady=2)
+                self.pid_vars[pid] = var
+                self.rows[pid] = (frame, label, var)
+        for pid in existing:
+            frame, _label, _var = self.rows.pop(pid)
+            frame.destroy()
+            self.pid_vars.pop(pid, None)
+
+    def _export_csv(self) -> None:
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv")],
+            title="Save Process List",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "pid,user,name,cpu,avg_cpu,mem,io_rate,avg_io,threads,files,conns,start,status\n"
+                )
+                for entry in self.process_snapshot.values():
+                    fh.write(
+                        f"{entry.pid},{entry.user},{entry.name},{entry.cpu},{entry.avg_cpu:.1f},{entry.mem},{entry.io_rate},{entry.avg_io:.1f},{entry.threads},{entry.files},{entry.conns},{entry.start},{entry.status}\n"
+                    )
+            messagebox.showinfo("Force Quit", f"Saved to {path}", parent=self)
+        except Exception as exc:
+            messagebox.showerror("Force Quit", str(exc), parent=self)
 
     def _kill_selected(self) -> None:
         pids = [pid for pid, var in self.pid_vars.items() if var.get()]
@@ -607,6 +1127,81 @@ class ForceQuitDialog(ctk.CTkToplevel):
         )
         self._populate()
 
+    def _kill_high_io(self) -> None:
+        value = self.search_var.get().strip()
+        try:
+            threshold = float(value)
+        except ValueError:
+            messagebox.showerror("Force Quit", "Enter IO threshold MB/s", parent=self)
+            return
+        count = self.force_kill_above_io(threshold)
+        messagebox.showinfo(
+            "Force Quit",
+            f"Terminated {count} process(es) above {threshold}MB/s IO",
+            parent=self,
+        )
+        self._populate()
+
+    def _kill_high_cpu_avg(self) -> None:
+        value = self.search_var.get().strip()
+        try:
+            threshold = float(value)
+        except ValueError:
+            messagebox.showerror("Force Quit", "Enter CPU threshold", parent=self)
+            return
+        count = self.force_kill_sustained_cpu(threshold)
+        messagebox.showinfo(
+            "Force Quit",
+            f"Terminated {count} process(es) above {threshold}% avg CPU",
+            parent=self,
+        )
+        self._populate()
+
+    def _kill_high_threads(self) -> None:
+        value = self.search_var.get().strip()
+        try:
+            threshold = int(float(value))
+        except ValueError:
+            messagebox.showerror("Force Quit", "Enter thread count", parent=self)
+            return
+        count = self.force_kill_above_threads(threshold)
+        messagebox.showinfo(
+            "Force Quit",
+            f"Terminated {count} process(es) above {threshold} threads",
+            parent=self,
+        )
+        self._populate()
+
+    def _kill_high_files(self) -> None:
+        value = self.search_var.get().strip()
+        try:
+            threshold = int(float(value))
+        except ValueError:
+            messagebox.showerror("Force Quit", "Enter file count", parent=self)
+            return
+        count = self.force_kill_above_files(threshold)
+        messagebox.showinfo(
+            "Force Quit",
+            f"Terminated {count} process(es) above {threshold} files",
+            parent=self,
+        )
+        self._populate()
+
+    def _kill_high_conns(self) -> None:
+        value = self.search_var.get().strip()
+        try:
+            threshold = int(float(value))
+        except ValueError:
+            messagebox.showerror("Force Quit", "Enter connection count", parent=self)
+            return
+        count = self.force_kill_above_conns(threshold)
+        messagebox.showinfo(
+            "Force Quit",
+            f"Terminated {count} process(es) above {threshold} conns",
+            parent=self,
+        )
+        self._populate()
+
     def _kill_by_parent(self) -> None:
         value = self.search_var.get().strip()
         if not value.isdigit():
@@ -650,13 +1245,29 @@ class ForceQuitDialog(ctk.CTkToplevel):
         )
         self._populate()
 
+    def _kill_zombies(self) -> None:
+        count = self.force_kill_zombies()
+        messagebox.showinfo(
+            "Force Quit",
+            f"Terminated {count} zombie process(es)",
+            parent=self,
+        )
+        self._populate()
+
     def _auto_refresh(self) -> None:
         if not self.winfo_exists():
             return
-        self._populate()
-        self._after_id = self.after(3000, self._auto_refresh)
+        self._drain_queue()
+        self._apply_filter_sort()
+        try:
+            delay = int(float(self.interval_var.get()) * 1000)
+        except Exception:
+            delay = 3000
+        self._after_id = self.after(delay, self._auto_refresh)
 
     def _on_close(self) -> None:
         if self._after_id is not None:
             self.after_cancel(self._after_id)
+        self._watcher.stop()
+        self._watcher.join(timeout=1.0)
         self.destroy()

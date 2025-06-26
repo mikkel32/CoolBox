@@ -235,6 +235,93 @@ class TestForceQuit(unittest.TestCase):
             status = psutil.STATUS_DEAD
         self.assertIn(status, {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD})
 
+    def test_force_kill_zombies(self) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "import os,time; os._exit(0)"])
+        time.sleep(0.1)
+        # Wait for zombie state
+        start = time.time()
+        while time.time() - start < 2.0:
+            try:
+                if psutil.Process(proc.pid).status() == psutil.STATUS_ZOMBIE:
+                    break
+            except psutil.NoSuchProcess:
+                break
+            time.sleep(0.1)
+        count = ForceQuitDialog.force_kill_zombies()
+        self.assertGreaterEqual(count, 1)
+
+    def test_force_kill_above_threads(self) -> None:
+        script = (
+            "import threading,time;"
+            "[threading.Thread(target=time.sleep,args=(30,)).start() for _ in range(10)];"
+            "time.sleep(30)"
+        )
+        proc = subprocess.Popen([sys.executable, "-c", script])
+        time.sleep(0.2)
+        self.assertTrue(psutil.pid_exists(proc.pid))
+        count = ForceQuitDialog.force_kill_above_threads(5)
+        time.sleep(0.1)
+        self.assertGreaterEqual(count, 1)
+        self.assertFalse(psutil.pid_exists(proc.pid))
+
+    def test_force_kill_above_io(self) -> None:
+        script = (
+            "import time,os;"
+            "f=open('io_test.tmp','wb');"
+            "data=b'0'*1024*1024;"
+            "[f.write(data) or f.flush() for _ in range(5)];"
+            "time.sleep(30)"
+        )
+        proc = subprocess.Popen([sys.executable, "-c", script])
+        time.sleep(0.2)
+        self.assertTrue(psutil.pid_exists(proc.pid))
+        ForceQuitDialog.force_kill_above_io(0)
+        time.sleep(0.1)
+        if psutil.pid_exists(proc.pid):
+            ForceQuitDialog.force_kill(proc.pid)
+        self.assertFalse(psutil.pid_exists(proc.pid))
+
+    def test_force_kill_above_files(self) -> None:
+        script = (
+            "import tempfile,time;"
+            "files=[open(tempfile.mkstemp()[1],'wb') for _ in range(6)];"
+            "time.sleep(30)"
+        )
+        proc = subprocess.Popen([sys.executable, "-c", script])
+        time.sleep(0.2)
+        self.assertTrue(psutil.pid_exists(proc.pid))
+        count = ForceQuitDialog.force_kill_above_files(4)
+        time.sleep(0.1)
+        self.assertGreaterEqual(count, 1)
+        self.assertFalse(psutil.pid_exists(proc.pid))
+
+    def test_force_kill_above_conns(self) -> None:
+        script = (
+            "import socket,threading,time;"
+            "srv=socket.socket();"
+            "srv.bind(('127.0.0.1',0));srv.listen();"
+            "port=srv.getsockname()[1];"
+            "threading.Thread(target=lambda: [srv.accept() for _ in range(6)], daemon=True).start();"
+            "s=[socket.create_connection(('127.0.0.1',port)) for _ in range(6)];"
+            "time.sleep(30)"
+        )
+        proc = subprocess.Popen([sys.executable, "-c", script])
+        time.sleep(0.5)
+        self.assertTrue(psutil.pid_exists(proc.pid))
+        count = ForceQuitDialog.force_kill_above_conns(4)
+        time.sleep(0.1)
+        self.assertGreaterEqual(count, 1)
+        self.assertFalse(psutil.pid_exists(proc.pid))
+
+    def test_force_kill_sustained_cpu(self) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL)
+        time.sleep(0.2)
+        self.assertTrue(psutil.pid_exists(proc.pid))
+        count = ForceQuitDialog.force_kill_sustained_cpu(10.0, duration=0.5)
+        time.sleep(0.1)
+        self.assertGreaterEqual(count, 1)
+        self.assertFalse(psutil.pid_exists(proc.pid))
+
 
 if __name__ == "__main__":
     unittest.main()

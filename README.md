@@ -20,8 +20,23 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   or user. It can terminate entire process trees, children of a parent process
   or all processes older than a specified runtime, in addition to killing above
   configurable CPU or memory thresholds using platform-aware logic. The dialog
-  can be opened quickly with
-  `Ctrl+Alt+F`.
+  refreshes the process list using a persistent background watcher thread that
+  streams only changed processes to the UI. CPU usage is calculated from raw
+  process time deltas which avoids expensive system polling and averages across
+  recent samples for smoother updates. Filtering and sorting
+  happen instantly on the latest snapshot, and rows update in-place only when
+  values actually change to avoid flicker, so the interface stays responsive even with hundreds of processes. The dialog adds
+  filtering by CPU, average CPU, memory, I/O rate or age thresholds, thread count filtering,
+  open file and connection count metrics, and average I/O rate checks. It includes buttons to terminate high I/O or sustained high CPU processes,
+  or processes with many files or network connections,
+  an adjustable refresh interval, and an option to export the process list to CSV.
+  It allows filtering by user, name or PID and can be opened quickly with
+  `Ctrl+Alt+F`. Zombie processes can be terminated with a single click and the
+  list includes each process status, runtime and live I/O rate for quick
+  troubleshooting. Process data is gathered concurrently using a small thread
+  pool so updates remain fast even with hundreds of processes. Expensive metrics
+  like open files and network connections are refreshed only every few cycles to
+  further reduce overhead without losing accuracy.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
   support, host lookup caching, and configurable timeouts.
 - **Auto Network Scan**: Detects local networks, pings for active hosts and
