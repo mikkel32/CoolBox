@@ -52,6 +52,12 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   watcher thread so no resources are wasted while inspecting a snapshot.
   Set ``FORCE_QUIT_AUTO_KILL`` to ``cpu``, ``mem`` or ``both`` to automatically
   terminate processes exceeding the configured thresholds.
+  Updated thresholds, auto-kill options, sort settings, refresh interval and
+  window size persist across sessions when changed through the dialog. The
+  interface now organizes advanced kill controls on a dedicated **Actions** tab
+  with a toggleable details pane on the main monitor tab. A status bar shows the
+  total CPU and memory usage of listed processes, and the dialog can stay
+  **Always on Top** if enabled.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
   support, host lookup caching, and configurable timeouts.
 - **Auto Network Scan**: Detects local networks, pings for active hosts and
