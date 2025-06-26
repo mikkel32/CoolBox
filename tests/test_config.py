@@ -66,3 +66,55 @@ def test_menu_default(monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp)
     cfg = Config()
     assert cfg.get("show_menu") is True
+
+
+def test_force_quit_defaults(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    assert cfg.get("force_quit_cpu_alert") == 80.0
+    assert cfg.get("force_quit_mem_alert") == 500.0
+    assert cfg.get("force_quit_auto_kill") == "none"
+    assert cfg.get("force_quit_sort") == "CPU"
+    assert cfg.get("force_quit_sort_reverse") is True
+    assert cfg.get("force_quit_on_top") is False
+
+
+def test_force_quit_persist(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    cfg.set("force_quit_cpu_alert", 90.0)
+    cfg.save()
+    cfg2 = Config()
+    assert cfg2.get("force_quit_cpu_alert") == 90.0
+
+
+def test_force_quit_sort_persist(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    cfg.set("force_quit_sort", "Memory")
+    cfg.set("force_quit_sort_reverse", False)
+    cfg.save()
+    cfg2 = Config()
+    assert cfg2.get("force_quit_sort") == "Memory"
+    assert cfg2.get("force_quit_sort_reverse") is False
+
+
+def test_force_quit_window_size_defaults(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    assert cfg.get("force_quit_width") == 1000
+    assert cfg.get("force_quit_height") == 650
+
+
+def test_force_quit_window_size_persist(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    cfg.set("force_quit_width", 1111)
+    cfg.save()
+    cfg2 = Config()
+    assert cfg2.get("force_quit_width") == 1111

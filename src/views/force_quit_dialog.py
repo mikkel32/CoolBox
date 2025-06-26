@@ -268,15 +268,37 @@ class ForceQuitDialog(ctk.CTkToplevel):
         super().__init__(app.window)
         self.app = app
         self.title("Force Quit")
-        self.resizable(False, False)
-        self.geometry("750x500")
+        width_env = os.getenv("FORCE_QUIT_WIDTH")
+        height_env = os.getenv("FORCE_QUIT_HEIGHT")
+        cfg = app.config
+        width = (
+            int(width_env)
+            if width_env and width_env.isdigit()
+            else int(cfg.get("force_quit_width", 1000))
+        )
+        height = (
+            int(height_env)
+            if height_env and height_env.isdigit()
+            else int(cfg.get("force_quit_height", 650))
+        )
+        self.resizable(True, True)
+        self.geometry(f"{width}x{height}")
+        if on_top_env is not None:
+            on_top = on_top_env.lower() in {"1", "true", "yes"}
+        else:
+            on_top = bool(cfg.get("force_quit_on_top", False))
+        self.attributes("-topmost", on_top)
         self._after_id: int | None = None
         self._debounce_id: int | None = None
         self.process_snapshot: dict[int, ProcessEntry] = {}
         self._row_cache: dict[int, tuple[tuple, tuple]] = {}
         self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue(maxsize=1)
         self.paused = False
-        self.sort_reverse = True
+        if reverse_env is not None:
+            self.sort_reverse = reverse_env.lower() in {"1", "true", "yes"}
+        else:
+            self.sort_reverse = bool(cfg.get("force_quit_sort_reverse", True))
+        self.sort_default = sort_env or str(cfg.get("force_quit_sort", "CPU"))
         self._filter_cache: tuple[str, str, str, bool] | None = None
         self._snapshot_changed = False
         interval_env = os.getenv("FORCE_QUIT_INTERVAL")
@@ -287,16 +309,52 @@ class ForceQuitDialog(ctk.CTkToplevel):
         mem_alert_env = os.getenv("FORCE_QUIT_MEM_ALERT")
         sample_env = os.getenv("FORCE_QUIT_SAMPLES")
         auto_env = os.getenv("FORCE_QUIT_AUTO_KILL", "").lower()
+        sort_env = os.getenv("FORCE_QUIT_SORT")
+        reverse_env = os.getenv("FORCE_QUIT_SORT_REVERSE")
+        on_top_env = os.getenv("FORCE_QUIT_ON_TOP")
 
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
-        interval = float(interval_env) if interval_env else 2.0
-        detail = int(detail_env) if detail_env and detail_env.isdigit() else 5
-        samples = int(sample_env) if sample_env and sample_env.isdigit() else 5
-        self.cpu_alert = float(cpu_alert_env) if cpu_alert_env else 80.0
-        self.mem_alert = float(mem_alert_env) if mem_alert_env else 500.0
-        self.max_processes = int(max_env) if max_env and max_env.isdigit() else 300
-        self.auto_kill_cpu = "cpu" in auto_env or "both" in auto_env
-        self.auto_kill_mem = "mem" in auto_env or "both" in auto_env
+        interval = (
+            float(interval_env)
+            if interval_env
+            else float(cfg.get("force_quit_interval", 2.0))
+        )
+        detail = (
+            int(detail_env)
+            if detail_env and detail_env.isdigit()
+            else int(cfg.get("force_quit_detail_interval", 5))
+        )
+        samples = (
+            int(sample_env)
+            if sample_env and sample_env.isdigit()
+            else int(cfg.get("force_quit_samples", 5))
+        )
+        self.cpu_alert = (
+            float(cpu_alert_env)
+            if cpu_alert_env
+            else float(cfg.get("force_quit_cpu_alert", 80.0))
+        )
+        self.mem_alert = (
+            float(mem_alert_env)
+            if mem_alert_env
+            else float(cfg.get("force_quit_mem_alert", 500.0))
+        )
+        self.max_processes = (
+            int(max_env)
+            if max_env and max_env.isdigit()
+            else int(cfg.get("force_quit_max", 300))
+        )
+        auto_setting = cfg.get("force_quit_auto_kill", "none").lower()
+        self.auto_kill_cpu = (
+            "cpu" in auto_env
+            or "both" in auto_env
+            or auto_setting in ("cpu", "both")
+        )
+        self.auto_kill_mem = (
+            "mem" in auto_env
+            or "both" in auto_env
+            or auto_setting in ("mem", "both")
+        )
         self._watcher = ProcessWatcher(
             self._queue,
             interval=interval,
@@ -313,7 +371,41 @@ class ForceQuitDialog(ctk.CTkToplevel):
             font=ctk.CTkFont(size=18, weight="bold"),
         ).pack(pady=10)
 
-        search_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.tabview = ctk.CTkTabview(self)
+        self.tabview.pack(fill="both", expand=True)
+        monitor_tab = self.tabview.add("Monitor")
+        actions_tab = self.tabview.add("Actions")
+
+        actions_scroll = ctk.CTkScrollableFrame(actions_tab)
+        actions_scroll.pack(fill="both", expand=True, padx=10, pady=10)
+        actions = [
+            ("Kill by Name", self._kill_by_name),
+            ("Kill by Pattern", self._kill_by_pattern),
+            ("Kill by Port", self._kill_by_port),
+            ("Kill by Host", self._kill_by_host),
+            ("Kill by File", self._kill_by_file),
+            ("Kill by Exec", self._kill_by_executable),
+            ("Kill by User", self._kill_by_user),
+            ("Kill by Cmdline", self._kill_by_cmdline),
+            ("Kill High CPU", self._kill_high_cpu),
+            ("Kill High Mem", self._kill_high_memory),
+            ("Kill High IO", self._kill_high_io),
+            ("Kill CPU Avg", self._kill_high_cpu_avg),
+            ("Kill Many Threads", self._kill_high_threads),
+            ("Kill Many Files", self._kill_high_files),
+            ("Kill Many Conns", self._kill_high_conns),
+            ("Kill by Parent", self._kill_by_parent),
+            ("Kill Children", self._kill_children),
+            ("Kill by Age", self._kill_by_age),
+            ("Kill Zombies", self._kill_zombies),
+        ]
+        for i, (text, cmd) in enumerate(actions):
+            btn = ctk.CTkButton(actions_scroll, text=text, command=cmd)
+            btn.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="ew")
+        actions_scroll.grid_columnconfigure(0, weight=1)
+        actions_scroll.grid_columnconfigure(1, weight=1)
+
+        search_frame = ctk.CTkFrame(monitor_tab, fg_color="transparent")
         search_frame.pack(fill="x", padx=10)
         self.search_var = ctk.StringVar()
         entry = ctk.CTkEntry(search_frame, textvariable=self.search_var)
@@ -343,7 +435,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         )
         filter_menu.pack(side="left", padx=5)
 
-        self.sort_var = ctk.StringVar(value="CPU")
+        self.sort_var = ctk.StringVar(value=self.sort_default)
         sort_menu = ctk.CTkOptionMenu(
             search_frame,
             variable=self.sort_var,
@@ -365,7 +457,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         )
         sort_menu.pack(side="left", padx=5)
 
-        self.interval_var = ctk.StringVar(value="2")
+        self.interval_var = ctk.StringVar(value=str(interval))
         interval_menu = ctk.CTkOptionMenu(
             search_frame,
             variable=self.interval_var,
@@ -383,101 +475,40 @@ class ForceQuitDialog(ctk.CTkToplevel):
         ctk.CTkButton(search_frame, text="Save CSV", command=self._export_csv).pack(
             side="left", padx=5
         )
-        ctk.CTkButton(
-            search_frame, text="Kill by Name", command=self._kill_by_name
+        # Advanced actions live on the Actions tab
+
+        options_frame = ctk.CTkFrame(monitor_tab, fg_color="transparent")
+        options_frame.pack(fill="x", padx=10, pady=(5, 0))
+        self.cpu_alert_var = ctk.StringVar(value=str(self.cpu_alert))
+        self.mem_alert_var = ctk.StringVar(value=str(self.mem_alert))
+        self.auto_cpu_var = ctk.BooleanVar(value=self.auto_kill_cpu)
+        self.auto_mem_var = ctk.BooleanVar(value=self.auto_kill_mem)
+        ctk.CTkLabel(options_frame, text="CPU ≥").pack(side="left")
+        ctk.CTkEntry(options_frame, width=60, textvariable=self.cpu_alert_var).pack(side="left", padx=5)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Auto Kill CPU",
+            variable=self.auto_cpu_var,
+            command=lambda: setattr(self, "auto_kill_cpu", self.auto_cpu_var.get()),
         ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by Pattern",
-            command=self._kill_by_pattern,
+        ctk.CTkLabel(options_frame, text="Mem ≥ MB").pack(side="left", padx=(10, 0))
+        ctk.CTkEntry(options_frame, width=60, textvariable=self.mem_alert_var).pack(side="left", padx=5)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Auto Kill Mem",
+            variable=self.auto_mem_var,
+            command=lambda: setattr(self, "auto_kill_mem", self.auto_mem_var.get()),
         ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by Port",
-            command=self._kill_by_port,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by Host",
-            command=self._kill_by_host,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by File",
-            command=self._kill_by_file,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by Exec",
-            command=self._kill_by_executable,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by User",
-            command=self._kill_by_user,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by Cmdline",
-            command=self._kill_by_cmdline,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill High CPU",
-            command=self._kill_high_cpu,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill High Mem",
-            command=self._kill_high_memory,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill High IO",
-            command=self._kill_high_io,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill CPU Avg",
-            command=self._kill_high_cpu_avg,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill Many Threads",
-            command=self._kill_high_threads,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill Many Files",
-            command=self._kill_high_files,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill Many Conns",
-            command=self._kill_high_conns,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by Parent",
-            command=self._kill_by_parent,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill Children",
-            command=self._kill_children,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill by Age",
-            command=self._kill_by_age,
-        ).pack(side="left", padx=5)
-        ctk.CTkButton(
-            search_frame,
-            text="Kill Zombies",
-            command=self._kill_zombies,
+        ctk.CTkButton(options_frame, text="Apply", command=self._apply_thresholds).pack(side="left", padx=5)
+        self.show_details_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Show Details",
+            variable=self.show_details_var,
+            command=self._toggle_details,
         ).pack(side="left", padx=5)
 
-        self.tree_frame = ctk.CTkFrame(self)
+        self.tree_frame = ctk.CTkFrame(monitor_tab)
         self.tree_frame.pack(fill="both", expand=True, padx=10, pady=10)
         columns = [
             "PID",
@@ -518,14 +549,21 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.tree.tag_configure("high_mem", background="#fff5cc")
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
-        self.tree.bind("<<TreeviewSelect>>", lambda _e: self._update_status(len(self.tree.get_children())))
+        self.tree.bind("<<TreeviewSelect>>", self._on_selection)
+
+        self.details_frame = ctk.CTkFrame(monitor_tab)
+        self.details_frame.pack(fill="both", padx=10, pady=(5, 0))
+        self.details_text = ctk.CTkTextbox(self.details_frame, height=120)
+        self.details_text.pack(fill="both", expand=True)
+        self.details_text.configure(state="disabled")
+        self._toggle_details()
 
         ctk.CTkButton(
-            self, text="Force Quit Selected", command=self._kill_selected
+            monitor_tab, text="Force Quit Selected", command=self._kill_selected
         ).pack(pady=(5, 0))
 
         self.status_var = ctk.StringVar(value="0 processes")
-        ctk.CTkLabel(self, textvariable=self.status_var).pack(pady=(0, 5))
+        ctk.CTkLabel(monitor_tab, textvariable=self.status_var).pack(pady=(0, 5))
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -1216,7 +1254,70 @@ class ForceQuitDialog(ctk.CTkToplevel):
 
     def _update_status(self, count: int) -> None:
         selected = len(self.tree.selection())
-        self.status_var.set(f"{count} processes ({selected} selected)")
+        total_cpu = sum(p.cpu for p in self.process_snapshot.values())
+        total_mem = sum(p.mem for p in self.process_snapshot.values())
+        self.status_var.set(
+            f"{count} processes ({selected} selected) | CPU {total_cpu:.1f}% | Mem {total_mem:.1f} MB"
+        )
+
+    def _on_selection(self, _event=None) -> None:
+        self._update_status(len(self.tree.get_children()))
+        self._show_details()
+
+    def _show_details(self) -> None:
+        sel = self.tree.selection()
+        if not sel:
+            self.details_text.configure(state="normal")
+            self.details_text.delete("1.0", "end")
+            self.details_text.configure(state="disabled")
+            return
+        pid = int(sel[0])
+        info = self._get_process_details(pid)
+        self.details_text.configure(state="normal")
+        self.details_text.delete("1.0", "end")
+        self.details_text.insert("1.0", info)
+        self.details_text.configure(state="disabled")
+
+    def _toggle_details(self) -> None:
+        if self.show_details_var.get():
+            self.details_frame.pack(fill="both", padx=10, pady=(5, 0))
+            self._show_details()
+        else:
+            self.details_frame.pack_forget()
+
+    def _get_process_details(self, pid: int) -> str:
+        try:
+            proc = psutil.Process(pid)
+            with proc.oneshot():
+                name = proc.name()
+                exe = proc.exe() or ""
+                cmdline = " ".join(proc.cmdline())
+                cwd = proc.cwd() or ""
+                user = proc.username() or ""
+                start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(proc.create_time()))
+                status = proc.status()
+                mem = proc.memory_info().rss / (1024 * 1024)
+                cpu = proc.cpu_percent(interval=0.1)
+                threads = proc.num_threads()
+                files = len(proc.open_files())
+                conns = len(proc.connections(kind="inet"))
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            return str(exc)
+        return (
+            f"PID: {pid}\n"
+            f"Name: {name}\n"
+            f"User: {user}\n"
+            f"Status: {status}\n"
+            f"Started: {start}\n"
+            f"CPU: {cpu:.1f}%\n"
+            f"Memory: {mem:.1f} MB\n"
+            f"Threads: {threads}\n"
+            f"Open Files: {files}\n"
+            f"Connections: {conns}\n"
+            f"CWD: {cwd}\n"
+            f"Executable: {exe}\n"
+            f"Cmdline: {cmdline}"
+        )
 
     def _confirm_kill(self, pid: int) -> None:
         if messagebox.askyesno("Force Quit", f"Terminate PID {pid}?", parent=self):
@@ -1487,6 +1588,33 @@ class ForceQuitDialog(ctk.CTkToplevel):
         )
         self._populate()
 
+    def _apply_thresholds(self) -> None:
+        """Update alert thresholds and auto-kill flags from the UI."""
+        try:
+            self.cpu_alert = float(self.cpu_alert_var.get())
+        except ValueError:
+            pass
+        try:
+            self.mem_alert = float(self.mem_alert_var.get())
+        except ValueError:
+            pass
+        self.auto_kill_cpu = self.auto_cpu_var.get()
+        self.auto_kill_mem = self.auto_mem_var.get()
+        cfg = self.app.config
+        cfg.set("force_quit_cpu_alert", self.cpu_alert)
+        cfg.set("force_quit_mem_alert", self.mem_alert)
+        if self.auto_kill_cpu and self.auto_kill_mem:
+            auto = "both"
+        elif self.auto_kill_cpu:
+            auto = "cpu"
+        elif self.auto_kill_mem:
+            auto = "mem"
+        else:
+            auto = "none"
+        cfg.set("force_quit_auto_kill", auto)
+        cfg.save()
+        self._populate()
+
     def _auto_refresh(self) -> None:
         if not self.winfo_exists():
             return
@@ -1517,6 +1645,18 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self._after_id = self.after(delay, self._auto_refresh)
 
     def _on_close(self) -> None:
+        self._apply_thresholds()
+        cfg = self.app.config
+        cfg.set("force_quit_width", self.winfo_width())
+        cfg.set("force_quit_height", self.winfo_height())
+        cfg.set("force_quit_sort", self.sort_var.get())
+        cfg.set("force_quit_sort_reverse", self.sort_reverse)
+        try:
+            cfg.set("force_quit_interval", float(self.interval_var.get()))
+        except Exception:
+            pass
+        cfg.set("force_quit_on_top", bool(self.attributes("-topmost")))
+        cfg.save()
         if self._after_id is not None:
             self.after_cancel(self._after_id)
         self._watcher.stop()
