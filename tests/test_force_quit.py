@@ -6,6 +6,7 @@ import shutil
 import re
 
 import psutil
+import heapq
 
 from src.views.force_quit_dialog import ForceQuitDialog, ProcessEntry
 
@@ -362,6 +363,44 @@ class TestForceQuit(unittest.TestCase):
             mem_alert=500.0,
         )
         assert set(pids) == {1, 2}
+
+    def test_heap_ordering_no_error(self) -> None:
+        """Ensure heap operations don't compare ProcessEntry instances."""
+        e1 = ProcessEntry(
+            pid=1,
+            name="p1",
+            cpu=50.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        e2 = ProcessEntry(
+            pid=2,
+            name="p2",
+            cpu=50.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        heap: list[tuple[tuple[float, float, int], ProcessEntry]] = []
+        heapq.heappush(heap, ((e1.avg_cpu, e1.mem, e1.pid), e1))
+        heapq.heappush(heap, ((e2.avg_cpu, e2.mem, e2.pid), e2))
+        ordered = [e.pid for _s, e in heapq.nlargest(2, heap)]
+        assert set(ordered) == {1, 2}
 
 
 if __name__ == "__main__":
