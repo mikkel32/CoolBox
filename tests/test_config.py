@@ -78,6 +78,8 @@ def test_force_quit_defaults(monkeypatch):
     assert cfg.get("force_quit_sort") == "CPU"
     assert cfg.get("force_quit_sort_reverse") is True
     assert cfg.get("force_quit_on_top") is False
+    assert cfg.get("force_quit_adaptive") is True
+    assert cfg.get("force_quit_adaptive_detail") is True
 
 
 def test_force_quit_persist(monkeypatch):

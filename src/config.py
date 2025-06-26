@@ -39,6 +39,8 @@ class Config:
             "force_quit_interval": 2.0,
             "force_quit_detail_interval": 5,
             "force_quit_samples": 5,
+            "force_quit_adaptive": True,
+            "force_quit_adaptive_detail": True,
             "force_quit_max": 300,
             "force_quit_width": 1000,
             "force_quit_height": 650,

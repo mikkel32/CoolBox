@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty, Full
 from dataclasses import dataclass, field
 from collections import deque
+import heapq
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter import ttk
@@ -101,16 +102,24 @@ class ProcessWatcher(threading.Thread):
         detail_interval: int = 3,
         max_workers: int | None = None,
         sample_size: int = 5,
+        limit: int | None = None,
+        adaptive: bool = True,
+        adaptive_detail: bool = True,
     ) -> None:
         super().__init__(daemon=True)
         self.queue = queue
-        self.interval = interval
+        self.interval = max(0.5, float(interval))
+        self.target_interval = self.interval
         self.detail_interval = max(1, detail_interval)
+        self.target_detail_interval = self.detail_interval
+        self.limit = limit
+        self.adaptive = adaptive
+        self.adaptive_detail = adaptive_detail
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._snapshot: dict[int, ProcessEntry] = {}
+        self._detail_ts: dict[int, float] = {}
         self._last_ts = time.monotonic()
-        self._tick = 0
         workers = max_workers or min(8, (os.cpu_count() or 1) * 2)
         self._executor = ThreadPoolExecutor(max_workers=workers)
         self._cpu_count = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
@@ -118,7 +127,12 @@ class ProcessWatcher(threading.Thread):
         self.process_count = 0
 
     def set_interval(self, interval: float) -> None:
-        self.interval = max(0.5, float(interval))
+        self.target_interval = max(0.5, float(interval))
+        self.interval = self.target_interval
+
+    def set_detail_interval(self, interval: int) -> None:
+        self.target_detail_interval = max(1, int(interval))
+        self.detail_interval = self.target_detail_interval
 
     def pause(self) -> None:
         self._pause_event.set()
@@ -128,32 +142,31 @@ class ProcessWatcher(threading.Thread):
 
     def run(self) -> None:
         while not self._stop_event.is_set():
+            loop_start = time.monotonic()
             if self._pause_event.is_set():
                 if self._stop_event.wait(self.interval):
                     break
                 continue
+
             now = time.monotonic()
             delta = max(now - self._last_ts, 0.001)
             self._last_ts = now
-            self._tick += 1
             updates: dict[int, ProcessEntry] = {}
             current: set[int] = set()
-            procs = list(
-                psutil.process_iter(
-                    [
-                        "pid",
-                        "name",
-                        "username",
-                        "create_time",
-                        "memory_info",
-                        "status",
-                        "cpu_times",
-                        "num_threads",
-                    ]
-                )
-            )
 
-            detail = self._tick % self.detail_interval == 0
+            basic_attrs = [
+                "pid",
+                "name",
+                "username",
+                "create_time",
+                "memory_info",
+                "status",
+                "cpu_times",
+                "num_threads",
+            ]
+
+            procs = list(psutil.process_iter(basic_attrs))
+            self.process_count = len(procs)
 
             def collect(proc: psutil.Process) -> ProcessEntry | None:
                 try:
@@ -166,30 +179,12 @@ class ProcessWatcher(threading.Thread):
                         start = proc.info.get("create_time", 0.0)
                         status = proc.info.get("status", "")
                         threads = proc.info.get("num_threads", 0)
-                        prev_entry = self._snapshot.get(pid)
                         try:
                             io = proc.io_counters()
                             read_bytes = io.read_bytes
                             write_bytes = io.write_bytes
                         except Exception:
                             read_bytes = write_bytes = 0
-                        if detail:
-                            try:
-                                if hasattr(proc, "num_handles"):
-                                    files = proc.num_handles()
-                                elif hasattr(proc, "num_fds"):
-                                    files = proc.num_fds()
-                                else:
-                                    files = len(proc.open_files())
-                            except Exception:
-                                files = prev_entry.files if prev_entry else 0
-                            try:
-                                conns = len(proc.connections(kind="inet"))
-                            except Exception:
-                                conns = prev_entry.conns if prev_entry else 0
-                        else:
-                            files = prev_entry.files if prev_entry else 0
-                            conns = prev_entry.conns if prev_entry else 0
                 except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                     return None
 
@@ -199,6 +194,8 @@ class ProcessWatcher(threading.Thread):
                     samples: list[float] = []
                     io_samples: list[float] = []
                     io_rate = 0.0
+                    files = 0
+                    conns = 0
                 else:
                     cpu = (cpu_time - prev.cpu_time) / delta / self._cpu_count * 100
                     samples = prev.samples
@@ -208,6 +205,8 @@ class ProcessWatcher(threading.Thread):
                         / delta
                         / (1024 * 1024)
                     )
+                    files = prev.files
+                    conns = prev.conns
 
                 entry = ProcessEntry(
                     pid=pid,
@@ -231,17 +230,89 @@ class ProcessWatcher(threading.Thread):
                 entry.add_sample(entry.cpu, entry.io_rate)
                 return entry
 
-            for entry in self._executor.map(collect, procs):
-                if entry is None:
-                    continue
+            entries = [e for e in self._executor.map(collect, procs) if e is not None]
+
+            heap: list[tuple[float, ProcessEntry]] = []
+            detail_candidates: list[ProcessEntry] = []
+            now_ts = time.monotonic()
+
+            for entry in entries:
+                if self.limit:
+                    score = entry.cpu + entry.mem / 100
+                    if len(heap) < self.limit:
+                        heapq.heappush(heap, (score, entry))
+                    else:
+                        heapq.heappushpop(heap, (score, entry))
+                else:
+                    current.add(entry.pid)
+                    prev = self._snapshot.get(entry.pid)
+                    changed = prev is None or entry.changed_since(prev)
+                    if changed:
+                        updates[entry.pid] = entry
+                    if changed or now_ts - self._detail_ts.get(entry.pid, 0.0) >= self.detail_interval:
+                        detail_candidates.append(entry)
+                    self._snapshot[entry.pid] = entry
+
+            if self.limit:
+                entries = [e for _s, e in heapq.nlargest(self.limit, heap)]
+                for e in entries:
+                    current.add(e.pid)
+                    prev = self._snapshot.get(e.pid)
+                    changed = prev is None or e.changed_since(prev)
+                    if changed:
+                        updates[e.pid] = e
+                    if changed or now_ts - self._detail_ts.get(e.pid, 0.0) >= self.detail_interval:
+                        detail_candidates.append(e)
+                    self._snapshot[e.pid] = e
+            else:
+                entries.sort(key=lambda e: (e.cpu, e.mem), reverse=True)
+
+            if detail_candidates:
+                def gather_detail(entry: ProcessEntry) -> ProcessEntry:
+                    try:
+                        proc = psutil.Process(entry.pid)
+                        with proc.oneshot():
+                            if hasattr(proc, "num_handles"):
+                                entry.files = proc.num_handles()
+                            elif hasattr(proc, "num_fds"):
+                                entry.files = proc.num_fds()
+                            else:
+                                entry.files = len(proc.open_files())
+                            entry.conns = len(proc.connections(kind="inet"))
+                    except Exception:
+                        pass
+                    return entry
+                detail_start = time.monotonic()
+                for det in self._executor.map(gather_detail, detail_candidates):
+                    updates[det.pid] = det
+                    self._snapshot[det.pid] = det
+                    self._detail_ts[det.pid] = time.monotonic()
+                detail_elapsed = time.monotonic() - detail_start
+                if self.adaptive_detail:
+                    if detail_elapsed > self.target_interval / 3:
+                        self.detail_interval = min(
+                            self.detail_interval + 1,
+                            self.target_detail_interval * 5,
+                        )
+                    elif (
+                        detail_elapsed < self.target_interval / 10
+                        and self.detail_interval > self.target_detail_interval
+                    ):
+                        self.detail_interval = max(
+                            self.detail_interval - 1,
+                            self.target_detail_interval,
+                        )
+
+            for entry in entries:
                 pid = entry.pid
                 current.add(pid)
                 prev = self._snapshot.get(pid)
                 if prev is None or entry.changed_since(prev):
                     updates[pid] = entry
                 self._snapshot[pid] = entry
+
             removed = set(self._snapshot) - current
-            self.process_count = len(self._snapshot)
+
             if updates or removed:
                 try:
                     self.queue.put_nowait((updates, removed))
@@ -253,6 +324,15 @@ class ProcessWatcher(threading.Thread):
                     self.queue.put_nowait((updates, removed))
                 for pid in removed:
                     self._snapshot.pop(pid, None)
+                    self._detail_ts.pop(pid, None)
+
+            if self.adaptive:
+                elapsed = time.monotonic() - loop_start
+                if elapsed > self.target_interval * 1.5:
+                    self.interval = min(self.interval * 1.25, self.target_interval * 5)
+                elif elapsed < self.target_interval * 0.7 and self.interval > self.target_interval:
+                    self.interval = max(self.interval * 0.9, self.target_interval)
+
             if self._stop_event.wait(self.interval):
                 break
 
@@ -311,6 +391,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
         cpu_alert_env = os.getenv("FORCE_QUIT_CPU_ALERT")
         mem_alert_env = os.getenv("FORCE_QUIT_MEM_ALERT")
         sample_env = os.getenv("FORCE_QUIT_SAMPLES")
+        adaptive_env = os.getenv("FORCE_QUIT_ADAPTIVE")
+        adaptive_detail_env = os.getenv("FORCE_QUIT_ADAPTIVE_DETAIL")
         auto_env = os.getenv("FORCE_QUIT_AUTO_KILL", "").lower()
 
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
@@ -339,6 +421,16 @@ class ForceQuitDialog(ctk.CTkToplevel):
             if mem_alert_env
             else float(cfg.get("force_quit_mem_alert", 500.0))
         )
+        self.adaptive_refresh = (
+            adaptive_env.lower() in {"1", "true", "yes"}
+            if adaptive_env is not None
+            else bool(cfg.get("force_quit_adaptive", True))
+        )
+        self.adaptive_detail = (
+            adaptive_detail_env.lower() in {"1", "true", "yes"}
+            if adaptive_detail_env is not None
+            else bool(cfg.get("force_quit_adaptive_detail", True))
+        )
         self.max_processes = (
             int(max_env)
             if max_env and max_env.isdigit()
@@ -361,6 +453,9 @@ class ForceQuitDialog(ctk.CTkToplevel):
             detail_interval=detail,
             max_workers=workers,
             sample_size=samples,
+            limit=self.max_processes,
+            adaptive=self.adaptive_refresh,
+            adaptive_detail=self.adaptive_detail,
         )
         self._watcher.start()
         self.after(0, self._auto_refresh)
@@ -465,6 +560,24 @@ class ForceQuitDialog(ctk.CTkToplevel):
             command=lambda v: self._watcher.set_interval(float(v)),
         )
         interval_menu.pack(side="left", padx=5)
+
+        self.detail_var = ctk.StringVar(value=str(detail))
+        detail_menu = ctk.CTkOptionMenu(
+            search_frame,
+            variable=self.detail_var,
+            values=["2", "3", "5", "10"],
+            command=lambda v: self._watcher.set_detail_interval(int(v)),
+        )
+        detail_menu.pack(side="left", padx=5)
+
+        self.max_var = ctk.StringVar(value=str(self.max_processes))
+        max_menu = ctk.CTkOptionMenu(
+            search_frame,
+            variable=self.max_var,
+            values=["100", "200", "300", "500", "1000"],
+            command=lambda v: self._set_max_processes(int(v)),
+        )
+        max_menu.pack(side="left", padx=5)
         self.pause_btn = ctk.CTkButton(
             search_frame, text="Pause", command=self._toggle_pause
         )
@@ -506,6 +619,20 @@ class ForceQuitDialog(ctk.CTkToplevel):
             text="Show Details",
             variable=self.show_details_var,
             command=self._toggle_details,
+        ).pack(side="left", padx=5)
+        self.adaptive_var = ctk.BooleanVar(value=self.adaptive_refresh)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Adaptive",
+            variable=self.adaptive_var,
+            command=lambda: self._toggle_adaptive(self.adaptive_var.get()),
+        ).pack(side="left", padx=5)
+        self.adaptive_detail_var = ctk.BooleanVar(value=self.adaptive_detail)
+        ctk.CTkCheckBox(
+            options_frame,
+            text="Adaptive Detail",
+            variable=self.adaptive_detail_var,
+            command=lambda: self._toggle_adaptive_detail(self.adaptive_detail_var.get()),
         ).pack(side="left", padx=5)
 
         self.tree_frame = ctk.CTkFrame(monitor_tab)
@@ -1252,12 +1379,23 @@ class ForceQuitDialog(ctk.CTkToplevel):
             self._watcher.resume()
             self._auto_refresh()
 
+    def _toggle_adaptive(self, enabled: bool) -> None:
+        """Enable or disable adaptive refresh."""
+        self.adaptive_refresh = enabled
+        self._watcher.adaptive = enabled
+
+    def _toggle_adaptive_detail(self, enabled: bool) -> None:
+        """Enable or disable adaptive detail refresh."""
+        self.adaptive_detail = enabled
+        self._watcher.adaptive_detail = enabled
+
     def _update_status(self, count: int) -> None:
         selected = len(self.tree.selection())
         total_cpu = sum(p.cpu for p in self.process_snapshot.values())
         total_mem = sum(p.mem for p in self.process_snapshot.values())
+        total = self._watcher.process_count
         self.status_var.set(
-            f"{count} processes ({selected} selected) | CPU {total_cpu:.1f}% | Mem {total_mem:.1f} MB"
+            f"{count}/{total} processes ({selected} selected) | CPU {total_cpu:.1f}% | Mem {total_mem:.1f} MB"
         )
 
     def _on_selection(self, _event=None) -> None:
@@ -1588,6 +1726,15 @@ class ForceQuitDialog(ctk.CTkToplevel):
         )
         self._populate()
 
+    def _set_max_processes(self, value: int) -> None:
+        """Update the maximum number of processes to monitor."""
+        self.max_processes = value
+        self._watcher.limit = value
+        cfg = self.app.config
+        cfg.set("force_quit_max", value)
+        cfg.save()
+        self._populate()
+
     def _apply_thresholds(self) -> None:
         """Update alert thresholds and auto-kill flags from the UI."""
         try:
@@ -1600,6 +1747,10 @@ class ForceQuitDialog(ctk.CTkToplevel):
             pass
         self.auto_kill_cpu = self.auto_cpu_var.get()
         self.auto_kill_mem = self.auto_mem_var.get()
+        self.adaptive_refresh = self.adaptive_var.get()
+        self._watcher.adaptive = self.adaptive_refresh
+        self.adaptive_detail = self.adaptive_detail_var.get()
+        self._watcher.adaptive_detail = self.adaptive_detail
         cfg = self.app.config
         cfg.set("force_quit_cpu_alert", self.cpu_alert)
         cfg.set("force_quit_mem_alert", self.mem_alert)
@@ -1612,6 +1763,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
         else:
             auto = "none"
         cfg.set("force_quit_auto_kill", auto)
+        cfg.set("force_quit_adaptive", self.adaptive_refresh)
+        cfg.set("force_quit_adaptive_detail", self.adaptive_detail)
         cfg.save()
         self._populate()
 
@@ -1655,6 +1808,16 @@ class ForceQuitDialog(ctk.CTkToplevel):
             cfg.set("force_quit_interval", float(self.interval_var.get()))
         except Exception:
             pass
+        try:
+            cfg.set("force_quit_detail_interval", int(self.detail_var.get()))
+        except Exception:
+            pass
+        try:
+            cfg.set("force_quit_max", int(self.max_var.get()))
+        except Exception:
+            pass
+        cfg.set("force_quit_adaptive", self.adaptive_refresh)
+        cfg.set("force_quit_adaptive_detail", self.adaptive_detail)
         cfg.set("force_quit_on_top", bool(self.attributes("-topmost")))
         cfg.save()
         if self._after_id is not None:
