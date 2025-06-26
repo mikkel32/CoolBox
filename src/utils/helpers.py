@@ -68,8 +68,10 @@ def calc_hash_cached(
         cache.refresh()
     entry = cache.get(key)
     mtime = p.stat().st_mtime
-    if entry and entry.get("mtime") == mtime:
-        return str(entry.get("digest"))
+    if entry:
+        stored_mtime = float(entry.get("mtime", 0.0))
+        if abs(stored_mtime - mtime) < 1e-6:
+            return str(entry.get("digest"))
 
     digest = calc_hash(path, algo)
     cache.set(key, {"mtime": mtime, "digest": digest}, ttl)
