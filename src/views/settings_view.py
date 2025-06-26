@@ -286,6 +286,43 @@ class SettingsView(ctk.CTkFrame):
             values=["auto", "ipv4", "ipv6"],
         ).pack(side="left", padx=10)
 
+        self.scan_services_var = ctk.BooleanVar(value=self.app.config.get("scan_services", False))
+        ctk.CTkCheckBox(
+            section,
+            text="Show service names",
+            variable=self.scan_services_var,
+        ).pack(anchor="w", padx=20, pady=5)
+
+        self.scan_banner_var = ctk.BooleanVar(value=self.app.config.get("scan_banner", False))
+        ctk.CTkCheckBox(
+            section,
+            text="Capture banners",
+            variable=self.scan_banner_var,
+        ).pack(anchor="w", padx=20, pady=5)
+
+        self.scan_latency_var = ctk.BooleanVar(value=self.app.config.get("scan_latency", False))
+        ctk.CTkCheckBox(
+            section,
+            text="Measure latency",
+            variable=self.scan_latency_var,
+        ).pack(anchor="w", padx=20, pady=5)
+
+        self.scan_ping_var = ctk.BooleanVar(value=self.app.config.get("scan_ping", False))
+        ctk.CTkCheckBox(
+            section,
+            text="Ping hosts before scanning",
+            variable=self.scan_ping_var,
+        ).pack(anchor="w", padx=20, pady=5)
+
+        ping_opts = ctk.CTkFrame(section)
+        ping_opts.pack(anchor="w", padx=20, pady=5)
+        ctk.CTkLabel(ping_opts, text="Ping timeout:").pack(side="left")
+        self.scan_ping_timeout_var = ctk.StringVar(value=str(self.app.config.get("scan_ping_timeout", 1.0)))
+        ctk.CTkEntry(ping_opts, textvariable=self.scan_ping_timeout_var, width=60).pack(side="left", padx=(5, 15))
+        ctk.CTkLabel(ping_opts, text="Ping concurrency:").pack(side="left")
+        self.scan_ping_conc_var = ctk.StringVar(value=str(self.app.config.get("scan_ping_concurrency", 100)))
+        ctk.CTkEntry(ping_opts, textvariable=self.scan_ping_conc_var, width=60).pack(side="left", padx=(5, 0))
+
         clear_scan_cache_btn = ctk.CTkButton(
             section,
             text="🗑️ Clear Scan Cache",
@@ -406,6 +443,12 @@ class SettingsView(ctk.CTkFrame):
         self.app.config.set("scan_concurrency", int(self.scan_concurrency_var.get()))
         self.app.config.set("scan_timeout", float(self.scan_timeout_var.get()))
         self.app.config.set("scan_family", self.scan_family_var.get())
+        self.app.config.set("scan_services", self.scan_services_var.get())
+        self.app.config.set("scan_banner", self.scan_banner_var.get())
+        self.app.config.set("scan_latency", self.scan_latency_var.get())
+        self.app.config.set("scan_ping", self.scan_ping_var.get())
+        self.app.config.set("scan_ping_timeout", float(self.scan_ping_timeout_var.get()))
+        self.app.config.set("scan_ping_concurrency", int(self.scan_ping_conc_var.get()))
 
         theme = self.app.theme.get_theme()
         theme["accent_color"] = self.accent_color_var.get()
@@ -444,6 +487,12 @@ class SettingsView(ctk.CTkFrame):
             self.scan_concurrency_var.set(self.app.config.get("scan_concurrency", 100))
             self.scan_timeout_var.set(self.app.config.get("scan_timeout", 0.5))
             self.scan_family_var.set(self.app.config.get("scan_family", "auto"))
+            self.scan_services_var.set(self.app.config.get("scan_services", False))
+            self.scan_banner_var.set(self.app.config.get("scan_banner", False))
+            self.scan_latency_var.set(self.app.config.get("scan_latency", False))
+            self.scan_ping_var.set(self.app.config.get("scan_ping", False))
+            self.scan_ping_timeout_var.set(self.app.config.get("scan_ping_timeout", 1.0))
+            self.scan_ping_conc_var.set(self.app.config.get("scan_ping_concurrency", 100))
 
     def _clear_scan_cache(self) -> None:
         """Clear cached port scan results."""

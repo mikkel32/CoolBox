@@ -44,6 +44,12 @@ class Config:
             "scan_concurrency": 100,
             "scan_timeout": 0.5,
             "scan_family": "auto",
+            "scan_services": False,
+            "scan_banner": False,
+            "scan_ping": False,
+            "scan_ping_timeout": 1.0,
+            "scan_ping_concurrency": 100,
+            "scan_latency": False,
         }
 
         # Load configuration

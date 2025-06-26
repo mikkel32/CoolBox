@@ -4,7 +4,7 @@ import socket
 import asyncio
 import threading
 
-from ..utils import async_auto_scan, parse_port_range
+from ..utils import async_auto_scan, parse_ports, ports_as_range
 
 
 class AutoNetworkScanDialog(ctk.CTkToplevel):
@@ -36,7 +36,10 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         form = ctk.CTkFrame(container)
         form.grid(row=0, column=0, sticky="nw", padx=(0, 20))
 
-        ctk.CTkLabel(form, text="Port/Range:").grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            form,
+            text="Ports (22, 20-25, ssh,http, 20-30:2, top100):",
+        ).grid(row=0, column=0, sticky="w")
         self.port_var = ctk.StringVar(value="1-1024")
         ctk.CTkEntry(form, textvariable=self.port_var, width=150).grid(
             row=0, column=1, padx=10, pady=5, sticky="ew"
@@ -69,10 +72,31 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
             width=150,
         ).grid(row=4, column=1, padx=10, pady=5, sticky="ew")
 
+        self.services_var = ctk.BooleanVar(value=app.config.get("scan_services", False))
+        ctk.CTkCheckBox(
+            form,
+            text="Show service names",
+            variable=self.services_var,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(5, 0))
+
+        self.banner_var = ctk.BooleanVar(value=app.config.get("scan_banner", False))
+        ctk.CTkCheckBox(
+            form,
+            text="Capture banners",
+            variable=self.banner_var,
+        ).grid(row=6, column=0, columnspan=2, sticky="w")
+
+        self.latency_var = ctk.BooleanVar(value=app.config.get("scan_latency", False))
+        ctk.CTkCheckBox(
+            form,
+            text="Measure latency",
+            variable=self.latency_var,
+        ).grid(row=7, column=0, columnspan=2, sticky="w")
+
         form.grid_columnconfigure(1, weight=1)
 
         ctk.CTkButton(form, text="Start Scan", command=self._start_scan).grid(
-            row=5, column=0, columnspan=2, pady=(15, 0)
+            row=8, column=0, columnspan=2, pady=(15, 0)
         )
 
         result_panel = ctk.CTkFrame(container)
@@ -108,13 +132,15 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
 
     def _start_scan(self) -> None:
         try:
-            start, end = parse_port_range(self.port_var.get())
+            ports = parse_ports(self.port_var.get())
             conc = int(self.conc_var.get())
             ttl = float(self.ttl_var.get())
             timeout = float(self.timeout_var.get())
         except Exception as exc:
             messagebox.showerror("Auto Network Scan", str(exc), parent=self)
             return
+
+        start_end = ports_as_range(ports)
 
         fam_opt = self.family_var.get().lower()
         fam = None
@@ -134,17 +160,26 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         def run() -> None:
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message("Scanning local network...", "info")
-            results = asyncio.run(
-                async_auto_scan(
-                    start,
-                    end,
-                    update,
-                    concurrency=conc,
-                    cache_ttl=ttl,
-                    timeout=timeout,
-                    family=fam,
-                )
+            kwargs = dict(
+                concurrency=conc,
+                cache_ttl=ttl,
+                timeout=timeout,
+                family=fam,
+                with_services=self.services_var.get(),
+                with_banner=self.banner_var.get(),
+                with_latency=self.latency_var.get(),
+                ping_concurrency=self.app.config.get("scan_ping_concurrency", conc),
+                ping_timeout=self.app.config.get("scan_ping_timeout", timeout),
             )
+            if start_end:
+                s, e = start_end
+                results = asyncio.run(
+                    async_auto_scan(s, e, update, **kwargs)
+                )
+            else:
+                results = asyncio.run(
+                    async_auto_scan(ports[0], ports[-1], update, ports=ports, **kwargs)
+                )
 
             def show() -> None:
                 for child in self.rows_frame.winfo_children():
@@ -157,7 +192,24 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
                     ctk.CTkLabel(row, text=host, anchor="w").grid(
                         row=0, column=0, sticky="w", padx=(0, 10)
                     )
-                    ports_str = ", ".join(str(p) for p in ports) if ports else "none"
+                    if not ports:
+                        ports_str = "none"
+                    elif self.banner_var.get() and isinstance(ports, dict):
+                        ports_str = ", ".join(
+                            f"{p}({info.service}:{info.banner or ''})"
+                            for p, info in ports.items()
+                        )
+                    elif self.services_var.get() and isinstance(ports, dict):
+                        ports_str = ", ".join(
+                            f"{p}({svc})" for p, svc in ports.items()
+                        )
+                    elif self.latency_var.get() and isinstance(ports, dict):
+                        ports_str = ", ".join(
+                            f"{p}({info.latency * 1000:.1f}ms)" if info.latency is not None else str(p)
+                            for p, info in ports.items()
+                        )
+                    else:
+                        ports_str = ", ".join(str(p) for p in ports)
                     ctk.CTkLabel(row, text=ports_str, anchor="w").grid(
                         row=0, column=1, sticky="w"
                     )

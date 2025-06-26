@@ -133,6 +133,21 @@ and supports a few useful options:
 ```
 * ``--timeout`` sets the connection timeout in seconds
 * ``--family`` forces IPv4 or IPv6 resolution (``auto`` by default)
+* ``--ping`` filters the host list by pinging before scanning. Ping checks are
+  fully asynchronous for fast host discovery.
+* ``--ping-timeout`` controls how long each ping attempt waits for a response
+  (defaults to 1 second).
+* ``--ping-concurrency`` sets the number of simultaneous ping checks
+  (defaults to 100).
+* ``--services`` shows service names for each open port
+* ``--banner`` captures a short banner string from open ports
+* ``--latency`` measures connection latency for each port in milliseconds
+* ``--top`` scans the top N most common ports instead of ``PORTS``
+
+The ``PORTS`` argument accepts service names (``ssh``), ranges with optional
+steps (``20-30:2``), comma separated lists (``22,80``) and ``topN`` shortcuts.
+Hosts may be specified individually or using CIDR notation, ranges and ``*``
+wildcards like ``192.168.1.*``.
 
 ### Auto Network Scan
 
