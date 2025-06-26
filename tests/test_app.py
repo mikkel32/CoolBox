@@ -108,6 +108,27 @@ class TestCoolBoxApp(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_open_force_quit_method(self) -> None:
+        app = CoolBoxApp()
+        app.open_force_quit()
+        dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
+        self.assertTrue(dialogs)
+        for d in dialogs:
+            d.destroy()
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_force_quit_singleton(self) -> None:
+        app = CoolBoxApp()
+        app.open_force_quit()
+        first = app.force_quit_window
+        app.open_force_quit()
+        second = app.force_quit_window
+        self.assertIs(first, second)
+        second.destroy()
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_tools_view_launch_vm_debug_open_code(self) -> None:
         app = CoolBoxApp()
 

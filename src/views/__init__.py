@@ -6,6 +6,7 @@ from .settings_view import SettingsView
 from .about_view import AboutView
 from .quick_settings import QuickSettingsDialog
 from .auto_scan_dialog import AutoNetworkScanDialog
+from .force_quit_dialog import ForceQuitDialog
 
 __all__ = [
     "HomeView",
@@ -14,4 +15,5 @@ __all__ = [
     "AboutView",
     "QuickSettingsDialog",
     "AutoNetworkScanDialog",
+    "ForceQuitDialog",
 ]

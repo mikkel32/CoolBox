@@ -27,6 +27,7 @@ from .utils.helpers import log
 
 if TYPE_CHECKING:  # pragma: no cover - used for type hints only
     from .views.quick_settings import QuickSettingsDialog
+    from .views.force_quit_dialog import ForceQuitDialog
 
 
 class CoolBoxApp:
@@ -59,6 +60,7 @@ class CoolBoxApp:
         self.views: Dict[str, ctk.CTkFrame] = {}
         self.current_view: Optional[str] = None
         self.quick_settings_window: "QuickSettingsDialog | None" = None
+        self.force_quit_window: "ForceQuitDialog | None" = None
 
         # Setup UI
         self._setup_ui()
@@ -167,6 +169,7 @@ class CoolBoxApp:
         self.window.bind("<Control-s>", lambda e: self.switch_view("settings"))
         self.window.bind("<Control-q>", lambda e: self.open_quick_settings())
         self.window.bind("<F11>", lambda e: self.toggle_fullscreen())
+        self.window.bind("<Control-Alt-f>", lambda e: self.open_force_quit())
 
     def switch_view(self, view_name: str):
         """Switch to a different view"""
@@ -216,6 +219,24 @@ class CoolBoxApp:
         self.quick_settings_window.protocol(
             "WM_DELETE_WINDOW", self._on_quick_settings_closed
         )
+
+    def open_force_quit(self) -> None:
+        """Launch the Force Quit dialog or focus the existing one."""
+        from .views.force_quit_dialog import ForceQuitDialog
+
+        if self.force_quit_window is not None and self.force_quit_window.winfo_exists():
+            self.force_quit_window.focus()
+            return
+
+        self.force_quit_window = ForceQuitDialog(self)
+        self.force_quit_window.protocol(
+            "WM_DELETE_WINDOW", self._on_force_quit_closed
+        )
+
+    def _on_force_quit_closed(self) -> None:
+        if self.force_quit_window is not None and self.force_quit_window.winfo_exists():
+            self.force_quit_window.destroy()
+        self.force_quit_window = None
 
     def _on_quick_settings_closed(self) -> None:
         if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():
