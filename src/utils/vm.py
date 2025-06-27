@@ -47,19 +47,18 @@ def launch_vm_debug(
     backend = prefer or os.environ.get("PREFER_VM", "auto").lower()
     for name in _pick_backend(backend):
         if shutil.which(name):
+            print(f"Launching CoolBox in {name} for debugging...")
+            env = os.environ.copy()
+            env["DEBUG_PORT"] = str(port)
             if name in {"docker", "podman"}:
                 script = root / "scripts" / "run_devcontainer.sh"
-                env = os.environ.copy()
-                env["DEBUG_PORT"] = str(port)
                 subprocess.check_call([str(script), name], env=env)
             else:
                 script = root / "scripts" / "run_vagrant.sh"
-                env = os.environ.copy()
-                env["DEBUG_PORT"] = str(port)
                 subprocess.check_call([str(script)], env=env)
-            break
+            return
     else:
-        # Neither docker nor vagrant available; run locally under debugpy
+        print("No VM backend available; launching locally under debugpy...")
         env = os.environ.copy()
         env["DEBUG_PORT"] = str(port)
         subprocess.check_call([str(root / "scripts" / "run_debug.sh")], env=env)
