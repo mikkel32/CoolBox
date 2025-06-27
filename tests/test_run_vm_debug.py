@@ -20,12 +20,12 @@ def test_load_launch_without_heavy_deps(monkeypatch):
 
 def test_available_backends(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/" + x if x == "docker" else None)
-    backends = rvd._available_backends()
+    backends = rvd.available_backends()
     assert backends == ["docker"]
 
 
 def test_main_list_backends(monkeypatch, capsys):
-    monkeypatch.setattr(rvd, "_available_backends", lambda: ["docker", "vagrant"])
+    monkeypatch.setattr(rvd, "available_backends", lambda: ["docker", "vagrant"])
     monkeypatch.setattr(rvd, "_load_launch", lambda: lambda prefer=None, open_code=False: None)
     monkeypatch.setattr(rvd.sys, "argv", ["run_vm_debug.py", "--list"])
     rvd.main()

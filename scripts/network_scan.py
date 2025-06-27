@@ -175,7 +175,7 @@ async def main() -> None:
             print(f"{host}: {details}")
         elif args.latency and isinstance(ports, dict):
             details = ", ".join(
-                f"{p}({info.latency*1000:.1f}ms)" if info.latency is not None else str(p)
+                f"{p}({info.latency * 1000:.1f}ms)" if info.latency is not None else str(p)
                 for p, info in ports.items()
             )
             print(f"{host}: {details}")

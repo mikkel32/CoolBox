@@ -336,6 +336,7 @@ Use the ``--code`` flag to open Visual Studio Code before launching the
 environment so it's ready to attach to the debug server.
 Run ``python scripts/run_vm_debug.py --list`` to display the backends
 detected on your system.
+``run_vm_debug.ps1`` accepts the same options including ``--list`` for Windows users.
 
 The first run may take a while while Vagrant downloads the base box and
 installs packages. Once finished, Visual Studio Code can attach to the

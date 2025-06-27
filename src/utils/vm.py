@@ -2,7 +2,7 @@ import os
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List
 
 
 def _pick_backend(prefer: str) -> Iterable[str]:
@@ -16,6 +16,15 @@ def _pick_backend(prefer: str) -> Iterable[str]:
         return ("podman", "docker", "vagrant")
     # auto / unknown
     return ("docker", "podman", "vagrant")
+
+
+def available_backends() -> List[str]:
+    """Return a list of installed VM backends."""
+    backends: List[str] = []
+    for name in ("docker", "podman", "vagrant"):
+        if shutil.which(name):
+            backends.append(name)
+    return backends
 
 
 def launch_vm_debug(

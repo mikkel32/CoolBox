@@ -954,18 +954,21 @@ class ProcessWatcher(threading.Thread):
             if len(sample_pids) >= self.bulk_cpu_threshold:
                 cpu_map = self._scan_proc_stat(sample_pids)
 
-            def collect(data: tuple[
-                psutil.Process,
-                ProcessEntry | None,
-                float,
-                int,
-                int,
-                str,
-                str,
-                float,
-                str,
-                int,
-            ]) -> tuple[ProcessEntry, bool] | None:
+            def collect(
+                data: tuple[
+                    psutil.Process,
+                    ProcessEntry | None,
+                    float,
+                    int,
+                    int,
+                    str,
+                    str,
+                    float,
+                    str,
+                    int,
+                ]
+            ) -> tuple[ProcessEntry, bool, bool] | None:
+                """Return updated entry, change flag and per-entry trending flag."""
                 (
                     proc,
                     prev,
@@ -979,6 +982,7 @@ class ProcessWatcher(threading.Thread):
                     threads,
                 ) = data
                 pid = proc.pid
+                trending_flag = False
                 cpu_time, cpu, io_rate = self._maybe_sample_cpu(
                     proc,
                     prev,
@@ -1039,7 +1043,7 @@ class ProcessWatcher(threading.Thread):
                         self.cpu_alert,
                         self.mem_alert,
                     )
-                    return prev, changed
+                    return prev, changed, trending_flag
 
                 if prev is not None:
                     self._cpu_skip_counts[pid] = 0
@@ -1102,8 +1106,8 @@ class ProcessWatcher(threading.Thread):
                         or prev.trending_mem
                         or prev.trending_io
                     ):
-                        trending += 1
-                    return prev, changed
+                        trending_flag = True
+                    return prev, changed, trending_flag
 
                 entry = ProcessEntry(
                     pid=pid,
@@ -1141,10 +1145,10 @@ class ProcessWatcher(threading.Thread):
                     self.mem_alert,
                 )
                 if entry.trending_cpu or entry.trending_mem or entry.trending_io:
-                    trending += 1
+                    trending_flag = True
                 entry.changed = True
                 self._normal_counts[pid] = 0
-                return entry, True
+                return entry, True, trending_flag
 
             heap: list[tuple[tuple[float, float, int], ProcessEntry]] = []
             entries: list[ProcessEntry] = []
@@ -1155,7 +1159,9 @@ class ProcessWatcher(threading.Thread):
                 self.process_count += 1
                 if not result:
                     continue
-                entry, changed_flag = result
+                entry, changed_flag, trending_flag = result
+                if trending_flag:
+                    trending += 1
                 if self.limit:
                     score = (entry.avg_cpu, entry.mem, entry.pid)
                     item = (score, entry, changed_flag)
