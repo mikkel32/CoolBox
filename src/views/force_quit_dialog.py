@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import shutil
+from pathlib import Path
 
 import re
 import time
@@ -95,6 +96,20 @@ class ProcessEntry:
             ]
         )
 
+    def changed_basic(self, other: "ProcessEntry") -> bool:
+        """Return True if basic metrics changed since ``other``."""
+        return any(
+            [
+                self.name != other.name,
+                self.user != other.user,
+                self.mem != other.mem,
+                self.status != other.status,
+                abs(self.cpu - other.cpu) > 0.1,
+                self.threads != other.threads,
+                abs(self.io_rate - other.io_rate) > 0.1,
+            ]
+        )
+
 
 class ProcessWatcher(threading.Thread):
     """Background thread streaming process snapshots to the UI.
@@ -119,6 +134,12 @@ class ProcessWatcher(threading.Thread):
         limit: int | None = None,
         adaptive: bool = True,
         adaptive_detail: bool = True,
+        *,
+        conn_interval: float = 2.0,
+        file_interval: float = 2.0,
+        cache_ttl: float = 30.0,
+        conn_global_threshold: int = 50,
+        file_global_threshold: int = 50,
     ) -> None:
         super().__init__(daemon=True)
         self.queue = queue
@@ -133,12 +154,27 @@ class ProcessWatcher(threading.Thread):
         self._pause_event = threading.Event()
         self._snapshot: dict[int, ProcessEntry] = {}
         self._detail_ts: dict[int, float] = {}
+        self._conn_cache: dict[int, tuple[int, float]] = {}
+        self._file_cache: dict[int, tuple[int, float]] = {}
+        self._file_future = None
+        self._global_conn_future = None
+        self._global_file_future = None
+        self._global_conn_data: dict[int, int] = {}
+        self._global_conn_ts = 0.0
+        self._global_file_data: dict[int, int] = {}
+        self._global_file_ts = 0.0
+        self.conn_interval = float(conn_interval)
+        self.file_interval = float(file_interval)
+        self.cache_ttl = float(cache_ttl)
+        self.conn_global_threshold = int(conn_global_threshold)
+        self.file_global_threshold = int(file_global_threshold)
         self._last_ts = time.monotonic()
         workers = max_workers or min(8, (os.cpu_count() or 1) * 2)
         self._executor = ThreadPoolExecutor(max_workers=workers)
         self._cpu_count = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
         self.sample_size = max(1, sample_size)
         self.process_count = 0
+        self._last_detail_count = 0
 
     def set_interval(self, interval: float) -> None:
         self.target_interval = max(0.5, float(interval))
@@ -157,6 +193,30 @@ class ProcessWatcher(threading.Thread):
     def run(self) -> None:
         while not self._stop_event.is_set():
             loop_start = time.monotonic()
+            self._prune_caches(loop_start)
+            if (
+                self.process_count > self.conn_global_threshold * 2
+                and self._global_conn_future is None
+                and (
+                    not self._global_conn_data
+                    or loop_start - self._global_conn_ts > self.conn_interval
+                )
+            ):
+                self._global_conn_future = self._executor.submit(
+                    psutil.net_connections, kind="inet"
+                )
+            if (
+                self.process_count > self.file_global_threshold * 2
+                and os.path.isdir("/proc")
+                and self._global_file_future is None
+                and (
+                    not self._global_file_data
+                    or loop_start - self._global_file_ts > self.file_interval
+                )
+            ):
+                self._global_file_future = self._executor.submit(
+                    self._scan_fd_proc_all
+                )
             if self._pause_event.is_set():
                 if self._stop_event.wait(self.interval):
                     break
@@ -177,12 +237,12 @@ class ProcessWatcher(threading.Thread):
                 "status",
                 "cpu_times",
                 "num_threads",
+                "io_counters",
             ]
 
-            procs = list(psutil.process_iter(basic_attrs))
-            self.process_count = len(procs)
+            self.process_count = 0
 
-            def collect(proc: psutil.Process) -> ProcessEntry | None:
+            def collect(proc: psutil.Process) -> tuple[ProcessEntry, bool] | None:
                 try:
                     with proc.oneshot():
                         pid = proc.info["pid"]
@@ -193,39 +253,61 @@ class ProcessWatcher(threading.Thread):
                         start = proc.info.get("create_time", 0.0)
                         status = proc.info.get("status", "")
                         threads = proc.info.get("num_threads", 0)
-                        try:
-                            io = proc.io_counters()
+                        io = proc.info.get("io_counters")
+                        if io:
                             read_bytes = io.read_bytes
                             write_bytes = io.write_bytes
-                        except Exception:
+                        else:
                             read_bytes = write_bytes = 0
                 except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                     return None
 
                 prev = self._snapshot.get(pid)
-                if prev is None:
-                    cpu = 0.0
-                    samples: list[float] = []
-                    io_samples: list[float] = []
-                    io_rate = 0.0
-                    files = 0
-                    conns = 0
-                else:
+                if prev is not None:
                     cpu = (cpu_time - prev.cpu_time) / delta / self._cpu_count * 100
-                    samples = prev.samples
-                    io_samples = prev.io_samples
                     io_rate = (
                         (read_bytes - prev.read_bytes + write_bytes - prev.write_bytes)
                         / delta
                         / (1024 * 1024)
                     )
-                    files = prev.files
-                    conns = prev.conns
+                    changed = prev.changed_basic(
+                        ProcessEntry(
+                            pid=pid,
+                            name=name,
+                            cpu=round(cpu, 1),
+                            mem=round(mem, 1),
+                            user=user,
+                            start=start,
+                            status=status,
+                            cpu_time=cpu_time,
+                            threads=threads,
+                            read_bytes=read_bytes,
+                            write_bytes=write_bytes,
+                            files=prev.files,
+                            conns=prev.conns,
+                            io_rate=round(io_rate, 1),
+                            samples=list(prev.samples),
+                            io_samples=list(prev.io_samples),
+                            max_samples=self.sample_size,
+                        )
+                    )
+                    prev.cpu = round(cpu, 1)
+                    prev.mem = round(mem, 1)
+                    prev.user = user
+                    prev.start = start
+                    prev.status = status
+                    prev.cpu_time = cpu_time
+                    prev.threads = threads
+                    prev.read_bytes = read_bytes
+                    prev.write_bytes = write_bytes
+                    prev.io_rate = round(io_rate, 1)
+                    prev.add_sample(prev.cpu, prev.io_rate)
+                    return prev, changed
 
                 entry = ProcessEntry(
                     pid=pid,
                     name=name,
-                    cpu=round(cpu, 1),
+                    cpu=0.0,
                     mem=round(mem, 1),
                     user=user,
                     start=start,
@@ -234,68 +316,166 @@ class ProcessWatcher(threading.Thread):
                     threads=threads,
                     read_bytes=read_bytes,
                     write_bytes=write_bytes,
-                    files=files,
-                    conns=conns,
-                    io_rate=round(io_rate, 1),
-                    samples=samples,
-                    io_samples=io_samples,
+                    files=0,
+                    conns=0,
+                    io_rate=0.0,
+                    samples=[],
+                    io_samples=[],
                     max_samples=self.sample_size,
                 )
                 entry.add_sample(entry.cpu, entry.io_rate)
-                return entry
-
-            entries = [e for e in self._executor.map(collect, procs) if e is not None]
+                return entry, True
 
             heap: list[tuple[tuple[float, float, int], ProcessEntry]] = []
+            entries: list[ProcessEntry] = []
             detail_candidates: list[ProcessEntry] = []
             now_ts = time.monotonic()
 
-            for entry in entries:
+            proc_iter = psutil.process_iter(basic_attrs)
+            for result in self._executor.map(collect, proc_iter):
+                self.process_count += 1
+                if not result:
+                    continue
+                entry, changed_flag = result
                 if self.limit:
                     score = (entry.avg_cpu, entry.mem, entry.pid)
-                    item = (score, entry)
+                    item = (score, entry, changed_flag)
                     if len(heap) < self.limit:
                         heapq.heappush(heap, item)
                     else:
                         heapq.heappushpop(heap, item)
                 else:
-                    current.add(entry.pid)
-                    prev = self._snapshot.get(entry.pid)
-                    changed = prev is None or entry.changed_since(prev)
-                    if changed:
-                        updates[entry.pid] = entry
-                    if changed or now_ts - self._detail_ts.get(entry.pid, 0.0) >= self.detail_interval:
-                        detail_candidates.append(entry)
-                    self._snapshot[entry.pid] = entry
+                    entries.append((entry, changed_flag))
 
             if self.limit:
-                entries = [e for _score, e in heapq.nlargest(self.limit, heap)]
-                for e in entries:
-                    current.add(e.pid)
-                    prev = self._snapshot.get(e.pid)
-                    changed = prev is None or e.changed_since(prev)
-                    if changed:
-                        updates[e.pid] = e
-                    if changed or now_ts - self._detail_ts.get(e.pid, 0.0) >= self.detail_interval:
-                        detail_candidates.append(e)
-                    self._snapshot[e.pid] = e
-            else:
-                entries.sort(key=lambda e: (e.cpu, e.mem), reverse=True)
+                entries = [
+                    (e, ch) for _s, e, ch in heapq.nlargest(self.limit, heap)
+                ]
+
+            for entry, changed in entries:
+                current.add(entry.pid)
+                if changed:
+                    updates[entry.pid] = entry
+                if changed or now_ts - self._detail_ts.get(entry.pid, 0.0) >= self.detail_interval:
+                    detail_candidates.append(entry)
+                self._snapshot[entry.pid] = entry
+            if not self.limit:
+                entries.sort(key=lambda ec: (ec[0].cpu, ec[0].mem), reverse=True)
 
             if detail_candidates:
-                def gather_detail(entry: ProcessEntry) -> ProcessEntry:
+                now_conn = time.monotonic()
+                now_file = now_conn
+                cand_pids = {e.pid for e in detail_candidates}
+                fetch = [
+                    p
+                    for p in cand_pids
+                    if now_conn - self._conn_cache.get(p, (0, 0))[1]
+                    >= self.conn_interval
+                ]
+                file_fetch = [
+                    p
+                    for p in cand_pids
+                    if now_file - self._file_cache.get(p, (0, 0))[1]
+                    >= self.file_interval
+                ]
+                conn_counts: dict[int, int] = {}
+                if fetch:
+                    if len(fetch) > self.conn_global_threshold:
+                        if self._global_conn_future and self._global_conn_future.done():
+                            all_conns = self._global_conn_future.result()
+                            self._global_conn_future = None
+                            counts: dict[int, int] = {}
+                            for conn in all_conns:
+                                pid = conn.pid
+                                if pid is None:
+                                    continue
+                                counts[pid] = counts.get(pid, 0) + 1
+                            self._global_conn_data = counts
+                            self._global_conn_ts = now_conn
+                            for pid, cnt in counts.items():
+                                self._conn_cache[pid] = (cnt, now_conn)
+                            conn_counts = {pid: counts.get(pid, 0) for pid in cand_pids}
+                        elif self._global_conn_data:
+                            for pid in fetch:
+                                if pid in self._global_conn_data:
+                                    conn_counts[pid] = self._global_conn_data[pid]
+                    else:
+                        def _get_conn(pid: int) -> tuple[int, int] | None:
+                            try:
+                                return pid, len(psutil.Process(pid).connections(kind="inet"))
+                            except Exception:
+                                return None
+
+                        for res in self._executor.map(_get_conn, fetch):
+                            if not res:
+                                continue
+                            pid, cnt = res
+                            conn_counts[pid] = cnt
+                            self._conn_cache[pid] = (cnt, now_conn)
+                for pid in cand_pids:
+                    if pid not in conn_counts and pid in self._conn_cache:
+                        conn_counts[pid] = self._conn_cache[pid][0]
+
+                file_counts: dict[int, int] = {}
+
+                def _get_file_count(pid: int) -> tuple[int, int] | None:
                     try:
-                        proc = psutil.Process(entry.pid)
+                        proc_path = f"/proc/{pid}/fd"
+                        if os.path.isdir(proc_path):
+                            return pid, sum(1 for _ in os.scandir(proc_path))
+                        proc = psutil.Process(pid)
                         with proc.oneshot():
                             if hasattr(proc, "num_handles"):
-                                entry.files = proc.num_handles()
-                            elif hasattr(proc, "num_fds"):
-                                entry.files = proc.num_fds()
-                            else:
-                                entry.files = len(proc.open_files())
-                            entry.conns = len(proc.connections(kind="inet"))
+                                return pid, proc.num_handles()
+                            if hasattr(proc, "num_fds"):
+                                return pid, proc.num_fds()
+                            return pid, len(proc.open_files())
+                    except Exception:
+                        return None
+
+                if file_fetch:
+                    if (
+                        len(file_fetch) > self.file_global_threshold
+                        and os.path.isdir("/proc")
+                    ):
+                        if self._global_file_future and self._global_file_future.done():
+                            self._global_file_data = self._global_file_future.result()
+                            self._global_file_ts = now_file
+                            self._global_file_future = None
+                        if self._global_file_data:
+                            for pid in file_fetch:
+                                if pid in self._global_file_data:
+                                    file_counts[pid] = self._global_file_data[pid]
+                        else:
+                            if self._file_future is None:
+                                self._file_future = self._executor.submit(
+                                    self._scan_fd_proc, set(file_fetch)
+                                )
+                            if self._file_future and self._file_future.done():
+                                all_counts = self._file_future.result()
+                                self._file_future = None
+                                file_counts.update(all_counts)
+                    else:
+                        for res in self._executor.map(_get_file_count, file_fetch):
+                            if not res:
+                                continue
+                            pid, count = res
+                            file_counts[pid] = count
+                    for pid in file_fetch:
+                        self._file_cache[pid] = (
+                            file_counts.get(pid, self._file_cache.get(pid, (0, 0))[0]),
+                            now_file,
+                        )
+                for pid in cand_pids:
+                    if pid not in file_counts and pid in self._file_cache:
+                        file_counts[pid] = self._file_cache[pid][0]
+
+                def gather_detail(entry: ProcessEntry) -> ProcessEntry:
+                    try:
+                        entry.files = file_counts.get(entry.pid, entry.files)
                     except Exception:
                         pass
+                    entry.conns = conn_counts.get(entry.pid, entry.conns)
                     return entry
                 detail_start = time.monotonic()
                 for det in self._executor.map(gather_detail, detail_candidates):
@@ -317,14 +497,10 @@ class ProcessWatcher(threading.Thread):
                             self.detail_interval - 1,
                             self.target_detail_interval,
                         )
+                self._last_detail_count = len(detail_candidates)
 
-            for entry in entries:
-                pid = entry.pid
-                current.add(pid)
-                prev = self._snapshot.get(pid)
-                if prev is None or entry.changed_since(prev):
-                    updates[pid] = entry
-                self._snapshot[pid] = entry
+            else:
+                self._last_detail_count = 0
 
             removed = set(self._snapshot) - current
 
@@ -340,6 +516,8 @@ class ProcessWatcher(threading.Thread):
                 for pid in removed:
                     self._snapshot.pop(pid, None)
                     self._detail_ts.pop(pid, None)
+                    self._conn_cache.pop(pid, None)
+                    self._file_cache.pop(pid, None)
 
             if self.adaptive:
                 elapsed = time.monotonic() - loop_start
@@ -354,6 +532,55 @@ class ProcessWatcher(threading.Thread):
     def stop(self) -> None:
         self._stop_event.set()
         self._executor.shutdown(wait=False)
+
+    def _prune_caches(self, now: float) -> None:
+        """Drop stale connection and file count cache entries."""
+        stale = [pid for pid, (_, ts) in self._conn_cache.items() if now - ts > self.cache_ttl]
+        for pid in stale:
+            self._conn_cache.pop(pid, None)
+        stale = [pid for pid, (_, ts) in self._file_cache.items() if now - ts > self.cache_ttl]
+        for pid in stale:
+            self._file_cache.pop(pid, None)
+        if now - self._global_conn_ts > self.cache_ttl:
+            self._global_conn_data.clear()
+        if now - self._global_file_ts > self.cache_ttl:
+            self._global_file_data.clear()
+
+    def _scan_fd_proc(self, pids: set[int]) -> dict[int, int]:
+        """Return open file counts for *pids* by scanning /proc."""
+        counts: dict[int, int] = {}
+        proc_root = Path("/proc")
+        for entry in os.scandir(proc_root):
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            if pid not in pids:
+                continue
+            fd_path = os.path.join(entry.path, "fd")
+            if os.path.isdir(fd_path):
+                try:
+                    counts[pid] = sum(1 for _ in os.scandir(fd_path))
+                except Exception:
+                    continue
+            if len(counts) == len(pids):
+                break
+        return counts
+
+    def _scan_fd_proc_all(self) -> dict[int, int]:
+        """Return open file counts for all processes by scanning /proc."""
+        counts: dict[int, int] = {}
+        proc_root = Path("/proc")
+        for entry in os.scandir(proc_root):
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            fd_path = os.path.join(entry.path, "fd")
+            if os.path.isdir(fd_path):
+                try:
+                    counts[pid] = sum(1 for _ in os.scandir(fd_path))
+                except Exception:
+                    continue
+        return counts
 
 
 class ForceQuitDialog(ctk.CTkToplevel):
@@ -408,6 +635,11 @@ class ForceQuitDialog(ctk.CTkToplevel):
         sample_env = os.getenv("FORCE_QUIT_SAMPLES")
         adaptive_env = os.getenv("FORCE_QUIT_ADAPTIVE")
         adaptive_detail_env = os.getenv("FORCE_QUIT_ADAPTIVE_DETAIL")
+        conn_interval_env = os.getenv("FORCE_QUIT_CONN_INTERVAL")
+        file_interval_env = os.getenv("FORCE_QUIT_FILE_INTERVAL")
+        cache_ttl_env = os.getenv("FORCE_QUIT_CACHE_TTL")
+        conn_global_env = os.getenv("FORCE_QUIT_CONN_GLOBAL")
+        file_global_env = os.getenv("FORCE_QUIT_FILE_GLOBAL")
         auto_env = os.getenv("FORCE_QUIT_AUTO_KILL", "").lower()
 
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
@@ -425,6 +657,31 @@ class ForceQuitDialog(ctk.CTkToplevel):
             int(sample_env)
             if sample_env and sample_env.isdigit()
             else int(cfg.get("force_quit_samples", 5))
+        )
+        conn_interval = (
+            float(conn_interval_env)
+            if conn_interval_env
+            else float(cfg.get("force_quit_conn_interval", 2.0))
+        )
+        file_interval = (
+            float(file_interval_env)
+            if file_interval_env
+            else float(cfg.get("force_quit_file_interval", 2.0))
+        )
+        cache_ttl = (
+            float(cache_ttl_env)
+            if cache_ttl_env
+            else float(cfg.get("force_quit_cache_ttl", 30.0))
+        )
+        conn_global = (
+            int(conn_global_env)
+            if conn_global_env and conn_global_env.isdigit()
+            else int(cfg.get("force_quit_conn_global", 50))
+        )
+        file_global = (
+            int(file_global_env)
+            if file_global_env and file_global_env.isdigit()
+            else int(cfg.get("force_quit_file_global", 50))
         )
         self.cpu_alert = (
             float(cpu_alert_env)
@@ -471,6 +728,11 @@ class ForceQuitDialog(ctk.CTkToplevel):
             limit=self.max_processes,
             adaptive=self.adaptive_refresh,
             adaptive_detail=self.adaptive_detail,
+            conn_interval=conn_interval,
+            file_interval=file_interval,
+            cache_ttl=cache_ttl,
+            conn_global_threshold=conn_global,
+            file_global_threshold=file_global,
         )
         self._watcher.start()
         self.after(0, self._auto_refresh)

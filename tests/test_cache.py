@@ -37,3 +37,14 @@ def test_cache_stats(tmp_path):
     assert cache.get("b") is None
     stats = cache.stats()
     assert stats["hits"] == 1 and stats["misses"] == 1
+
+
+def test_cache_get_many(tmp_path):
+    file = tmp_path / "cache.json"
+    cache = CacheManager[int](file)
+    cache.set("a", 1, ttl=1)
+    cache.set("b", 2, ttl=1)
+    result = cache.get_many(["a", "b", "c"])
+    assert result == {"a": 1, "b": 2}
+    stats = cache.stats()
+    assert stats["hits"] >= 2 and stats["misses"] >= 1

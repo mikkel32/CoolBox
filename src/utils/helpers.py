@@ -108,21 +108,27 @@ def calc_hashes(
         if progress is not None:
             progress(value)
 
+    cached: Dict[str, Any] = {}
+    if cache is not None:
+        keys = [f"{p}:{algo}" for p in paths]
+        cached = cache.get_many(keys)
+
+    def worker(path: str) -> tuple[str, str]:
+        mtime = Path(path).stat().st_mtime
+        key = f"{path}:{algo}"
+        entry = cached.get(key)
+        if entry and abs(float(entry.get("mtime", 0.0)) - mtime) < 1e-6:
+            return path, str(entry.get("digest", ""))
+        digest = calc_hash(path, algo)
+        if cache is not None:
+            cache.set(key, {"mtime": mtime, "digest": digest}, ttl)
+        return path, digest
+
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_map = {
-            executor.submit(
-                calc_hash_cached,
-                p,
-                algo,
-                cache,
-                ttl=ttl,
-                refresh_cache=False,
-            ): p
-            for p in paths
-        }
+        future_map = {executor.submit(worker, p): p for p in paths}
         for fut in as_completed(future_map):
-            path = future_map[fut]
-            results[path] = fut.result()
+            path, digest = fut.result()
+            results[path] = digest
             completed += 1
             update(completed / total)
 
