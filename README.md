@@ -50,6 +50,75 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   average CPU/IO calculations. Row data is cached so only changed entries are
   redrawn for smoother updates. Pausing the dialog now halts the background
   watcher thread so no resources are wasted while inspecting a snapshot.
+  ``FORCE_QUIT_CHANGE_CPU``, ``FORCE_QUIT_CHANGE_MEM`` and ``FORCE_QUIT_CHANGE_IO``
+  define the minimum CPU percentage, memory in MB and I/O rate delta that must
+  change before a row is considered updated. Their defaults are ``0.5`` for CPU,
+  ``1.0`` for memory and ``0.5`` for I/O.
+  ``FORCE_QUIT_CHANGE_SCORE`` combines the individual deltas into a single
+  threshold so minor variations across metrics don't trigger redraws.
+  ``FORCE_QUIT_CHANGE_AGG`` sets how many refresh cycles to aggregate change
+  scores before a row is considered updated, further reducing noise from small
+  fluctuations.
+  ``FORCE_QUIT_CHANGE_ALPHA`` controls how quickly baseline CPU, memory and I/O
+  usage adapt to recent samples. ``FORCE_QUIT_CHANGE_RATIO`` specifies how much
+ deviation from that baseline counts as a significant change. ``FORCE_QUIT_CHANGE_STD_MULT``
+ sets how many standard deviations a metric must deviate from its baseline
+ before it contributes to the aggregate change score, enabling smarter
+  detection of large shifts in resource usage. ``FORCE_QUIT_CHANGE_MAD_MULT``
+  uses the median absolute deviation instead of variance for robustness and
+  specifies how many deviations are required before a metric influences the
+  change score.
+ ``FORCE_QUIT_CHANGE_DECAY`` applies exponential decay to aggregated change
+ scores so old deviations fade out. This helps focus updates on significant
+ sustained changes rather than momentary spikes. The default decay factor is
+ ``0.8`` meaning each cycle retains 80% of the previous total.
+  ``FORCE_QUIT_STABLE_CYCLES`` controls how many refreshes a process must remain
+  unchanged before it is considered stable. ``FORCE_QUIT_STABLE_SKIP`` defines
+  how many cycles to skip detail refreshes for those stable processes.
+  ``FORCE_QUIT_CHANGE_WINDOW`` sets how many refresh cycles a changed row stays
+  highlighted in the list so you can quickly spot recent updates.
+  ``FORCE_QUIT_VISIBLE_CPU`` ``FORCE_QUIT_VISIBLE_MEM`` and ``FORCE_QUIT_VISIBLE_IO``
+  hide rows using less CPU, memory or I/O than these thresholds unless filtered.
+  ``FORCE_QUIT_VISIBLE_AUTO`` adapts those visibility thresholds to the 75th
+  percentile of recent usage so low-impact processes disappear automatically.
+  ``FORCE_QUIT_WARN_CPU`` ``FORCE_QUIT_WARN_MEM`` and ``FORCE_QUIT_WARN_IO``
+  define soft warning limits. Processes exceeding them but below the alert
+  thresholds are marked as *warning* instead of *critical* in the new **Level**
+  column.
+  ``FORCE_QUIT_HIDE_SYSTEM`` omits system processes owned by ``root`` or
+  ``SYSTEM`` entirely.
+  ``FORCE_QUIT_SLOW_RATIO`` and ``FORCE_QUIT_FAST_RATIO`` set the change ratios
+  that trigger automatic refresh tuning. Higher ratios make the watcher react
+  faster to bursts of activity while lower ratios favour stability.
+  ``FORCE_QUIT_RATIO_WINDOW`` controls how many cycles are averaged when
+  calculating the change ratio for adaptive tuning, smoothing out short bursts.
+  ``FORCE_QUIT_SHOW_DELTAS`` toggles optional columns displaying how much CPU,
+  memory and I/O have changed since the last refresh for each process.
+  ``FORCE_QUIT_SHOW_SCORE`` adds an aggregate change score column so you can
+  quickly spot processes with unusually large deviations.
+  ``FORCE_QUIT_TREND_WINDOW`` defines how many samples are used when
+  determining if CPU, memory or I/O usage is trending upward.
+  ``FORCE_QUIT_TREND_CPU`` and ``FORCE_QUIT_TREND_MEM`` set the minimum
+  increase required to flag a process as trending. ``FORCE_QUIT_TREND_IO``
+  controls the minimum I/O rate increase considered a trend. ``FORCE_QUIT_TREND_IO_WINDOW``
+  lets you use a different sample window for I/O trends than CPU and memory,
+  making disk-heavy bursts easier to catch. ``FORCE_QUIT_SHOW_TRENDS``
+  toggles highlighting of trending processes and you can filter only trending
+  rows using the new *Trending* option. Trend detection now combines slope and
+  an exponential moving average for faster yet stable updates.
+  ``FORCE_QUIT_SHOW_STABLE`` highlights processes that remain unchanged for
+  several refresh cycles and lets you filter by them using a *Stable* option.
+  ``FORCE_QUIT_SHOW_NORMAL`` shows low-activity processes that don't exceed
+  the configured visibility thresholds. When false, the dialog hides these
+  "normal" processes so only changed or high-usage entries appear by default.
+  ``FORCE_QUIT_NORMAL_WINDOW`` controls how many consecutive refreshes a process
+  must remain normal before it is hidden.
+  ``FORCE_QUIT_EXCLUDE_USERS`` can specify a comma separated list of usernames
+  that should be ignored entirely by the Force Quit monitor.
+  ``FORCE_QUIT_IGNORE_AGE`` skips processes younger than this many seconds so
+  short-lived helpers do not clutter the list.
+  ``FORCE_QUIT_TREND_SLOW_RATIO`` and ``FORCE_QUIT_TREND_FAST_RATIO`` adjust how
+  aggressively refresh intervals respond to the number of trending processes.
   Set ``FORCE_QUIT_AUTO_KILL`` to ``cpu``, ``mem`` or ``both`` to automatically
   terminate processes exceeding the configured thresholds.
   Updated thresholds, auto-kill options, sort settings, refresh interval and
@@ -202,8 +271,8 @@ depending on what is installed. If neither is present, it falls back to
 If you prefer a lightweight virtual machine instead of Docker, a
 `Vagrantfile` is provided. This sets up an Ubuntu VM with all
 dependencies preinstalled and starts CoolBox under `debugpy`.
-The debug server port **5678** is forwarded to the host so you can attach
-to `localhost:5678`:
+The debug server port **5678** is forwarded to the host by default so you can attach
+to `localhost:5678`. Use ``--port`` to choose a custom port:
 
 ```bash
 ./scripts/run_vagrant.sh
@@ -216,7 +285,8 @@ neither is found the script falls back to running ``run_debug.sh`` in the
 current environment.  You can set ``PREFER_VM=docker``, ``PREFER_VM=podman`` or
 ``PREFER_VM=vagrant`` to force a specific backend or pass ``--prefer`` to
 ``run_vm_debug.py``. The ``run_vm_debug.sh`` wrapper now simply calls this
-Python script so all command line options like ``--prefer`` and ``--code`` are
+Python script so all command line options like ``--prefer`` ``--code`` and
+``--port`` are
 available on both Unix and Windows.
 Use the ``--code`` flag to open Visual Studio Code before launching the
 environment so it's ready to attach to the debug server.

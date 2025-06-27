@@ -1,0 +1,999 @@
+"""Process monitoring utilities for the Force Quit dialog."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue, Empty, Full
+from dataclasses import dataclass, field
+from typing import ClassVar
+from collections import deque
+import heapq
+
+import psutil
+
+
+# Thresholds for detecting significant process changes
+CHANGE_CPU_THRESHOLD = float(os.getenv("FORCE_QUIT_CHANGE_CPU", "0.5"))
+CHANGE_MEM_THRESHOLD = float(os.getenv("FORCE_QUIT_CHANGE_MEM", "1.0"))
+CHANGE_IO_THRESHOLD = float(os.getenv("FORCE_QUIT_CHANGE_IO", "0.5"))
+CHANGE_SCORE_THRESHOLD = float(os.getenv("FORCE_QUIT_CHANGE_SCORE", "1.0"))
+CHANGE_AGG_WINDOW = int(os.getenv("FORCE_QUIT_CHANGE_AGG", "1"))
+CHANGE_ALPHA = float(os.getenv("FORCE_QUIT_CHANGE_ALPHA", "0.2"))
+CHANGE_RATIO = float(os.getenv("FORCE_QUIT_CHANGE_RATIO", "0.3"))
+CHANGE_STD_MULT = float(os.getenv("FORCE_QUIT_CHANGE_STD_MULT", "2.0"))
+CHANGE_MAD_MULT = float(os.getenv("FORCE_QUIT_CHANGE_MAD_MULT", "3.0"))
+CHANGE_DECAY = float(os.getenv("FORCE_QUIT_CHANGE_DECAY", "0.8"))
+
+# Warning thresholds for classifying processes
+WARN_CPU_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_CPU", "40.0"))
+WARN_MEM_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_MEM", "200.0"))
+WARN_IO_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_IO", "1.0"))
+
+
+# Trending thresholds and sample window
+TREND_WINDOW = int(os.getenv("FORCE_QUIT_TREND_WINDOW", "5"))
+TREND_CPU_THRESHOLD = float(os.getenv("FORCE_QUIT_TREND_CPU", "5.0"))
+TREND_MEM_THRESHOLD = float(os.getenv("FORCE_QUIT_TREND_MEM", "50.0"))
+TREND_IO_THRESHOLD = float(os.getenv("FORCE_QUIT_TREND_IO", "1.0"))
+TREND_IO_WINDOW = int(os.getenv("FORCE_QUIT_TREND_IO_WINDOW", str(TREND_WINDOW)))
+
+
+@dataclass(slots=True)
+class ProcessEntry:
+    """Snapshot of a running process."""
+
+    pid: int
+    name: str
+    cpu: float
+    mem: float
+    user: str
+    start: float
+    status: str
+    cpu_time: float
+    threads: int
+    read_bytes: int
+    write_bytes: int
+    files: int
+    conns: int
+    io_rate: float = 0.0
+    samples: deque[float] = field(default_factory=deque)
+    io_samples: deque[float] = field(default_factory=deque)
+    mem_samples: deque[float] = field(default_factory=deque)
+    max_samples: int = 5
+    delta_cpu: float = 0.0
+    delta_mem: float = 0.0
+    delta_io: float = 0.0
+    ema_cpu: float = 0.0
+    ema_mem: float = 0.0
+    ema_io: float = 0.0
+    baseline_cpu: float = 0.0
+    baseline_mem: float = 0.0
+    baseline_io: float = 0.0
+    baseline_cpu_var: float = 0.0
+    baseline_mem_var: float = 0.0
+    baseline_io_var: float = 0.0
+    baseline_cpu_mad: float = 0.0
+    baseline_mem_mad: float = 0.0
+    baseline_io_mad: float = 0.0
+    level: str = "normal"
+    changed: bool = False
+    trending_cpu: bool = False
+    trending_mem: bool = False
+    trending_io: bool = False
+    stable: bool = False
+    normal: bool = False
+    recent_scores: deque[float] = field(default_factory=deque)
+    last_score: float = 0.0
+    score_sum: float = 0.0
+    change_score_threshold: ClassVar[float] = CHANGE_SCORE_THRESHOLD
+    change_agg_window: ClassVar[int] = CHANGE_AGG_WINDOW
+    change_alpha: ClassVar[float] = CHANGE_ALPHA
+    change_ratio: ClassVar[float] = CHANGE_RATIO
+    change_std_mult: ClassVar[float] = CHANGE_STD_MULT
+    change_mad_mult: ClassVar[float] = CHANGE_MAD_MULT
+    change_decay: ClassVar[float] = float(os.getenv("FORCE_QUIT_CHANGE_DECAY", "0.8"))
+    cpu_threshold: ClassVar[float] = CHANGE_CPU_THRESHOLD
+    mem_threshold: ClassVar[float] = CHANGE_MEM_THRESHOLD
+    io_threshold: ClassVar[float] = CHANGE_IO_THRESHOLD
+    ema_alpha: ClassVar[float] = 0.3
+
+    def __post_init__(self) -> None:
+        self.samples = deque(self.samples, maxlen=self.max_samples)
+        self.io_samples = deque(self.io_samples, maxlen=self.max_samples)
+        self.mem_samples = deque(self.mem_samples, maxlen=self.max_samples)
+        self.recent_scores = deque(self.recent_scores, maxlen=self.change_agg_window)
+        self.last_score = 0.0
+        self.score_sum = 0.0
+        self.ema_cpu = self.cpu
+        self.ema_mem = self.mem
+        self.ema_io = self.io_rate
+        self.baseline_cpu = self.cpu
+        self.baseline_mem = self.mem
+        self.baseline_io = self.io_rate
+        self.baseline_cpu_var = 0.0
+        self.baseline_mem_var = 0.0
+        self.baseline_io_var = 0.0
+        self.baseline_cpu_mad = 0.0
+        self.baseline_mem_mad = 0.0
+        self.baseline_io_mad = 0.0
+
+    def __lt__(self, other: "ProcessEntry") -> bool:
+        """Order entries by average CPU then memory then PID."""
+        if not isinstance(other, ProcessEntry):
+            return NotImplemented
+        return (
+            self.avg_cpu,
+            self.mem,
+            self.pid,
+        ) < (
+            other.avg_cpu,
+            other.mem,
+            other.pid,
+        )
+
+    def add_sample(self, cpu: float, io: float, mem: float) -> None:
+        self.samples.append(cpu)
+        self.io_samples.append(io)
+        self.mem_samples.append(mem)
+
+    @property
+    def avg_cpu(self) -> float:
+        if not self.samples:
+            return self.cpu
+        return sum(self.samples) / len(self.samples)
+
+    @property
+    def avg_io(self) -> float:
+        if not self.io_samples:
+            return self.io_rate
+        return sum(self.io_samples) / len(self.io_samples)
+
+    def compute_trends(
+        self,
+        cpu_window: int,
+        mem_window: int,
+        io_window: int,
+        cpu_thresh: float,
+        mem_thresh: float,
+        io_thresh: float,
+    ) -> None:
+        """Update trending flags using slope and exponential moving average."""
+
+        def slope(values: list[float]) -> float:
+            n = len(values)
+            if n < 2:
+                return 0.0
+            sum_x = n * (n - 1) / 2
+            sum_x2 = (n - 1) * n * (2 * n - 1) / 6
+            sum_y = sum(values)
+            sum_xy = sum(i * v for i, v in enumerate(values))
+            denom = n * sum_x2 - sum_x * sum_x
+            if denom == 0:
+                return 0.0
+            return (n * sum_xy - sum_x * sum_y) / denom
+
+        if len(self.samples) >= cpu_window:
+            recent = list(self.samples)[-cpu_window:]
+            cpu_slope = slope(recent) * (len(recent) - 1)
+        else:
+            cpu_slope = 0.0
+        if len(self.mem_samples) >= mem_window:
+            recent_m = list(self.mem_samples)[-mem_window:]
+            mem_slope = slope(recent_m) * (len(recent_m) - 1)
+        else:
+            mem_slope = 0.0
+        if len(self.io_samples) >= io_window:
+            recent_io = list(self.io_samples)[-io_window:]
+            io_slope = slope(recent_io) * (len(recent_io) - 1)
+        else:
+            io_slope = 0.0
+
+        if self.samples:
+            self.ema_cpu = self.ema_alpha * self.samples[-1] + (1 - self.ema_alpha) * self.ema_cpu
+            cpu_diff = self.samples[-1] - self.ema_cpu
+        else:
+            cpu_diff = 0.0
+        if self.mem_samples:
+            self.ema_mem = self.ema_alpha * self.mem_samples[-1] + (1 - self.ema_alpha) * self.ema_mem
+            mem_diff = self.mem_samples[-1] - self.ema_mem
+        else:
+            mem_diff = 0.0
+        if self.io_samples:
+            self.ema_io = self.ema_alpha * self.io_samples[-1] + (1 - self.ema_alpha) * self.ema_io
+            io_diff = self.io_samples[-1] - self.ema_io
+        else:
+            io_diff = 0.0
+
+        self.trending_cpu = max(cpu_slope, cpu_diff) >= cpu_thresh
+        self.trending_mem = max(mem_slope, mem_diff) >= mem_thresh
+        self.trending_io = max(io_slope, io_diff) >= io_thresh
+
+    def _change_score(self, other: "ProcessEntry") -> float:
+        cpu_std = self.baseline_cpu_var ** 0.5
+        mem_std = self.baseline_mem_var ** 0.5
+        io_std = self.baseline_io_var ** 0.5
+        cpu_mad = self.baseline_cpu_mad
+        mem_mad = self.baseline_mem_mad
+        io_mad = self.baseline_io_mad
+        cpu_thr = max(
+            0.01,
+            self.cpu_threshold,
+            self.baseline_cpu * self.change_ratio,
+            cpu_std * self.change_std_mult,
+            cpu_mad * self.change_mad_mult,
+        )
+        mem_thr = max(
+            0.01,
+            self.mem_threshold,
+            self.baseline_mem * self.change_ratio,
+            mem_std * self.change_std_mult,
+            mem_mad * self.change_mad_mult,
+        )
+        io_thr = max(
+            0.01,
+            self.io_threshold,
+            self.baseline_io * self.change_ratio,
+            io_std * self.change_std_mult,
+            io_mad * self.change_mad_mult,
+        )
+        score = (
+            abs(other.cpu - self.baseline_cpu) / cpu_thr
+            + abs(other.mem - self.baseline_mem) / mem_thr
+            + abs(other.io_rate - self.baseline_io) / io_thr
+        )
+        self._update_baseline(other)
+        self.last_score = score
+        return score
+
+    def _update_baseline(self, other: "ProcessEntry") -> None:
+        alpha = self.change_alpha
+        diff = other.cpu - self.baseline_cpu
+        self.baseline_cpu += alpha * diff
+        self.baseline_cpu_var = (
+            (1 - alpha) * self.baseline_cpu_var + alpha * diff * diff
+        )
+        self.baseline_cpu_mad = (
+            (1 - alpha) * self.baseline_cpu_mad + alpha * abs(diff)
+        )
+        diff = other.mem - self.baseline_mem
+        self.baseline_mem += alpha * diff
+        self.baseline_mem_var = (
+            (1 - alpha) * self.baseline_mem_var + alpha * diff * diff
+        )
+        self.baseline_mem_mad = (
+            (1 - alpha) * self.baseline_mem_mad + alpha * abs(diff)
+        )
+        diff = other.io_rate - self.baseline_io
+        self.baseline_io += alpha * diff
+        self.baseline_io_var = (
+            (1 - alpha) * self.baseline_io_var + alpha * diff * diff
+        )
+        self.baseline_io_mad = (
+            (1 - alpha) * self.baseline_io_mad + alpha * abs(diff)
+        )
+
+    def changed_since(self, other: "ProcessEntry") -> bool:
+        if any(
+            [
+                self.name != other.name,
+                self.user != other.user,
+                self.status != other.status,
+                self.threads != other.threads,
+                self.files != other.files,
+                self.conns != other.conns,
+            ]
+        ):
+            return True
+        score = self._change_score(other)
+        self.recent_scores.append(score)
+        self.score_sum = self.score_sum * self.change_decay + score
+        total = sum(self.recent_scores)
+        return max(total, self.score_sum) >= self.change_score_threshold
+
+    def changed_basic(self, other: "ProcessEntry") -> bool:
+        """Return True if basic metrics changed since ``other``."""
+        if any(
+            [
+                self.name != other.name,
+                self.user != other.user,
+                self.status != other.status,
+                self.threads != other.threads,
+            ]
+        ):
+            return True
+        score = self._change_score(other)
+        self.recent_scores.append(score)
+        self.score_sum = self.score_sum * self.change_decay + score
+        total = sum(self.recent_scores)
+        return max(total, self.score_sum) >= self.change_score_threshold
+
+    def update_level(
+        self,
+        warn_cpu: float,
+        warn_mem: float,
+        warn_io: float,
+        crit_cpu: float,
+        crit_mem: float,
+    ) -> None:
+        """Classify the entry as normal, warning or critical."""
+        if (
+            self.cpu >= crit_cpu
+            or self.mem >= crit_mem
+            or self.io_rate >= warn_io * 2
+        ):
+            self.level = "critical"
+        elif (
+            self.cpu >= warn_cpu
+            or self.mem >= warn_mem
+            or self.io_rate >= warn_io
+        ):
+            self.level = "warning"
+        else:
+            self.level = "normal"
+
+
+class ProcessWatcher(threading.Thread):
+    """Background thread streaming process snapshots to the UI.
+
+    Metrics are gathered concurrently using a thread pool. Expensive details
+    like open file and connection counts are refreshed every ``detail_interval``
+    cycles to keep overhead low. Updates are pushed through ``queue`` as
+    ``(updates, removed)`` pairs where ``updates`` is a mapping of PID to
+    ``ProcessEntry`` instances and ``removed`` is the set of PIDs that have
+    disappeared since the last refresh. ``process_count`` tracks how many
+    processes were seen in the most recent refresh cycle so the UI can display
+    totals without recalculating them each time. Processes that remain unchanged
+    for ``stable_cycles`` refreshes are considered stable and only refresh their
+    expensive details every ``stable_skip`` cycles, further reducing overhead.
+    ``ratio_window`` controls how many recent change ratios are averaged when
+    tuning refresh intervals, smoothing out brief spikes. Processes owned by
+    any usernames in ``exclude_users`` are skipped entirely.
+    """
+
+    def __init__(
+        self,
+        queue: Queue[tuple[dict[int, ProcessEntry], set[int]]],
+        interval: float = 2.0,
+        detail_interval: int = 3,
+        max_workers: int | None = None,
+        sample_size: int = 5,
+        limit: int | None = None,
+        adaptive: bool = True,
+        adaptive_detail: bool = True,
+        *,
+        conn_interval: float = 2.0,
+        file_interval: float = 2.0,
+        cache_ttl: float = 30.0,
+        conn_global_threshold: int = 50,
+        file_global_threshold: int = 50,
+        stable_cycles: int = 10,
+        stable_skip: int = 3,
+        hide_system: bool = False,
+        exclude_users: set[str] | None = None,
+        slow_ratio: float = 0.02,
+        fast_ratio: float = 0.2,
+        ratio_window: int = 5,
+        trend_window: int = TREND_WINDOW,
+        trend_cpu: float = TREND_CPU_THRESHOLD,
+        trend_mem: float = TREND_MEM_THRESHOLD,
+        trend_io: float = TREND_IO_THRESHOLD,
+        trend_io_window: int = TREND_IO_WINDOW,
+        trend_slow_ratio: float = 0.05,
+        trend_fast_ratio: float = 0.25,
+        normal_window: int = 3,
+        visible_cpu: float = CHANGE_CPU_THRESHOLD,
+        visible_mem: float = 10.0,
+        visible_io: float = 0.1,
+        visible_auto: bool = False,
+        warn_cpu: float = WARN_CPU_THRESHOLD,
+        warn_mem: float = WARN_MEM_THRESHOLD,
+        warn_io: float = WARN_IO_THRESHOLD,
+        ignore_age: float = 1.0,
+        change_alpha: float = CHANGE_ALPHA,
+        change_ratio: float = CHANGE_RATIO,
+        change_mad_mult: float = CHANGE_MAD_MULT,
+        change_decay: float = CHANGE_DECAY,
+    ) -> None:
+        super().__init__(daemon=True)
+        self.queue = queue
+        self.interval = max(0.5, float(interval))
+        self.target_interval = self.interval
+        self.detail_interval = max(1, detail_interval)
+        self.target_detail_interval = self.detail_interval
+        self.limit = limit
+        self.adaptive = adaptive
+        self.adaptive_detail = adaptive_detail
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+        self._snapshot: dict[int, ProcessEntry] = {}
+        self._detail_ts: dict[int, float] = {}
+        self._conn_cache: dict[int, tuple[int, float]] = {}
+        self._file_cache: dict[int, tuple[int, float]] = {}
+        self._file_future = None
+        self._global_conn_future = None
+        self._global_file_future = None
+        self._global_conn_data: dict[int, int] = {}
+        self._global_conn_ts = 0.0
+        self._global_file_data: dict[int, int] = {}
+        self._global_file_ts = 0.0
+        self.conn_interval = float(conn_interval)
+        self.file_interval = float(file_interval)
+        self.cache_ttl = float(cache_ttl)
+        self.conn_global_threshold = int(conn_global_threshold)
+        self.file_global_threshold = int(file_global_threshold)
+        self._last_ts = time.monotonic()
+        workers = max_workers or min(8, (os.cpu_count() or 1) * 2)
+        self._executor = ThreadPoolExecutor(max_workers=workers)
+        self._cpu_count = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
+        self.sample_size = max(1, sample_size)
+        self.process_count = 0
+        self._last_detail_count = 0
+        self._stable_cycles = max(1, int(stable_cycles))
+        self._stable_skip = max(1, int(stable_skip))
+        self._stable_counts: dict[int, int] = {}
+        self._slow_ratio = float(slow_ratio)
+        self._fast_ratio = float(fast_ratio)
+        self._ratio_window = max(1, int(ratio_window))
+        self._ratio_history: deque[float] = deque(maxlen=self._ratio_window)
+        self.hide_system = hide_system
+        self.exclude_users: set[str] = {u.lower() for u in (exclude_users or set())}
+        self._trend_window = max(1, int(trend_window))
+        self._trend_cpu = float(trend_cpu)
+        self._trend_mem = float(trend_mem)
+        self._trend_io = float(trend_io)
+        self._trend_io_window = max(1, int(trend_io_window))
+        self._trend_slow_ratio = float(trend_slow_ratio)
+        self._trend_fast_ratio = float(trend_fast_ratio)
+        self._trend_history: deque[float] = deque(maxlen=self._ratio_window)
+        self._normal_window = max(1, int(normal_window))
+        self.visible_cpu = float(visible_cpu)
+        self.visible_mem = float(visible_mem)
+        self.visible_io = float(visible_io)
+        self.visible_auto = bool(visible_auto)
+        self.warn_cpu = float(warn_cpu)
+        self.warn_mem = float(warn_mem)
+        self.warn_io = float(warn_io)
+        self.ignore_age = float(ignore_age)
+        self.change_alpha = float(change_alpha)
+        self.change_ratio = float(change_ratio)
+        self.change_mad_mult = float(change_mad_mult)
+        self.change_decay = float(change_decay)
+        ProcessEntry.change_decay = self.change_decay
+        self._auto_cpu = 0.0
+        self._auto_mem = 0.0
+        self._auto_io = 0.0
+        self._normal_counts: dict[int, int] = {}
+
+    def set_interval(self, interval: float) -> None:
+        self.target_interval = max(0.5, float(interval))
+        self.interval = self.target_interval
+
+    def set_detail_interval(self, interval: int) -> None:
+        self.target_detail_interval = max(1, int(interval))
+        self.detail_interval = self.target_detail_interval
+
+    def pause(self) -> None:
+        self._pause_event.set()
+
+    def resume(self) -> None:
+        self._pause_event.clear()
+
+    def run(self) -> None:
+        while not self._stop_event.is_set():
+            loop_start = time.monotonic()
+            self._prune_caches(loop_start)
+            if (
+                self.process_count > self.conn_global_threshold * 2
+                and self._global_conn_future is None
+                and (
+                    not self._global_conn_data
+                    or loop_start - self._global_conn_ts > self.conn_interval
+                )
+            ):
+                self._global_conn_future = self._executor.submit(
+                    psutil.net_connections, kind="inet"
+                )
+            if (
+                self.process_count > self.file_global_threshold * 2
+                and os.path.isdir("/proc")
+                and self._global_file_future is None
+                and (
+                    not self._global_file_data
+                    or loop_start - self._global_file_ts > self.file_interval
+                )
+            ):
+                self._global_file_future = self._executor.submit(
+                    self._scan_fd_proc_all
+                )
+            if self._pause_event.is_set():
+                if self._stop_event.wait(self.interval):
+                    break
+                continue
+
+            now = time.monotonic()
+            delta = max(now - self._last_ts, 0.001)
+            self._last_ts = now
+            updates: dict[int, ProcessEntry] = {}
+            current: set[int] = set()
+            trending = 0
+
+            basic_attrs = [
+                "pid",
+                "name",
+                "username",
+                "create_time",
+                "memory_info",
+                "status",
+                "cpu_times",
+                "num_threads",
+                "io_counters",
+            ]
+
+            self.process_count = 0
+
+            def collect(proc: psutil.Process) -> tuple[ProcessEntry, bool] | None:
+                nonlocal trending
+                try:
+                    with proc.oneshot():
+                        pid = proc.info["pid"]
+                        name = proc.info.get("name", "")
+                        user = proc.info.get("username") or ""
+                        if self.hide_system and user.lower() in {"root", "system", "localsystem"}:
+                            return None
+                        if user.lower() in self.exclude_users:
+                            return None
+                        mem = proc.info["memory_info"].rss / (1024 * 1024)
+                        cpu_time = sum(proc.info.get("cpu_times"))
+                        start = proc.info.get("create_time", 0.0)
+                        if self.ignore_age and time.time() - start < self.ignore_age:
+                            return None
+                        status = proc.info.get("status", "")
+                        threads = proc.info.get("num_threads", 0)
+                        io = proc.info.get("io_counters")
+                        if io:
+                            read_bytes = io.read_bytes
+                            write_bytes = io.write_bytes
+                        else:
+                            read_bytes = write_bytes = 0
+                except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
+                    return None
+
+                prev = self._snapshot.get(pid)
+                if prev is not None:
+                    cpu = (cpu_time - prev.cpu_time) / delta / self._cpu_count * 100
+                    io_rate = (
+                        (read_bytes - prev.read_bytes + write_bytes - prev.write_bytes)
+                        / delta
+                        / (1024 * 1024)
+                    )
+                    changed = prev.changed_basic(
+                        ProcessEntry(
+                            pid=pid,
+                            name=name,
+                            cpu=round(cpu, 1),
+                            mem=round(mem, 1),
+                            user=user,
+                            start=start,
+                            status=status,
+                            cpu_time=cpu_time,
+                            threads=threads,
+                            read_bytes=read_bytes,
+                            write_bytes=write_bytes,
+                            files=prev.files,
+                            conns=prev.conns,
+                            io_rate=round(io_rate, 1),
+                            samples=list(prev.samples),
+                            io_samples=list(prev.io_samples),
+                            max_samples=self.sample_size,
+                        )
+                    )
+                    delta_cpu = round(cpu - prev.cpu, 1)
+                    delta_mem = round(mem - prev.mem, 1)
+                    delta_io = round(io_rate - prev.io_rate, 1)
+                    prev.cpu = round(cpu, 1)
+                    prev.mem = round(mem, 1)
+                    prev.user = user
+                    prev.start = start
+                    prev.status = status
+                    prev.cpu_time = cpu_time
+                    prev.threads = threads
+                    prev.read_bytes = read_bytes
+                    prev.write_bytes = write_bytes
+                    prev.io_rate = round(io_rate, 1)
+                    prev.delta_cpu = delta_cpu
+                    prev.delta_mem = delta_mem
+                    prev.delta_io = delta_io
+                    prev.changed = changed
+                    prev.add_sample(prev.cpu, prev.io_rate, prev.mem)
+                    prev.compute_trends(
+                        self._trend_window,
+                        self._trend_window,
+                        self._trend_io_window,
+                        self._trend_cpu,
+                        self._trend_mem,
+                        self._trend_io,
+                    )
+                    prev.update_level(
+                        self.warn_cpu,
+                        self.warn_mem,
+                        self.warn_io,
+                        self.cpu_alert,
+                        self.mem_alert,
+                    )
+                    if (
+                        prev.trending_cpu
+                        or prev.trending_mem
+                        or prev.trending_io
+                    ):
+                        trending += 1
+                    return prev, changed
+
+                entry = ProcessEntry(
+                    pid=pid,
+                    name=name,
+                    cpu=0.0,
+                    mem=round(mem, 1),
+                    user=user,
+                    start=start,
+                    status=status,
+                    cpu_time=cpu_time,
+                    threads=threads,
+                    read_bytes=read_bytes,
+                    write_bytes=write_bytes,
+                    files=0,
+                    conns=0,
+                    io_rate=0.0,
+                    samples=[],
+                    io_samples=[],
+                    max_samples=self.sample_size,
+                )
+                entry.add_sample(entry.cpu, entry.io_rate, entry.mem)
+                entry.compute_trends(
+                    self._trend_window,
+                    self._trend_window,
+                    self._trend_io_window,
+                    self._trend_cpu,
+                    self._trend_mem,
+                    self._trend_io,
+                )
+                entry.update_level(
+                    self.warn_cpu,
+                    self.warn_mem,
+                    self.warn_io,
+                    self.cpu_alert,
+                    self.mem_alert,
+                )
+                if entry.trending_cpu or entry.trending_mem or entry.trending_io:
+                    trending += 1
+                entry.changed = True
+                self._normal_counts[pid] = 0
+                return entry, True
+
+            heap: list[tuple[tuple[float, float, int], ProcessEntry]] = []
+            entries: list[ProcessEntry] = []
+            detail_candidates: list[ProcessEntry] = []
+            now_ts = time.monotonic()
+
+            proc_iter = psutil.process_iter(basic_attrs)
+            for result in self._executor.map(collect, proc_iter):
+                self.process_count += 1
+                if not result:
+                    continue
+                entry, changed_flag = result
+                if self.limit:
+                    score = (entry.avg_cpu, entry.mem, entry.pid)
+                    item = (score, entry, changed_flag)
+                    if len(heap) < self.limit:
+                        heapq.heappush(heap, item)
+                    else:
+                        heapq.heappushpop(heap, item)
+                else:
+                    entries.append((entry, changed_flag))
+
+            if self.visible_auto:
+                cpu_vals = [e.cpu for e, _c in entries]
+                mem_vals = [e.mem for e, _c in entries]
+                io_vals = [e.io_rate for e, _c in entries]
+                self._update_auto_baselines(cpu_vals, mem_vals, io_vals)
+
+            if self.limit:
+                entries = [
+                    (e, ch) for _s, e, ch in heapq.nlargest(self.limit, heap)
+                ]
+
+            for entry, changed in entries:
+                current.add(entry.pid)
+                if changed:
+                    updates[entry.pid] = entry
+                    self._stable_counts[entry.pid] = 0
+                else:
+                    self._stable_counts[entry.pid] = self._stable_counts.get(entry.pid, 0) + 1
+                entry.stable = self._stable_counts.get(entry.pid, 0) >= self._stable_cycles
+                skip_stable = (
+                    self._stable_counts.get(entry.pid, 0) >= self._stable_cycles
+                    and self._stable_counts[entry.pid] % self._stable_skip != 0
+                )
+                cpu_thresh = self._auto_cpu if self.visible_auto else self.visible_cpu
+                mem_thresh = self._auto_mem if self.visible_auto else self.visible_mem
+                io_thresh = self._auto_io if self.visible_auto else self.visible_io
+                if (
+                    not changed
+                    and not (entry.trending_cpu or entry.trending_mem or entry.trending_io)
+                    and entry.cpu < cpu_thresh
+                    and entry.mem < mem_thresh
+                    and entry.io_rate < io_thresh
+                    and not entry.stable
+                ):
+                    self._normal_counts[entry.pid] = self._normal_counts.get(entry.pid, 0) + 1
+                else:
+                    self._normal_counts[entry.pid] = 0
+                entry.normal = self._normal_counts[entry.pid] >= self._normal_window
+                if (
+                    changed
+                    or now_ts - self._detail_ts.get(entry.pid, 0.0) >= self.detail_interval
+                ) and not skip_stable:
+                    detail_candidates.append(entry)
+                self._snapshot[entry.pid] = entry
+            if not self.limit:
+                entries.sort(key=lambda ec: (ec[0].cpu, ec[0].mem), reverse=True)
+
+            if detail_candidates:
+                now_conn = time.monotonic()
+                now_file = now_conn
+                cand_pids = {e.pid for e in detail_candidates}
+                fetch = [
+                    p
+                    for p in cand_pids
+                    if now_conn - self._conn_cache.get(p, (0, 0))[1]
+                    >= self.conn_interval
+                ]
+                file_fetch = [
+                    p
+                    for p in cand_pids
+                    if now_file - self._file_cache.get(p, (0, 0))[1]
+                    >= self.file_interval
+                ]
+                conn_counts: dict[int, int] = {}
+                if fetch:
+                    if len(fetch) > self.conn_global_threshold:
+                        if self._global_conn_future and self._global_conn_future.done():
+                            all_conns = self._global_conn_future.result()
+                            self._global_conn_future = None
+                            counts: dict[int, int] = {}
+                            for conn in all_conns:
+                                pid = conn.pid
+                                if pid is None:
+                                    continue
+                                counts[pid] = counts.get(pid, 0) + 1
+                            self._global_conn_data = counts
+                            self._global_conn_ts = now_conn
+                            for pid, cnt in counts.items():
+                                self._conn_cache[pid] = (cnt, now_conn)
+                            conn_counts = {pid: counts.get(pid, 0) for pid in cand_pids}
+                        elif self._global_conn_data:
+                            for pid in fetch:
+                                if pid in self._global_conn_data:
+                                    conn_counts[pid] = self._global_conn_data[pid]
+                    else:
+                        def _get_conn(pid: int) -> tuple[int, int] | None:
+                            try:
+                                return pid, len(psutil.Process(pid).connections(kind="inet"))
+                            except Exception:
+                                return None
+
+                        for res in self._executor.map(_get_conn, fetch):
+                            if not res:
+                                continue
+                            pid, cnt = res
+                            conn_counts[pid] = cnt
+                            self._conn_cache[pid] = (cnt, now_conn)
+                for pid in cand_pids:
+                    if pid not in conn_counts and pid in self._conn_cache:
+                        conn_counts[pid] = self._conn_cache[pid][0]
+
+                file_counts: dict[int, int] = {}
+
+                def _get_file_count(pid: int) -> tuple[int, int] | None:
+                    try:
+                        proc_path = f"/proc/{pid}/fd"
+                        if os.path.isdir(proc_path):
+                            return pid, sum(1 for _ in os.scandir(proc_path))
+                        proc = psutil.Process(pid)
+                        with proc.oneshot():
+                            if hasattr(proc, "num_handles"):
+                                return pid, proc.num_handles()
+                            if hasattr(proc, "num_fds"):
+                                return pid, proc.num_fds()
+                            return pid, len(proc.open_files())
+                    except Exception:
+                        return None
+
+                if file_fetch:
+                    if (
+                        len(file_fetch) > self.file_global_threshold
+                        and os.path.isdir("/proc")
+                    ):
+                        if self._global_file_future and self._global_file_future.done():
+                            self._global_file_data = self._global_file_future.result()
+                            self._global_file_ts = now_file
+                            self._global_file_future = None
+                        if self._global_file_data:
+                            for pid in file_fetch:
+                                if pid in self._global_file_data:
+                                    file_counts[pid] = self._global_file_data[pid]
+                        else:
+                            if self._file_future is None:
+                                self._file_future = self._executor.submit(
+                                    self._scan_fd_proc, set(file_fetch)
+                                )
+                            if self._file_future and self._file_future.done():
+                                all_counts = self._file_future.result()
+                                self._file_future = None
+                                file_counts.update(all_counts)
+                    else:
+                        for res in self._executor.map(_get_file_count, file_fetch):
+                            if not res:
+                                continue
+                            pid, count = res
+                            file_counts[pid] = count
+                    for pid in file_fetch:
+                        self._file_cache[pid] = (
+                            file_counts.get(pid, self._file_cache.get(pid, (0, 0))[0]),
+                            now_file,
+                        )
+                for pid in cand_pids:
+                    if pid not in file_counts and pid in self._file_cache:
+                        file_counts[pid] = self._file_cache[pid][0]
+
+                def gather_detail(entry: ProcessEntry) -> ProcessEntry:
+                    try:
+                        entry.files = file_counts.get(entry.pid, entry.files)
+                    except Exception:
+                        pass
+                    entry.conns = conn_counts.get(entry.pid, entry.conns)
+                    return entry
+                detail_start = time.monotonic()
+                for det in self._executor.map(gather_detail, detail_candidates):
+                    updates[det.pid] = det
+                    self._snapshot[det.pid] = det
+                    self._detail_ts[det.pid] = time.monotonic()
+                detail_elapsed = time.monotonic() - detail_start
+                if self.adaptive_detail:
+                    if detail_elapsed > self.target_interval / 3:
+                        self.detail_interval = min(
+                            self.detail_interval + 1,
+                            self.target_detail_interval * 5,
+                        )
+                    elif (
+                        detail_elapsed < self.target_interval / 10
+                        and self.detail_interval > self.target_detail_interval
+                    ):
+                        self.detail_interval = max(
+                            self.detail_interval - 1,
+                            self.target_detail_interval,
+                        )
+                self._last_detail_count = len(detail_candidates)
+
+            else:
+                self._last_detail_count = 0
+
+            removed = set(self._snapshot) - current
+
+            if updates or removed:
+                try:
+                    self.queue.put_nowait((updates, removed))
+                except Full:
+                    try:
+                        self.queue.get_nowait()
+                    except Empty:
+                        pass
+                    self.queue.put_nowait((updates, removed))
+                for pid in removed:
+                    self._snapshot.pop(pid, None)
+                    self._detail_ts.pop(pid, None)
+                    self._conn_cache.pop(pid, None)
+                    self._file_cache.pop(pid, None)
+                    self._stable_counts.pop(pid, None)
+                    self._normal_counts.pop(pid, None)
+
+            if self.adaptive:
+                elapsed = time.monotonic() - loop_start
+                if elapsed > self.target_interval * 1.5:
+                    self.interval = min(self.interval * 1.25, self.target_interval * 5)
+                elif elapsed < self.target_interval * 0.7 and self.interval > self.target_interval:
+                    self.interval = max(self.interval * 0.9, self.target_interval)
+                change_ratio = len(updates) / max(self.process_count, 1)
+                self._ratio_history.append(change_ratio)
+                avg_ratio = sum(self._ratio_history) / len(self._ratio_history)
+                self._trend_history.append(trending / max(self.process_count, 1))
+                avg_trend = sum(self._trend_history) / len(self._trend_history)
+                if avg_ratio < self._slow_ratio and avg_trend < self._trend_slow_ratio:
+                    self.interval = min(self.interval + 0.5, self.target_interval * 5)
+                    self._stable_cycles = min(self._stable_cycles + 1, 20)
+                elif avg_ratio > self._fast_ratio or avg_trend > self._trend_fast_ratio:
+                    self.interval = max(self.interval - 0.5, self.target_interval)
+                    self._stable_cycles = max(self._stable_cycles - 1, 1)
+
+            if self._stop_event.wait(self.interval):
+                break
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        self._executor.shutdown(wait=False)
+
+    def _prune_caches(self, now: float) -> None:
+        """Drop stale connection and file count cache entries."""
+        stale = [pid for pid, (_, ts) in self._conn_cache.items() if now - ts > self.cache_ttl]
+        for pid in stale:
+            self._conn_cache.pop(pid, None)
+        stale = [pid for pid, (_, ts) in self._file_cache.items() if now - ts > self.cache_ttl]
+        for pid in stale:
+            self._file_cache.pop(pid, None)
+        if now - self._global_conn_ts > self.cache_ttl:
+            self._global_conn_data.clear()
+        if now - self._global_file_ts > self.cache_ttl:
+            self._global_file_data.clear()
+
+    def _update_auto_baselines(
+        self, cpu_vals: list[float], mem_vals: list[float], io_vals: list[float]
+    ) -> None:
+        def percentile(values: list[float], p: float) -> float:
+            if not values:
+                return 0.0
+            k = max(0, min(len(values) - 1, int(len(values) * p) - 1))
+            return sorted(values)[k]
+
+        alpha = 0.3
+        cpu = percentile(cpu_vals, 0.75)
+        mem = percentile(mem_vals, 0.75)
+        io = percentile(io_vals, 0.75)
+        self._auto_cpu = cpu if self._auto_cpu == 0.0 else self._auto_cpu * (1 - alpha) + cpu * alpha
+        self._auto_mem = mem if self._auto_mem == 0.0 else self._auto_mem * (1 - alpha) + mem * alpha
+        self._auto_io = io if self._auto_io == 0.0 else self._auto_io * (1 - alpha) + io * alpha
+
+    def _scan_fd_proc(self, pids: set[int]) -> dict[int, int]:
+        """Return open file counts for *pids* by scanning /proc."""
+        counts: dict[int, int] = {}
+        proc_root = Path("/proc")
+        for entry in os.scandir(proc_root):
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            if pid not in pids:
+                continue
+            fd_path = os.path.join(entry.path, "fd")
+            if os.path.isdir(fd_path):
+                try:
+                    counts[pid] = sum(1 for _ in os.scandir(fd_path))
+                except Exception:
+                    continue
+            if len(counts) == len(pids):
+                break
+        return counts
+
+    def _scan_fd_proc_all(self) -> dict[int, int]:
+        """Return open file counts for all processes by scanning /proc."""
+        counts: dict[int, int] = {}
+        proc_root = Path("/proc")
+        for entry in os.scandir(proc_root):
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            fd_path = os.path.join(entry.path, "fd")
+            if os.path.isdir(fd_path):
+                try:
+                    counts[pid] = sum(1 for _ in os.scandir(fd_path))
+                except Exception:
+                    continue
+        return counts
+
+
+__all__ = [
+    "ProcessEntry",
+    "ProcessWatcher",
+]
