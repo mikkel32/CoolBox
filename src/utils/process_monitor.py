@@ -727,7 +727,14 @@ class ProcessWatcher(threading.Thread):
                 return (float(parts[13]) + float(parts[14])) / float(clk_tck)
             except Exception:
                 pass
-        return sum(proc.cpu_times())
+        try:
+            return sum(proc.cpu_times())
+        except (psutil.NoSuchProcess, ProcessLookupError):
+            raise
+        except AttributeError:
+            raise psutil.NoSuchProcess(pid)
+        except Exception:
+            return 0.0
 
     def _system_time(self) -> float:
         """Return cumulative system CPU time."""
@@ -983,14 +990,17 @@ class ProcessWatcher(threading.Thread):
                 ) = data
                 pid = proc.pid
                 trending_flag = False
-                cpu_time, cpu, io_rate = self._maybe_sample_cpu(
-                    proc,
-                    prev,
-                    now,
-                    read_bytes,
-                    write_bytes,
-                    cpu_map,
-                )
+                try:
+                    cpu_time, cpu, io_rate = self._maybe_sample_cpu(
+                        proc,
+                        prev,
+                        now,
+                        read_bytes,
+                        write_bytes,
+                        cpu_map,
+                    )
+                except (psutil.Error, ProcessLookupError, AttributeError):
+                    return None
 
                 if prev is not None and cpu_time == prev.cpu_time and cpu == prev.cpu:
                     changed = prev.changed_basic(
