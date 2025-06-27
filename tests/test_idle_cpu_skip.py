@@ -1,5 +1,7 @@
 from queue import Queue
 import random
+import psutil
+import pytest
 
 from src.utils.process_monitor import ProcessEntry, ProcessWatcher
 
@@ -501,3 +503,44 @@ def test_idle_grace_delay() -> None:
     assert watcher._cpu_skip_intervals[proc.pid] == 2
 
     watcher.stop()
+
+
+def test_proc_cpu_time_no_such_process(monkeypatch) -> None:
+    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    watcher = ProcessWatcher(q)
+    proc = _FakeProc()
+
+    def raise_nsp():
+        raise psutil.NoSuchProcess(proc.pid)
+
+    monkeypatch.setattr(proc, "cpu_times", raise_nsp)
+
+    with pytest.raises(psutil.NoSuchProcess):
+        watcher._proc_cpu_time(proc.pid, proc)
+
+
+def test_proc_cpu_time_generic_error(monkeypatch) -> None:
+    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    watcher = ProcessWatcher(q)
+    proc = _FakeProc()
+
+    def raise_err():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(proc, "cpu_times", raise_err)
+
+    assert watcher._proc_cpu_time(proc.pid, proc) == 0.0
+
+
+def test_proc_cpu_time_attribute_error(monkeypatch) -> None:
+    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    watcher = ProcessWatcher(q)
+    proc = _FakeProc()
+
+    def raise_attr():
+        raise AttributeError("_cache")
+
+    monkeypatch.setattr(proc, "cpu_times", raise_attr)
+
+    with pytest.raises(psutil.NoSuchProcess):
+        watcher._proc_cpu_time(proc.pid, proc)
