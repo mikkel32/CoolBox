@@ -4,11 +4,22 @@ from argparse import ArgumentParser
 from pathlib import Path
 from typing import Callable
 from importlib.util import module_from_spec, spec_from_file_location
-import shutil
+
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+
+def available_backends() -> list[str]:
+    """Return installed VM backends without importing the package."""
+    vm_path = ROOT / "src" / "utils" / "vm.py"
+    spec = spec_from_file_location("_coolbox_vm", vm_path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"Unable to load {vm_path}")
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[arg-type]
+    return getattr(module, "available_backends")()
 
 
 def _load_launch() -> 'Callable[[str | None, bool, int], None]':
@@ -20,15 +31,6 @@ def _load_launch() -> 'Callable[[str | None, bool, int], None]':
     module = module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[arg-type]
     return getattr(module, "launch_vm_debug")
-
-
-def _available_backends() -> list[str]:
-    """Return a list of available VM backends."""
-    backends = []
-    for name in ("docker", "podman", "vagrant"):
-        if shutil.which(name):
-            backends.append(name)
-    return backends
 
 
 def main() -> None:
@@ -58,7 +60,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.list:
-        print("Available backends:", " ".join(_available_backends()) or "none")
+        print("Available backends:", " ".join(available_backends()) or "none")
         return
 
     launch = _load_launch()
