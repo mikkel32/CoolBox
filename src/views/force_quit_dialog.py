@@ -446,6 +446,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
             warn_cpu=self.warn_cpu,
             warn_mem=self.warn_mem,
             warn_io=self.warn_io,
+            cpu_alert=self.cpu_alert,
+            mem_alert=self.mem_alert,
             ignore_age=self.ignore_age,
             change_alpha=self.change_alpha,
             change_ratio=self.change_ratio,
@@ -1041,7 +1043,9 @@ class ForceQuitDialog(ctk.CTkToplevel):
         pids: list[int] = []
         for proc in psutil.process_iter(["pid"]):
             try:
-                if len(proc.net_connections(kind="inet")) > threshold:
+                # ``Process.connections`` replaces the deprecated
+                # ``net_connections`` method in recent psutil versions.
+                if len(proc.connections(kind="inet")) > threshold:
                     pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
