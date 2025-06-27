@@ -34,6 +34,10 @@ WARN_CPU_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_CPU", "40.0"))
 WARN_MEM_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_MEM", "200.0"))
 WARN_IO_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_IO", "1.0"))
 
+# Critical thresholds for process classification
+CPU_ALERT_THRESHOLD = float(os.getenv("FORCE_QUIT_CPU_ALERT", "80.0"))
+MEM_ALERT_THRESHOLD = float(os.getenv("FORCE_QUIT_MEM_ALERT", "500.0"))
+
 
 # Trending thresholds and sample window
 TREND_WINDOW = int(os.getenv("FORCE_QUIT_TREND_WINDOW", "5"))
@@ -353,6 +357,16 @@ class ProcessWatcher(threading.Thread):
     ``ratio_window`` controls how many recent change ratios are averaged when
     tuning refresh intervals, smoothing out brief spikes. Processes owned by
     any usernames in ``exclude_users`` are skipped entirely.
+
+    Parameters
+    ----------
+    cpu_alert:
+        CPU usage threshold at which a process is classified as ``critical``.
+        This complements ``warn_cpu`` and allows callers to distinguish between
+        warning and critical states.
+    mem_alert:
+        Memory usage threshold for the ``critical`` level. Processes exceeding
+        this value will be highlighted even if their CPU usage is low.
     """
 
     def __init__(
@@ -393,6 +407,8 @@ class ProcessWatcher(threading.Thread):
         warn_cpu: float = WARN_CPU_THRESHOLD,
         warn_mem: float = WARN_MEM_THRESHOLD,
         warn_io: float = WARN_IO_THRESHOLD,
+        cpu_alert: float = CPU_ALERT_THRESHOLD,
+        mem_alert: float = MEM_ALERT_THRESHOLD,
         ignore_age: float = 1.0,
         change_alpha: float = CHANGE_ALPHA,
         change_ratio: float = CHANGE_RATIO,
@@ -458,6 +474,8 @@ class ProcessWatcher(threading.Thread):
         self.warn_cpu = float(warn_cpu)
         self.warn_mem = float(warn_mem)
         self.warn_io = float(warn_io)
+        self.cpu_alert = float(cpu_alert)
+        self.mem_alert = float(mem_alert)
         self.ignore_age = float(ignore_age)
         self.change_alpha = float(change_alpha)
         self.change_ratio = float(change_ratio)
