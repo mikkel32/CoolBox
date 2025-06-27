@@ -80,6 +80,11 @@ def test_force_quit_defaults(monkeypatch):
     assert cfg.get("force_quit_on_top") is False
     assert cfg.get("force_quit_adaptive") is True
     assert cfg.get("force_quit_adaptive_detail") is True
+    assert cfg.get("force_quit_conn_interval") == 2.0
+    assert cfg.get("force_quit_file_interval") == 2.0
+    assert cfg.get("force_quit_cache_ttl") == 30.0
+    assert cfg.get("force_quit_conn_global") == 50
+    assert cfg.get("force_quit_file_global") == 50
 
 
 def test_force_quit_persist(monkeypatch):

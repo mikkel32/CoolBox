@@ -47,6 +47,11 @@ class Config:
             "force_quit_sort": "CPU",
             "force_quit_sort_reverse": True,
             "force_quit_on_top": False,
+            "force_quit_conn_interval": 2.0,
+            "force_quit_file_interval": 2.0,
+            "force_quit_cache_ttl": 30.0,
+            "force_quit_conn_global": 50,
+            "force_quit_file_global": 50,
             "theme": {
                 "primary_color": "#1f538d",
                 "secondary_color": "#212121",
