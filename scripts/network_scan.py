@@ -9,12 +9,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.utils import (
-    PortInfo,
+from src.utils import (  # noqa: E402
     TOP_PORTS,
     async_scan_targets,
     async_scan_targets_list,
-    async_scan_port_list,
     async_filter_active_hosts,
     ports_as_range,
     parse_ports,

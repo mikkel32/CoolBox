@@ -117,6 +117,50 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   that should be ignored entirely by the Force Quit monitor.
   ``FORCE_QUIT_IGNORE_AGE`` skips processes younger than this many seconds so
   short-lived helpers do not clutter the list.
+  ``FORCE_QUIT_IDLE_CPU`` sets the CPU percentage considered idle for adaptive
+  sampling. After a process stays below this for ``FORCE_QUIT_IDLE_CYCLES``
+  refreshes, CPU usage collection is skipped for up to ``FORCE_QUIT_MAX_SKIP``
+  cycles with exponential backoff. Idle processes no longer trigger expensive
+  ``cpu_times`` calls, dramatically reducing monitor overhead.
+  When activity resumes, idle counters reset automatically so metrics remain
+  responsive without manual intervention.
+  ``FORCE_QUIT_IDLE_BASELINE`` controls how quickly per-process idle baselines
+  adapt to recent CPU usage. ``FORCE_QUIT_IDLE_RATIO`` specifies the fraction of
+  the baseline considered idle. Together they let the monitor learn typical
+  process activity and dynamically tune skip thresholds for even lower impact.
+  ``FORCE_QUIT_IDLE_DECAY`` sets the fraction of the skip interval retained when
+  a process becomes active again. Values below ``1`` slowly reduce skipping
+  instead of resetting immediately, smoothing out CPU spikes.
+  ``FORCE_QUIT_IDLE_GLOBAL_ALPHA`` controls how quickly a global idle baseline
+  adapts to observed CPU usage. New processes use this baseline to determine
+  skip thresholds before they accumulate history of their own, improving
+  accuracy when many short-lived helpers appear.
+  ``FORCE_QUIT_IDLE_JITTER`` introduces random jitter when skip intervals
+  increase so multiple processes do not resample in lockstep. Set to ``1`` to
+  disable.
+  ``FORCE_QUIT_IDLE_WINDOW`` controls how many recent CPU samples are averaged
+  when computing idle baselines for each process, smoothing out spikes and
+  improving skip accuracy.
+  ``FORCE_QUIT_IDLE_HYSTERESIS`` adds a margin around the idle threshold so
+  processes must fall below ``(1-h)`` or exceed ``(1+h)`` times the threshold
+  before switching states, preventing rapid flapping.
+  ``FORCE_QUIT_IDLE_REFRESH`` forces a CPU sample if a process hasn't been
+  measured for this many seconds, ensuring long-idle processes still update
+  their baselines.
+  ``FORCE_QUIT_IDLE_SKIP_ALPHA`` controls how strongly idle baselines are
+  updated when CPU sampling is skipped. Higher values adapt faster to long
+  periods of inactivity.
+  ``FORCE_QUIT_IDLE_GRACE`` sets how many initial refresh cycles a new process
+  is always sampled before idle skipping can activate, allowing more accurate
+  baselines.
+  ``FORCE_QUIT_BULK_CPU`` sets how many sampled processes trigger a bulk
+  ``/proc`` scan for CPU times. When the number of active processes exceeds this
+  threshold, the monitor reads all CPU times in one pass to further reduce
+  overhead.
+  ``FORCE_QUIT_BULK_WORKERS`` controls how many threads are used for the bulk
+  scan so large systems can prefetch CPU times in parallel.
+  ``FORCE_QUIT_LOAD_THRESHOLD`` sets the system CPU usage percentage that triggers a temporary pause in monitoring. When exceeded, the watcher skips ``FORCE_QUIT_LOAD_CYCLES`` refreshes to reduce contention.
+  ``FORCE_QUIT_LOAD_CYCLES`` configures how many cycles are skipped each time the threshold is hit. Set the threshold to ``0`` to disable this behaviour.
   ``FORCE_QUIT_TREND_SLOW_RATIO`` and ``FORCE_QUIT_TREND_FAST_RATIO`` adjust how
   aggressively refresh intervals respond to the number of trending processes.
   Set ``FORCE_QUIT_AUTO_KILL`` to ``cpu``, ``mem`` or ``both`` to automatically
