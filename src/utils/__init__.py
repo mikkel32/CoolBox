@@ -21,6 +21,7 @@ from .file_manager import (
     move_dir,
     delete_dir,
 )
+from .process_monitor import ProcessEntry, ProcessWatcher
 from .network import (
     PortInfo,
     TOP_PORTS,
@@ -87,4 +88,6 @@ __all__ = [
     "TOP_PORTS",
     "PortInfo",
     "file_manager",
+    "ProcessEntry",
+    "ProcessWatcher",
 ]

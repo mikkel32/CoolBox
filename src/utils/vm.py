@@ -18,7 +18,12 @@ def _pick_backend(prefer: str) -> Iterable[str]:
     return ("docker", "podman", "vagrant")
 
 
-def launch_vm_debug(prefer: str | None = None, *, open_code: bool = False) -> None:
+def launch_vm_debug(
+    prefer: str | None = None,
+    *,
+    open_code: bool = False,
+    port: int = 5678,
+) -> None:
     """Launch CoolBox inside a VM or fall back to local debugging.
 
     Parameters
@@ -44,11 +49,17 @@ def launch_vm_debug(prefer: str | None = None, *, open_code: bool = False) -> No
         if shutil.which(name):
             if name in {"docker", "podman"}:
                 script = root / "scripts" / "run_devcontainer.sh"
-                subprocess.check_call([str(script), name])
+                env = os.environ.copy()
+                env["DEBUG_PORT"] = str(port)
+                subprocess.check_call([str(script), name], env=env)
             else:
                 script = root / "scripts" / "run_vagrant.sh"
-                subprocess.check_call([str(script)])
+                env = os.environ.copy()
+                env["DEBUG_PORT"] = str(port)
+                subprocess.check_call([str(script)], env=env)
             break
     else:
         # Neither docker nor vagrant available; run locally under debugpy
-        subprocess.check_call([str(root / "scripts" / "run_debug.sh")])
+        env = os.environ.copy()
+        env["DEBUG_PORT"] = str(port)
+        subprocess.check_call([str(root / "scripts" / "run_debug.sh")], env=env)

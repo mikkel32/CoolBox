@@ -85,6 +85,45 @@ def test_force_quit_defaults(monkeypatch):
     assert cfg.get("force_quit_cache_ttl") == 30.0
     assert cfg.get("force_quit_conn_global") == 50
     assert cfg.get("force_quit_file_global") == 50
+    assert cfg.get("force_quit_stable_cycles") == 10
+    assert cfg.get("force_quit_stable_skip") == 3
+    assert cfg.get("force_quit_change_window") == 3
+    assert cfg.get("force_quit_change_cpu") == 0.5
+    assert cfg.get("force_quit_change_mem") == 1.0
+    assert cfg.get("force_quit_change_io") == 0.5
+    assert cfg.get("force_quit_change_score") == 1.0
+    assert cfg.get("force_quit_visible_cpu") == 0.5
+    assert cfg.get("force_quit_visible_mem") == 10.0
+    assert cfg.get("force_quit_visible_io") == 0.1
+    assert cfg.get("force_quit_visible_auto") is False
+    assert cfg.get("force_quit_warn_cpu") == 40.0
+    assert cfg.get("force_quit_warn_mem") == 200.0
+    assert cfg.get("force_quit_warn_io") == 1.0
+    assert cfg.get("force_quit_hide_system") is False
+    assert cfg.get("force_quit_slow_ratio") == 0.02
+    assert cfg.get("force_quit_fast_ratio") == 0.2
+    assert cfg.get("force_quit_ratio_window") == 5
+    assert cfg.get("force_quit_trend_window") == 5
+    assert cfg.get("force_quit_trend_cpu") == 5.0
+    assert cfg.get("force_quit_trend_mem") == 50.0
+    assert cfg.get("force_quit_trend_io") == 1.0
+    assert cfg.get("force_quit_trend_io_window") == 5
+    assert cfg.get("force_quit_trend_slow_ratio") == 0.05
+    assert cfg.get("force_quit_trend_fast_ratio") == 0.25
+    assert cfg.get("force_quit_show_trends") is True
+    assert cfg.get("force_quit_show_stable") is False
+    assert cfg.get("force_quit_show_deltas") is True
+    assert cfg.get("force_quit_show_normal") is False
+    assert cfg.get("force_quit_show_score") is False
+    assert cfg.get("force_quit_ignore_age") == 1.0
+    assert cfg.get("force_quit_change_agg") == 1
+    assert cfg.get("force_quit_change_alpha") == 0.2
+    assert cfg.get("force_quit_change_ratio") == 0.3
+    assert cfg.get("force_quit_change_std_mult") == 2.0
+    assert cfg.get("force_quit_change_mad_mult") == 3.0
+    assert cfg.get("force_quit_change_decay") == 0.8
+    assert cfg.get("force_quit_normal_window") == 3
+    assert cfg.get("force_quit_exclude_users") == []
 
 
 def test_force_quit_persist(monkeypatch):

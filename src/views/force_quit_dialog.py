@@ -6,581 +6,19 @@ import os
 import signal
 import subprocess
 import shutil
-from pathlib import Path
 
 import re
 import time
 import socket
-import threading
 from concurrent.futures import ThreadPoolExecutor
-from queue import Queue, Empty, Full
-from dataclasses import dataclass, field
-from collections import deque
-import heapq
+from queue import Queue
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter import ttk
 
 import customtkinter as ctk
 import psutil
-
-
-@dataclass(slots=True)
-class ProcessEntry:
-    """Snapshot of a running process."""
-
-    pid: int
-    name: str
-    cpu: float
-    mem: float
-    user: str
-    start: float
-    status: str
-    cpu_time: float
-    threads: int
-    read_bytes: int
-    write_bytes: int
-    files: int
-    conns: int
-    io_rate: float = 0.0
-    samples: deque[float] = field(default_factory=deque)
-    io_samples: deque[float] = field(default_factory=deque)
-    max_samples: int = 5
-
-    def __post_init__(self) -> None:
-        self.samples = deque(self.samples, maxlen=self.max_samples)
-        self.io_samples = deque(self.io_samples, maxlen=self.max_samples)
-
-    def __lt__(self, other: "ProcessEntry") -> bool:
-        """Order entries by average CPU then memory then PID."""
-        if not isinstance(other, ProcessEntry):
-            return NotImplemented
-        return (
-            self.avg_cpu,
-            self.mem,
-            self.pid,
-        ) < (
-            other.avg_cpu,
-            other.mem,
-            other.pid,
-        )
-
-    def add_sample(self, cpu: float, io: float) -> None:
-        self.samples.append(cpu)
-        self.io_samples.append(io)
-
-    @property
-    def avg_cpu(self) -> float:
-        if not self.samples:
-            return self.cpu
-        return sum(self.samples) / len(self.samples)
-
-    @property
-    def avg_io(self) -> float:
-        if not self.io_samples:
-            return self.io_rate
-        return sum(self.io_samples) / len(self.io_samples)
-
-    def changed_since(self, other: "ProcessEntry") -> bool:
-        return any(
-            [
-                self.name != other.name,
-                self.user != other.user,
-                self.mem != other.mem,
-                self.status != other.status,
-                abs(self.cpu - other.cpu) > 0.1,
-                self.threads != other.threads,
-                abs(self.io_rate - other.io_rate) > 0.1,
-                self.files != other.files,
-                self.conns != other.conns,
-            ]
-        )
-
-    def changed_basic(self, other: "ProcessEntry") -> bool:
-        """Return True if basic metrics changed since ``other``."""
-        return any(
-            [
-                self.name != other.name,
-                self.user != other.user,
-                self.mem != other.mem,
-                self.status != other.status,
-                abs(self.cpu - other.cpu) > 0.1,
-                self.threads != other.threads,
-                abs(self.io_rate - other.io_rate) > 0.1,
-            ]
-        )
-
-
-class ProcessWatcher(threading.Thread):
-    """Background thread streaming process snapshots to the UI.
-
-    Metrics are gathered concurrently using a thread pool. Expensive details
-    like open file and connection counts are refreshed every ``detail_interval``
-    cycles to keep overhead low. Updates are pushed through ``queue`` as
-    ``(updates, removed)`` pairs where ``updates`` is a mapping of PID to
-    ``ProcessEntry`` instances and ``removed`` is the set of PIDs that have
-    disappeared since the last refresh. ``process_count`` tracks how many
-    processes were seen in the most recent refresh cycle so the UI can display
-    totals without recalculating them each time.
-    """
-
-    def __init__(
-        self,
-        queue: Queue[tuple[dict[int, ProcessEntry], set[int]]],
-        interval: float = 2.0,
-        detail_interval: int = 3,
-        max_workers: int | None = None,
-        sample_size: int = 5,
-        limit: int | None = None,
-        adaptive: bool = True,
-        adaptive_detail: bool = True,
-        *,
-        conn_interval: float = 2.0,
-        file_interval: float = 2.0,
-        cache_ttl: float = 30.0,
-        conn_global_threshold: int = 50,
-        file_global_threshold: int = 50,
-    ) -> None:
-        super().__init__(daemon=True)
-        self.queue = queue
-        self.interval = max(0.5, float(interval))
-        self.target_interval = self.interval
-        self.detail_interval = max(1, detail_interval)
-        self.target_detail_interval = self.detail_interval
-        self.limit = limit
-        self.adaptive = adaptive
-        self.adaptive_detail = adaptive_detail
-        self._stop_event = threading.Event()
-        self._pause_event = threading.Event()
-        self._snapshot: dict[int, ProcessEntry] = {}
-        self._detail_ts: dict[int, float] = {}
-        self._conn_cache: dict[int, tuple[int, float]] = {}
-        self._file_cache: dict[int, tuple[int, float]] = {}
-        self._file_future = None
-        self._global_conn_future = None
-        self._global_file_future = None
-        self._global_conn_data: dict[int, int] = {}
-        self._global_conn_ts = 0.0
-        self._global_file_data: dict[int, int] = {}
-        self._global_file_ts = 0.0
-        self.conn_interval = float(conn_interval)
-        self.file_interval = float(file_interval)
-        self.cache_ttl = float(cache_ttl)
-        self.conn_global_threshold = int(conn_global_threshold)
-        self.file_global_threshold = int(file_global_threshold)
-        self._last_ts = time.monotonic()
-        workers = max_workers or min(8, (os.cpu_count() or 1) * 2)
-        self._executor = ThreadPoolExecutor(max_workers=workers)
-        self._cpu_count = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
-        self.sample_size = max(1, sample_size)
-        self.process_count = 0
-        self._last_detail_count = 0
-
-    def set_interval(self, interval: float) -> None:
-        self.target_interval = max(0.5, float(interval))
-        self.interval = self.target_interval
-
-    def set_detail_interval(self, interval: int) -> None:
-        self.target_detail_interval = max(1, int(interval))
-        self.detail_interval = self.target_detail_interval
-
-    def pause(self) -> None:
-        self._pause_event.set()
-
-    def resume(self) -> None:
-        self._pause_event.clear()
-
-    def run(self) -> None:
-        while not self._stop_event.is_set():
-            loop_start = time.monotonic()
-            self._prune_caches(loop_start)
-            if (
-                self.process_count > self.conn_global_threshold * 2
-                and self._global_conn_future is None
-                and (
-                    not self._global_conn_data
-                    or loop_start - self._global_conn_ts > self.conn_interval
-                )
-            ):
-                self._global_conn_future = self._executor.submit(
-                    psutil.net_connections, kind="inet"
-                )
-            if (
-                self.process_count > self.file_global_threshold * 2
-                and os.path.isdir("/proc")
-                and self._global_file_future is None
-                and (
-                    not self._global_file_data
-                    or loop_start - self._global_file_ts > self.file_interval
-                )
-            ):
-                self._global_file_future = self._executor.submit(
-                    self._scan_fd_proc_all
-                )
-            if self._pause_event.is_set():
-                if self._stop_event.wait(self.interval):
-                    break
-                continue
-
-            now = time.monotonic()
-            delta = max(now - self._last_ts, 0.001)
-            self._last_ts = now
-            updates: dict[int, ProcessEntry] = {}
-            current: set[int] = set()
-
-            basic_attrs = [
-                "pid",
-                "name",
-                "username",
-                "create_time",
-                "memory_info",
-                "status",
-                "cpu_times",
-                "num_threads",
-                "io_counters",
-            ]
-
-            self.process_count = 0
-
-            def collect(proc: psutil.Process) -> tuple[ProcessEntry, bool] | None:
-                try:
-                    with proc.oneshot():
-                        pid = proc.info["pid"]
-                        name = proc.info.get("name", "")
-                        user = proc.info.get("username") or ""
-                        mem = proc.info["memory_info"].rss / (1024 * 1024)
-                        cpu_time = sum(proc.info.get("cpu_times"))
-                        start = proc.info.get("create_time", 0.0)
-                        status = proc.info.get("status", "")
-                        threads = proc.info.get("num_threads", 0)
-                        io = proc.info.get("io_counters")
-                        if io:
-                            read_bytes = io.read_bytes
-                            write_bytes = io.write_bytes
-                        else:
-                            read_bytes = write_bytes = 0
-                except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
-                    return None
-
-                prev = self._snapshot.get(pid)
-                if prev is not None:
-                    cpu = (cpu_time - prev.cpu_time) / delta / self._cpu_count * 100
-                    io_rate = (
-                        (read_bytes - prev.read_bytes + write_bytes - prev.write_bytes)
-                        / delta
-                        / (1024 * 1024)
-                    )
-                    changed = prev.changed_basic(
-                        ProcessEntry(
-                            pid=pid,
-                            name=name,
-                            cpu=round(cpu, 1),
-                            mem=round(mem, 1),
-                            user=user,
-                            start=start,
-                            status=status,
-                            cpu_time=cpu_time,
-                            threads=threads,
-                            read_bytes=read_bytes,
-                            write_bytes=write_bytes,
-                            files=prev.files,
-                            conns=prev.conns,
-                            io_rate=round(io_rate, 1),
-                            samples=list(prev.samples),
-                            io_samples=list(prev.io_samples),
-                            max_samples=self.sample_size,
-                        )
-                    )
-                    prev.cpu = round(cpu, 1)
-                    prev.mem = round(mem, 1)
-                    prev.user = user
-                    prev.start = start
-                    prev.status = status
-                    prev.cpu_time = cpu_time
-                    prev.threads = threads
-                    prev.read_bytes = read_bytes
-                    prev.write_bytes = write_bytes
-                    prev.io_rate = round(io_rate, 1)
-                    prev.add_sample(prev.cpu, prev.io_rate)
-                    return prev, changed
-
-                entry = ProcessEntry(
-                    pid=pid,
-                    name=name,
-                    cpu=0.0,
-                    mem=round(mem, 1),
-                    user=user,
-                    start=start,
-                    status=status,
-                    cpu_time=cpu_time,
-                    threads=threads,
-                    read_bytes=read_bytes,
-                    write_bytes=write_bytes,
-                    files=0,
-                    conns=0,
-                    io_rate=0.0,
-                    samples=[],
-                    io_samples=[],
-                    max_samples=self.sample_size,
-                )
-                entry.add_sample(entry.cpu, entry.io_rate)
-                return entry, True
-
-            heap: list[tuple[tuple[float, float, int], ProcessEntry]] = []
-            entries: list[ProcessEntry] = []
-            detail_candidates: list[ProcessEntry] = []
-            now_ts = time.monotonic()
-
-            proc_iter = psutil.process_iter(basic_attrs)
-            for result in self._executor.map(collect, proc_iter):
-                self.process_count += 1
-                if not result:
-                    continue
-                entry, changed_flag = result
-                if self.limit:
-                    score = (entry.avg_cpu, entry.mem, entry.pid)
-                    item = (score, entry, changed_flag)
-                    if len(heap) < self.limit:
-                        heapq.heappush(heap, item)
-                    else:
-                        heapq.heappushpop(heap, item)
-                else:
-                    entries.append((entry, changed_flag))
-
-            if self.limit:
-                entries = [
-                    (e, ch) for _s, e, ch in heapq.nlargest(self.limit, heap)
-                ]
-
-            for entry, changed in entries:
-                current.add(entry.pid)
-                if changed:
-                    updates[entry.pid] = entry
-                if changed or now_ts - self._detail_ts.get(entry.pid, 0.0) >= self.detail_interval:
-                    detail_candidates.append(entry)
-                self._snapshot[entry.pid] = entry
-            if not self.limit:
-                entries.sort(key=lambda ec: (ec[0].cpu, ec[0].mem), reverse=True)
-
-            if detail_candidates:
-                now_conn = time.monotonic()
-                now_file = now_conn
-                cand_pids = {e.pid for e in detail_candidates}
-                fetch = [
-                    p
-                    for p in cand_pids
-                    if now_conn - self._conn_cache.get(p, (0, 0))[1]
-                    >= self.conn_interval
-                ]
-                file_fetch = [
-                    p
-                    for p in cand_pids
-                    if now_file - self._file_cache.get(p, (0, 0))[1]
-                    >= self.file_interval
-                ]
-                conn_counts: dict[int, int] = {}
-                if fetch:
-                    if len(fetch) > self.conn_global_threshold:
-                        if self._global_conn_future and self._global_conn_future.done():
-                            all_conns = self._global_conn_future.result()
-                            self._global_conn_future = None
-                            counts: dict[int, int] = {}
-                            for conn in all_conns:
-                                pid = conn.pid
-                                if pid is None:
-                                    continue
-                                counts[pid] = counts.get(pid, 0) + 1
-                            self._global_conn_data = counts
-                            self._global_conn_ts = now_conn
-                            for pid, cnt in counts.items():
-                                self._conn_cache[pid] = (cnt, now_conn)
-                            conn_counts = {pid: counts.get(pid, 0) for pid in cand_pids}
-                        elif self._global_conn_data:
-                            for pid in fetch:
-                                if pid in self._global_conn_data:
-                                    conn_counts[pid] = self._global_conn_data[pid]
-                    else:
-                        def _get_conn(pid: int) -> tuple[int, int] | None:
-                            try:
-                                return pid, len(psutil.Process(pid).connections(kind="inet"))
-                            except Exception:
-                                return None
-
-                        for res in self._executor.map(_get_conn, fetch):
-                            if not res:
-                                continue
-                            pid, cnt = res
-                            conn_counts[pid] = cnt
-                            self._conn_cache[pid] = (cnt, now_conn)
-                for pid in cand_pids:
-                    if pid not in conn_counts and pid in self._conn_cache:
-                        conn_counts[pid] = self._conn_cache[pid][0]
-
-                file_counts: dict[int, int] = {}
-
-                def _get_file_count(pid: int) -> tuple[int, int] | None:
-                    try:
-                        proc_path = f"/proc/{pid}/fd"
-                        if os.path.isdir(proc_path):
-                            return pid, sum(1 for _ in os.scandir(proc_path))
-                        proc = psutil.Process(pid)
-                        with proc.oneshot():
-                            if hasattr(proc, "num_handles"):
-                                return pid, proc.num_handles()
-                            if hasattr(proc, "num_fds"):
-                                return pid, proc.num_fds()
-                            return pid, len(proc.open_files())
-                    except Exception:
-                        return None
-
-                if file_fetch:
-                    if (
-                        len(file_fetch) > self.file_global_threshold
-                        and os.path.isdir("/proc")
-                    ):
-                        if self._global_file_future and self._global_file_future.done():
-                            self._global_file_data = self._global_file_future.result()
-                            self._global_file_ts = now_file
-                            self._global_file_future = None
-                        if self._global_file_data:
-                            for pid in file_fetch:
-                                if pid in self._global_file_data:
-                                    file_counts[pid] = self._global_file_data[pid]
-                        else:
-                            if self._file_future is None:
-                                self._file_future = self._executor.submit(
-                                    self._scan_fd_proc, set(file_fetch)
-                                )
-                            if self._file_future and self._file_future.done():
-                                all_counts = self._file_future.result()
-                                self._file_future = None
-                                file_counts.update(all_counts)
-                    else:
-                        for res in self._executor.map(_get_file_count, file_fetch):
-                            if not res:
-                                continue
-                            pid, count = res
-                            file_counts[pid] = count
-                    for pid in file_fetch:
-                        self._file_cache[pid] = (
-                            file_counts.get(pid, self._file_cache.get(pid, (0, 0))[0]),
-                            now_file,
-                        )
-                for pid in cand_pids:
-                    if pid not in file_counts and pid in self._file_cache:
-                        file_counts[pid] = self._file_cache[pid][0]
-
-                def gather_detail(entry: ProcessEntry) -> ProcessEntry:
-                    try:
-                        entry.files = file_counts.get(entry.pid, entry.files)
-                    except Exception:
-                        pass
-                    entry.conns = conn_counts.get(entry.pid, entry.conns)
-                    return entry
-                detail_start = time.monotonic()
-                for det in self._executor.map(gather_detail, detail_candidates):
-                    updates[det.pid] = det
-                    self._snapshot[det.pid] = det
-                    self._detail_ts[det.pid] = time.monotonic()
-                detail_elapsed = time.monotonic() - detail_start
-                if self.adaptive_detail:
-                    if detail_elapsed > self.target_interval / 3:
-                        self.detail_interval = min(
-                            self.detail_interval + 1,
-                            self.target_detail_interval * 5,
-                        )
-                    elif (
-                        detail_elapsed < self.target_interval / 10
-                        and self.detail_interval > self.target_detail_interval
-                    ):
-                        self.detail_interval = max(
-                            self.detail_interval - 1,
-                            self.target_detail_interval,
-                        )
-                self._last_detail_count = len(detail_candidates)
-
-            else:
-                self._last_detail_count = 0
-
-            removed = set(self._snapshot) - current
-
-            if updates or removed:
-                try:
-                    self.queue.put_nowait((updates, removed))
-                except Full:
-                    try:
-                        self.queue.get_nowait()
-                    except Empty:
-                        pass
-                    self.queue.put_nowait((updates, removed))
-                for pid in removed:
-                    self._snapshot.pop(pid, None)
-                    self._detail_ts.pop(pid, None)
-                    self._conn_cache.pop(pid, None)
-                    self._file_cache.pop(pid, None)
-
-            if self.adaptive:
-                elapsed = time.monotonic() - loop_start
-                if elapsed > self.target_interval * 1.5:
-                    self.interval = min(self.interval * 1.25, self.target_interval * 5)
-                elif elapsed < self.target_interval * 0.7 and self.interval > self.target_interval:
-                    self.interval = max(self.interval * 0.9, self.target_interval)
-
-            if self._stop_event.wait(self.interval):
-                break
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        self._executor.shutdown(wait=False)
-
-    def _prune_caches(self, now: float) -> None:
-        """Drop stale connection and file count cache entries."""
-        stale = [pid for pid, (_, ts) in self._conn_cache.items() if now - ts > self.cache_ttl]
-        for pid in stale:
-            self._conn_cache.pop(pid, None)
-        stale = [pid for pid, (_, ts) in self._file_cache.items() if now - ts > self.cache_ttl]
-        for pid in stale:
-            self._file_cache.pop(pid, None)
-        if now - self._global_conn_ts > self.cache_ttl:
-            self._global_conn_data.clear()
-        if now - self._global_file_ts > self.cache_ttl:
-            self._global_file_data.clear()
-
-    def _scan_fd_proc(self, pids: set[int]) -> dict[int, int]:
-        """Return open file counts for *pids* by scanning /proc."""
-        counts: dict[int, int] = {}
-        proc_root = Path("/proc")
-        for entry in os.scandir(proc_root):
-            if not entry.name.isdigit():
-                continue
-            pid = int(entry.name)
-            if pid not in pids:
-                continue
-            fd_path = os.path.join(entry.path, "fd")
-            if os.path.isdir(fd_path):
-                try:
-                    counts[pid] = sum(1 for _ in os.scandir(fd_path))
-                except Exception:
-                    continue
-            if len(counts) == len(pids):
-                break
-        return counts
-
-    def _scan_fd_proc_all(self) -> dict[int, int]:
-        """Return open file counts for all processes by scanning /proc."""
-        counts: dict[int, int] = {}
-        proc_root = Path("/proc")
-        for entry in os.scandir(proc_root):
-            if not entry.name.isdigit():
-                continue
-            pid = int(entry.name)
-            fd_path = os.path.join(entry.path, "fd")
-            if os.path.isdir(fd_path):
-                try:
-                    counts[pid] = sum(1 for _ in os.scandir(fd_path))
-                except Exception:
-                    continue
-        return counts
+from src.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 class ForceQuitDialog(ctk.CTkToplevel):
@@ -617,6 +55,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self._debounce_id: int | None = None
         self.process_snapshot: dict[int, ProcessEntry] = {}
         self._row_cache: dict[int, tuple[tuple, tuple]] = {}
+        self._changed_tags: dict[int, int] = {}
         self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue(maxsize=1)
         self.paused = False
         if reverse_env is not None:
@@ -633,6 +72,12 @@ class ForceQuitDialog(ctk.CTkToplevel):
         cpu_alert_env = os.getenv("FORCE_QUIT_CPU_ALERT")
         mem_alert_env = os.getenv("FORCE_QUIT_MEM_ALERT")
         sample_env = os.getenv("FORCE_QUIT_SAMPLES")
+        visible_cpu_env = os.getenv("FORCE_QUIT_VISIBLE_CPU")
+        visible_mem_env = os.getenv("FORCE_QUIT_VISIBLE_MEM")
+        visible_io_env = os.getenv("FORCE_QUIT_VISIBLE_IO")
+        visible_auto_env = os.getenv("FORCE_QUIT_VISIBLE_AUTO")
+        hide_system_env = os.getenv("FORCE_QUIT_HIDE_SYSTEM")
+        show_deltas_env = os.getenv("FORCE_QUIT_SHOW_DELTAS")
         adaptive_env = os.getenv("FORCE_QUIT_ADAPTIVE")
         adaptive_detail_env = os.getenv("FORCE_QUIT_ADAPTIVE_DETAIL")
         conn_interval_env = os.getenv("FORCE_QUIT_CONN_INTERVAL")
@@ -640,6 +85,39 @@ class ForceQuitDialog(ctk.CTkToplevel):
         cache_ttl_env = os.getenv("FORCE_QUIT_CACHE_TTL")
         conn_global_env = os.getenv("FORCE_QUIT_CONN_GLOBAL")
         file_global_env = os.getenv("FORCE_QUIT_FILE_GLOBAL")
+        stable_cycles_env = os.getenv("FORCE_QUIT_STABLE_CYCLES")
+        stable_skip_env = os.getenv("FORCE_QUIT_STABLE_SKIP")
+        exclude_users_env = os.getenv("FORCE_QUIT_EXCLUDE_USERS")
+        change_window_env = os.getenv("FORCE_QUIT_CHANGE_WINDOW")
+        change_agg_env = os.getenv("FORCE_QUIT_CHANGE_AGG")
+        change_score_env = os.getenv("FORCE_QUIT_CHANGE_SCORE")
+        change_cpu_env = os.getenv("FORCE_QUIT_CHANGE_CPU")
+        change_mem_env = os.getenv("FORCE_QUIT_CHANGE_MEM")
+        change_io_env = os.getenv("FORCE_QUIT_CHANGE_IO")
+        change_alpha_env = os.getenv("FORCE_QUIT_CHANGE_ALPHA")
+        change_ratio_env = os.getenv("FORCE_QUIT_CHANGE_RATIO")
+        change_std_mult_env = os.getenv("FORCE_QUIT_CHANGE_STD_MULT")
+        change_mad_mult_env = os.getenv("FORCE_QUIT_CHANGE_MAD_MULT")
+        change_decay_env = os.getenv("FORCE_QUIT_CHANGE_DECAY")
+        warn_cpu_env = os.getenv("FORCE_QUIT_WARN_CPU")
+        warn_mem_env = os.getenv("FORCE_QUIT_WARN_MEM")
+        warn_io_env = os.getenv("FORCE_QUIT_WARN_IO")
+        slow_ratio_env = os.getenv("FORCE_QUIT_SLOW_RATIO")
+        fast_ratio_env = os.getenv("FORCE_QUIT_FAST_RATIO")
+        ratio_window_env = os.getenv("FORCE_QUIT_RATIO_WINDOW")
+        trend_window_env = os.getenv("FORCE_QUIT_TREND_WINDOW")
+        trend_cpu_env = os.getenv("FORCE_QUIT_TREND_CPU")
+        trend_mem_env = os.getenv("FORCE_QUIT_TREND_MEM")
+        trend_io_env = os.getenv("FORCE_QUIT_TREND_IO")
+        trend_io_window_env = os.getenv("FORCE_QUIT_TREND_IO_WINDOW")
+        trend_slow_ratio_env = os.getenv("FORCE_QUIT_TREND_SLOW_RATIO")
+        trend_fast_ratio_env = os.getenv("FORCE_QUIT_TREND_FAST_RATIO")
+        show_trends_env = os.getenv("FORCE_QUIT_SHOW_TRENDS")
+        show_stable_env = os.getenv("FORCE_QUIT_SHOW_STABLE")
+        show_normal_env = os.getenv("FORCE_QUIT_SHOW_NORMAL")
+        show_score_env = os.getenv("FORCE_QUIT_SHOW_SCORE")
+        normal_window_env = os.getenv("FORCE_QUIT_NORMAL_WINDOW")
+        ignore_age_env = os.getenv("FORCE_QUIT_IGNORE_AGE")
         auto_env = os.getenv("FORCE_QUIT_AUTO_KILL", "").lower()
 
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
@@ -683,6 +161,219 @@ class ForceQuitDialog(ctk.CTkToplevel):
             if file_global_env and file_global_env.isdigit()
             else int(cfg.get("force_quit_file_global", 50))
         )
+        stable_cycles = (
+            int(stable_cycles_env)
+            if stable_cycles_env and stable_cycles_env.isdigit()
+            else int(cfg.get("force_quit_stable_cycles", 10))
+        )
+        stable_skip = (
+            int(stable_skip_env)
+            if stable_skip_env and stable_skip_env.isdigit()
+            else int(cfg.get("force_quit_stable_skip", 3))
+        )
+        if exclude_users_env:
+            exclude_users = {u.strip().lower() for u in exclude_users_env.split(',') if u.strip()}
+        else:
+            exclude_users = {u.lower() for u in cfg.get("force_quit_exclude_users", [])}
+        slow_ratio = (
+            float(slow_ratio_env)
+            if slow_ratio_env
+            else float(cfg.get("force_quit_slow_ratio", 0.02))
+        )
+        fast_ratio = (
+            float(fast_ratio_env)
+            if fast_ratio_env
+            else float(cfg.get("force_quit_fast_ratio", 0.2))
+        )
+        ratio_window = (
+            int(ratio_window_env)
+            if ratio_window_env and ratio_window_env.isdigit()
+            else int(cfg.get("force_quit_ratio_window", 5))
+        )
+        trend_window = (
+            int(trend_window_env)
+            if trend_window_env and trend_window_env.isdigit()
+            else int(cfg.get("force_quit_trend_window", 5))
+        )
+        trend_cpu = (
+            float(trend_cpu_env)
+            if trend_cpu_env
+            else float(cfg.get("force_quit_trend_cpu", 5.0))
+        )
+        trend_mem = (
+            float(trend_mem_env)
+            if trend_mem_env
+            else float(cfg.get("force_quit_trend_mem", 50.0))
+        )
+        trend_io = (
+            float(trend_io_env)
+            if trend_io_env
+            else float(cfg.get("force_quit_trend_io", 1.0))
+        )
+        trend_io_window = (
+            int(trend_io_window_env)
+            if trend_io_window_env and trend_io_window_env.isdigit()
+            else int(cfg.get("force_quit_trend_io_window", trend_window))
+        )
+        trend_slow_ratio = (
+            float(trend_slow_ratio_env)
+            if trend_slow_ratio_env
+            else float(cfg.get("force_quit_trend_slow_ratio", 0.05))
+        )
+        trend_fast_ratio = (
+            float(trend_fast_ratio_env)
+            if trend_fast_ratio_env
+            else float(cfg.get("force_quit_trend_fast_ratio", 0.25))
+        )
+        self.ratio_window = ratio_window
+        self.trend_window = trend_window
+        self.trend_cpu = trend_cpu
+        self.trend_mem = trend_mem
+        self.trend_io = trend_io
+        self.trend_io_window = trend_io_window
+        self.trend_slow_ratio = trend_slow_ratio
+        self.trend_fast_ratio = trend_fast_ratio
+        self.change_window = (
+            int(change_window_env)
+            if change_window_env and change_window_env.isdigit()
+            else int(cfg.get("force_quit_change_window", 3))
+        )
+        self.change_agg = (
+            int(change_agg_env)
+            if change_agg_env and change_agg_env.isdigit()
+            else int(cfg.get("force_quit_change_agg", 1))
+        )
+        ProcessEntry.change_agg_window = self.change_agg
+        self.change_score = (
+            float(change_score_env)
+            if change_score_env
+            else float(cfg.get("force_quit_change_score", 1.0))
+        )
+        ProcessEntry.change_score_threshold = self.change_score
+        self.change_cpu = (
+            float(change_cpu_env)
+            if change_cpu_env
+            else float(cfg.get("force_quit_change_cpu", 0.5))
+        )
+        self.change_mem = (
+            float(change_mem_env)
+            if change_mem_env
+            else float(cfg.get("force_quit_change_mem", 1.0))
+        )
+        self.change_io = (
+            float(change_io_env)
+            if change_io_env
+            else float(cfg.get("force_quit_change_io", 0.5))
+        )
+        self.change_alpha = (
+            float(change_alpha_env)
+            if change_alpha_env
+            else float(cfg.get("force_quit_change_alpha", 0.2))
+        )
+        self.change_ratio = (
+            float(change_ratio_env)
+            if change_ratio_env
+            else float(cfg.get("force_quit_change_ratio", 0.3))
+        )
+        self.change_std_mult = (
+            float(change_std_mult_env)
+            if change_std_mult_env
+            else float(cfg.get("force_quit_change_std_mult", 2.0))
+        )
+        self.change_mad_mult = (
+            float(change_mad_mult_env)
+            if change_mad_mult_env
+            else float(cfg.get("force_quit_change_mad_mult", 3.0))
+        )
+        self.change_decay = (
+            float(change_decay_env)
+            if change_decay_env
+            else float(cfg.get("force_quit_change_decay", 0.8))
+        )
+        ProcessEntry.cpu_threshold = self.change_cpu
+        ProcessEntry.mem_threshold = self.change_mem
+        ProcessEntry.io_threshold = self.change_io
+        ProcessEntry.change_alpha = self.change_alpha
+        ProcessEntry.change_ratio = self.change_ratio
+        ProcessEntry.change_std_mult = self.change_std_mult
+        ProcessEntry.change_mad_mult = self.change_mad_mult
+        ProcessEntry.change_decay = self.change_decay
+        self.visible_cpu = (
+            float(visible_cpu_env)
+            if visible_cpu_env
+            else float(cfg.get("force_quit_visible_cpu", 0.5))
+        )
+        self.visible_mem = (
+            float(visible_mem_env)
+            if visible_mem_env
+            else float(cfg.get("force_quit_visible_mem", 10.0))
+        )
+        self.visible_io = (
+            float(visible_io_env)
+            if visible_io_env
+            else float(cfg.get("force_quit_visible_io", 0.1))
+        )
+        self.visible_auto = (
+            visible_auto_env.lower() in {"1", "true", "yes"}
+            if visible_auto_env is not None
+            else bool(cfg.get("force_quit_visible_auto", False))
+        )
+        self.warn_cpu = (
+            float(warn_cpu_env)
+            if warn_cpu_env
+            else float(cfg.get("force_quit_warn_cpu", 40.0))
+        )
+        self.warn_mem = (
+            float(warn_mem_env)
+            if warn_mem_env
+            else float(cfg.get("force_quit_warn_mem", 200.0))
+        )
+        self.warn_io = (
+            float(warn_io_env)
+            if warn_io_env
+            else float(cfg.get("force_quit_warn_io", 1.0))
+        )
+        self.show_deltas = (
+            show_deltas_env.lower() in {"1", "true", "yes"}
+            if show_deltas_env is not None
+            else bool(cfg.get("force_quit_show_deltas", True))
+        )
+        self.hide_system = (
+            hide_system_env.lower() in {"1", "true", "yes"}
+            if hide_system_env is not None
+            else bool(cfg.get("force_quit_hide_system", False))
+        )
+        self.show_trends = (
+            show_trends_env.lower() in {"1", "true", "yes"}
+            if show_trends_env is not None
+            else bool(cfg.get("force_quit_show_trends", True))
+        )
+        self.show_stable = (
+            show_stable_env.lower() in {"1", "true", "yes"}
+            if show_stable_env is not None
+            else bool(cfg.get("force_quit_show_stable", False))
+        )
+        self.show_normal = (
+            show_normal_env.lower() in {"1", "true", "yes"}
+            if show_normal_env is not None
+            else bool(cfg.get("force_quit_show_normal", False))
+        )
+        self.show_score = (
+            show_score_env.lower() in {"1", "true", "yes"}
+            if show_score_env is not None
+            else bool(cfg.get("force_quit_show_score", False))
+        )
+        self.ignore_age = (
+            float(ignore_age_env)
+            if ignore_age_env
+            else float(cfg.get("force_quit_ignore_age", 1.0))
+        )
+        self.normal_window = (
+            int(normal_window_env)
+            if normal_window_env and normal_window_env.isdigit()
+            else int(cfg.get("force_quit_normal_window", 3))
+        )
+        self.exclude_users = exclude_users
         self.cpu_alert = (
             float(cpu_alert_env)
             if cpu_alert_env
@@ -733,6 +424,33 @@ class ForceQuitDialog(ctk.CTkToplevel):
             cache_ttl=cache_ttl,
             conn_global_threshold=conn_global,
             file_global_threshold=file_global,
+            stable_cycles=stable_cycles,
+            stable_skip=stable_skip,
+            slow_ratio=slow_ratio,
+            fast_ratio=fast_ratio,
+            ratio_window=ratio_window,
+            trend_window=trend_window,
+            trend_cpu=trend_cpu,
+            trend_mem=trend_mem,
+            trend_io=self.trend_io,
+            trend_io_window=self.trend_io_window,
+            trend_slow_ratio=self.trend_slow_ratio,
+            trend_fast_ratio=self.trend_fast_ratio,
+            hide_system=self.hide_system,
+            exclude_users=self.exclude_users,
+            normal_window=self.normal_window,
+            visible_cpu=self.visible_cpu,
+            visible_mem=self.visible_mem,
+            visible_io=self.visible_io,
+            visible_auto=self.visible_auto,
+            warn_cpu=self.warn_cpu,
+            warn_mem=self.warn_mem,
+            warn_io=self.warn_io,
+            ignore_age=self.ignore_age,
+            change_alpha=self.change_alpha,
+            change_ratio=self.change_ratio,
+            change_mad_mult=self.change_mad_mult,
+            change_decay=self.change_decay,
         )
         self._watcher.start()
         self.after(0, self._auto_refresh)
@@ -801,7 +519,13 @@ class ForceQuitDialog(ctk.CTkToplevel):
                 "Avg IO ≥",
                 "Files ≥",
                 "Conns ≥",
+                "Score ≥",
+                "Changed",
+                "Trending",
+                "Stable",
+                "Normal",
                 "Status",
+                "Level",
             ],
             command=lambda _v: self._populate(),
         )
@@ -824,6 +548,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
                 "User",
                 "Start",
                 "Age",
+                "Level",
+                "Score",
             ],
             command=lambda _v: self._populate(),
         )
@@ -918,11 +644,20 @@ class ForceQuitDialog(ctk.CTkToplevel):
             "PID",
             "User",
             "Name",
+            "Level",
+        ]
+        if self.show_score:
+            columns.append("Score")
+        columns += [
             "CPU",
             "Avg CPU",
             "Mem",
             "IO",
             "Avg IO",
+        ]
+        if self.show_deltas:
+            columns.extend(["\u0394CPU", "\u0394Mem", "\u0394IO"])
+        columns += [
             "Threads",
             "Files",
             "Conns",
@@ -945,12 +680,18 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.tree_frame.grid_columnconfigure(0, weight=1)
         for col in columns:
             self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
-            width = 60 if col in {"PID", "CPU", "Mem", "Avg CPU", "Avg IO"} else 90
+            narrow = {"PID", "CPU", "Mem", "Avg CPU", "Avg IO", "Score", "\u0394CPU", "\u0394Mem", "\u0394IO"}
+            width = 60 if col in narrow else 90
             self.tree.column(col, width=width, anchor="w")
         default_col = self.sort_var.get()
         self.tree.heading(default_col, text=default_col + " \u25BC")
         self.tree.tag_configure("high_cpu", background="#ffdddd")
         self.tree.tag_configure("high_mem", background="#fff5cc")
+        self.tree.tag_configure("changed", background="#e6f7ff")
+        self.tree.tag_configure("trending", background="#ffe6cc")
+        self.tree.tag_configure("stable", background="#f5f5f5")
+        self.tree.tag_configure("warning", background="#fff5cc")
+        self.tree.tag_configure("critical", background="#ffcccc")
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
         self.tree.bind("<<TreeviewSelect>>", self._on_selection)
@@ -982,6 +723,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             self.process_snapshot.update(updates)
             for pid in removed:
                 self.process_snapshot.pop(pid, None)
+                self._changed_tags.pop(pid, None)
         if changed:
             self._snapshot_changed = True
 
@@ -1395,6 +1137,9 @@ class ForceQuitDialog(ctk.CTkToplevel):
             self.sort_reverse,
         )
 
+    def is_normal(self, entry: ProcessEntry) -> bool:
+        return entry.normal
+
     def _apply_filter_sort(self) -> None:
         query = self.search_var.get().lower()
         sort_key = self.sort_var.get()
@@ -1473,10 +1218,38 @@ class ForceQuitDialog(ctk.CTkToplevel):
                     processes = []
                 else:
                     processes = [p for p in processes if p.conns >= threshold]
+            elif filter_by == "Score ≥":
+                try:
+                    threshold = float(query)
+                except ValueError:
+                    processes = []
+                else:
+                    processes = [p for p in processes if p.last_score >= threshold]
+            elif filter_by == "Changed":
+                processes = [p for p in processes if self._changed_tags.get(p.pid, 0)]
+            elif filter_by == "Trending":
+                processes = [
+                    p
+                    for p in processes
+                    if p.trending_cpu or p.trending_mem or p.trending_io
+                ]
+            elif filter_by == "Stable":
+                processes = [p for p in processes if p.stable]
+            elif filter_by == "Normal":
+                processes = [p for p in processes if self.is_normal(p)]
             elif filter_by == "Status":
                 processes = [p for p in processes if query in p.status.lower()]
+            elif filter_by == "Level":
+                processes = [p for p in processes if p.level.lower().startswith(query)]
             else:
                 processes = []
+        else:
+            main = [p for p in processes if not self.is_normal(p)]
+            if self.show_normal:
+                normal = [p for p in processes if self.is_normal(p)]
+                processes = main + normal
+            else:
+                processes = main
 
         key_func = {
             "CPU": lambda p: p.cpu,
@@ -1491,6 +1264,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
             "User": lambda p: p.user.lower(),
             "Start": lambda p: p.start,
             "Age": lambda p: time.time() - p.start,
+            "Level": lambda p: {"normal": 0, "warning": 1, "critical": 2}[p.level],
+            "Score": lambda p: p.last_score,
         }.get(sort_key, lambda p: p.cpu)
         processes.sort(key=key_func, reverse=self.sort_reverse)
         if self.max_processes:
@@ -1504,26 +1279,64 @@ class ForceQuitDialog(ctk.CTkToplevel):
             for entry in processes:
                 pid = str(entry.pid)
                 age = round(time.time() - entry.start, 1)
-                values = (
+                base_values = [
                     entry.pid,
                     (entry.user or "")[:8],
                     entry.name,
-                    f"{entry.cpu:.1f}",
-                    f"{entry.avg_cpu:.1f}",
-                    f"{entry.mem:.1f}",
-                    f"{entry.io_rate:.1f}",
-                    f"{entry.avg_io:.1f}",
-                    entry.threads,
-                    entry.files,
-                    entry.conns,
-                    entry.status[:6],
-                    age,
+                    entry.level,
+                ]
+                if self.show_score:
+                    base_values.append(f"{entry.last_score:.2f}")
+                base_values.extend(
+                    [
+                        f"{entry.cpu:.1f}",
+                        f"{entry.avg_cpu:.1f}",
+                        f"{entry.mem:.1f}",
+                        f"{entry.io_rate:.1f}",
+                        f"{entry.avg_io:.1f}",
+                    ]
                 )
+                if self.show_deltas:
+                    base_values.extend(
+                        [
+                            f"{entry.delta_cpu:+.1f}",
+                            f"{entry.delta_mem:+.1f}",
+                            f"{entry.delta_io:+.1f}",
+                        ]
+                    )
+                base_values.extend(
+                    [
+                        entry.threads,
+                        entry.files,
+                        entry.conns,
+                        entry.status[:6],
+                        age,
+                    ]
+                )
+                values = tuple(base_values)
                 tags: list[str] = []
+                if entry.changed:
+                    self._changed_tags[entry.pid] = self.change_window
+                elif entry.pid in self._changed_tags:
+                    self._changed_tags[entry.pid] -= 1
+                    if self._changed_tags[entry.pid] <= 0:
+                        self._changed_tags.pop(entry.pid, None)
+                if self._changed_tags.get(entry.pid, 0):
+                    tags.append("changed")
                 if entry.cpu >= self.cpu_alert or entry.avg_cpu >= self.cpu_alert:
                     tags.append("high_cpu")
                 if entry.mem >= self.mem_alert:
                     tags.append("high_mem")
+                if entry.level == "critical":
+                    tags.append("critical")
+                elif entry.level == "warning":
+                    tags.append("warning")
+                if self.show_trends and (
+                    entry.trending_cpu or entry.trending_mem or entry.trending_io
+                ):
+                    tags.append("trending")
+                if self.show_stable and entry.stable:
+                    tags.append("stable")
                 prev = self._row_cache.get(entry.pid)
                 current = (values, tuple(tags))
                 if prev != current:
@@ -1540,6 +1353,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
                 self.tree.delete(iid)
                 try:
                     self._row_cache.pop(int(iid), None)
+                    self._changed_tags.pop(int(iid), None)
                 except ValueError:
                     pass
 
@@ -1564,6 +1378,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
                         "pid",
                         "user",
                         "name",
+                        "level",
                         "cpu",
                         "avg_cpu",
                         "mem",
@@ -1582,6 +1397,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
                             entry.pid,
                             entry.user or "",
                             entry.name,
+                            entry.level,
                             entry.cpu,
                             f"{entry.avg_cpu:.1f}",
                             entry.mem,
@@ -2095,6 +1911,42 @@ class ForceQuitDialog(ctk.CTkToplevel):
             pass
         cfg.set("force_quit_adaptive", self.adaptive_refresh)
         cfg.set("force_quit_adaptive_detail", self.adaptive_detail)
+        cfg.set("force_quit_ratio_window", self._watcher._ratio_window)
+        cfg.set("force_quit_trend_window", self._watcher._trend_window)
+        cfg.set("force_quit_trend_cpu", self._watcher._trend_cpu)
+        cfg.set("force_quit_trend_mem", self._watcher._trend_mem)
+        cfg.set("force_quit_trend_io", self._watcher._trend_io)
+        cfg.set("force_quit_trend_io_window", self._watcher._trend_io_window)
+        cfg.set("force_quit_trend_slow_ratio", self._watcher._trend_slow_ratio)
+        cfg.set("force_quit_trend_fast_ratio", self._watcher._trend_fast_ratio)
+        cfg.set("force_quit_stable_cycles", self._watcher._stable_cycles)
+        cfg.set("force_quit_stable_skip", self._watcher._stable_skip)
+        cfg.set("force_quit_change_window", self.change_window)
+        cfg.set("force_quit_change_agg", self.change_agg)
+        cfg.set("force_quit_change_score", self.change_score)
+        cfg.set("force_quit_change_cpu", self.change_cpu)
+        cfg.set("force_quit_change_mem", self.change_mem)
+        cfg.set("force_quit_change_io", self.change_io)
+        cfg.set("force_quit_change_alpha", self.change_alpha)
+        cfg.set("force_quit_change_ratio", self.change_ratio)
+        cfg.set("force_quit_change_std_mult", self.change_std_mult)
+        cfg.set("force_quit_change_mad_mult", self.change_mad_mult)
+        cfg.set("force_quit_change_decay", self.change_decay)
+        cfg.set("force_quit_visible_cpu", self.visible_cpu)
+        cfg.set("force_quit_visible_mem", self.visible_mem)
+        cfg.set("force_quit_visible_io", self.visible_io)
+        cfg.set("force_quit_visible_auto", self.visible_auto)
+        cfg.set("force_quit_hide_system", self.hide_system)
+        cfg.set("force_quit_exclude_users", sorted(self.exclude_users))
+        cfg.set("force_quit_slow_ratio", self._watcher._slow_ratio)
+        cfg.set("force_quit_fast_ratio", self._watcher._fast_ratio)
+        cfg.set("force_quit_show_trends", self.show_trends)
+        cfg.set("force_quit_show_stable", self.show_stable)
+        cfg.set("force_quit_show_deltas", self.show_deltas)
+        cfg.set("force_quit_show_normal", self.show_normal)
+        cfg.set("force_quit_show_score", self.show_score)
+        cfg.set("force_quit_ignore_age", self.ignore_age)
+        cfg.set("force_quit_normal_window", self.normal_window)
         cfg.set("force_quit_on_top", bool(self.attributes("-topmost")))
         cfg.save()
         if self._after_id is not None:

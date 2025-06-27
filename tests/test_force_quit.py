@@ -7,8 +7,10 @@ import re
 
 import psutil
 import heapq
+from queue import Queue
 
-from src.views.force_quit_dialog import ForceQuitDialog, ProcessEntry
+from src.views.force_quit_dialog import ForceQuitDialog
+from src.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 class TestForceQuit(unittest.TestCase):
@@ -401,6 +403,714 @@ class TestForceQuit(unittest.TestCase):
         heapq.heappush(heap, ((e2.avg_cpu, e2.mem, e2.pid), e2))
         ordered = [e.pid for _s, e in heapq.nlargest(2, heap)]
         assert set(ordered) == {1, 2}
+
+    def test_change_thresholds(self) -> None:
+        ProcessEntry.change_ratio = 0.0
+        ProcessEntry.change_score_threshold = 5.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        small = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.3,
+            mem=100.2,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        large = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=12.0,
+            mem=102.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        score_small = small._change_score(base)
+        assert score_small < ProcessEntry.change_score_threshold
+        assert not small.changed_since(base)
+        score_large = large._change_score(base)
+        assert score_large >= ProcessEntry.change_score_threshold
+
+    def test_change_score_threshold(self) -> None:
+        ProcessEntry.change_score_threshold = 2.0
+        ProcessEntry.change_mad_mult = 100.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        other = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.1,
+            mem=100.1,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert not other.changed_basic(base)
+        ProcessEntry.change_score_threshold = 3.0
+        ProcessEntry.change_mad_mult = 3.0
+
+    def test_change_delta_thresholds(self) -> None:
+        ProcessEntry.cpu_threshold = 1.0
+        ProcessEntry.mem_threshold = 2.0
+        ProcessEntry.io_threshold = 2.0
+        ProcessEntry.change_std_mult = 2.0
+        ProcessEntry.change_score_threshold = 100.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        other = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.5,
+            mem=101.5,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+            io_rate=3.0,
+        )
+        assert not other.changed_basic(base)
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        ProcessEntry.cpu_threshold = 0.3
+        ProcessEntry.change_score_threshold = 3.0
+        other = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.5,
+            mem=101.5,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+            io_rate=3.0,
+        )
+        assert other.changed_basic(base)
+        ProcessEntry.cpu_threshold = 0.5
+        ProcessEntry.mem_threshold = 1.0
+        ProcessEntry.io_threshold = 0.5
+        ProcessEntry.change_score_threshold = 3.0
+
+    def test_change_agg_window(self) -> None:
+        ProcessEntry.change_score_threshold = 1.5
+        ProcessEntry.change_agg_window = 3
+        ProcessEntry.change_ratio = 0.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        step1 = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.2,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert not base.changed_basic(step1)
+        base.cpu = step1.cpu
+        step2 = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.4,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert not base.changed_basic(step2)
+        base.cpu = step2.cpu
+        step3 = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.6,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert base.changed_basic(step3)
+        ProcessEntry.change_agg_window = 1
+
+    def test_change_std_mult(self) -> None:
+        ProcessEntry.change_std_mult = 3.0
+        ProcessEntry.change_ratio = 0.0
+        ProcessEntry.cpu_threshold = 0.2
+        ProcessEntry.mem_threshold = 0.2
+        ProcessEntry.change_score_threshold = 3.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        small = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.1,
+            mem=100.1,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert not base.changed_basic(small)
+        for _ in range(5):
+            base.changed_basic(base)
+        large = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=12.0,
+            mem=105.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert base.changed_basic(large)
+        ProcessEntry.change_std_mult = 2.0
+
+    def test_change_mad_mult(self) -> None:
+        ProcessEntry.change_mad_mult = 4.0
+        ProcessEntry.change_ratio = 0.0
+        ProcessEntry.cpu_threshold = 0.2
+        ProcessEntry.mem_threshold = 0.2
+        ProcessEntry.change_score_threshold = 3.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        slight = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.2,
+            mem=100.2,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert not base.changed_basic(slight)
+        for _ in range(5):
+            base.changed_basic(slight)
+        spike = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=13.0,
+            mem=110.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert base.changed_basic(spike)
+        ProcessEntry.change_mad_mult = 3.0
+
+    def test_stable_env_vars(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, stable_cycles=5, stable_skip=2)
+        assert watcher._stable_cycles == 5
+        assert watcher._stable_skip == 2
+        watcher.stop()
+
+    def test_hide_system(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, hide_system=True)
+        assert watcher.hide_system is True
+        watcher.stop()
+
+    def test_exclude_users(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, exclude_users={"root", "daemon"})
+        assert watcher.exclude_users == {"root", "daemon"}
+        watcher.stop()
+
+    def test_process_entry_delta_fields(self) -> None:
+        entry = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=1.0,
+            mem=10.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert hasattr(entry, "delta_cpu")
+        assert hasattr(entry, "delta_mem")
+        assert hasattr(entry, "delta_io")
+        assert entry.changed is False
+
+    def test_process_entry_last_score(self) -> None:
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=1.0,
+            mem=10.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        other = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=2.0,
+            mem=12.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        base.changed_basic(other)
+        assert base.last_score > 0
+
+    def test_process_entry_stable_flag(self) -> None:
+        entry = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=0.0,
+            mem=1.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert entry.stable is False
+        entry.stable = True
+        assert entry.stable
+
+    def test_ratio_env_vars(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, slow_ratio=0.05, fast_ratio=0.3)
+        assert watcher._slow_ratio == 0.05
+        assert watcher._fast_ratio == 0.3
+        watcher.stop()
+
+    def test_ratio_window_option(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, ratio_window=7)
+        assert watcher._ratio_window == 7
+        watcher.stop()
+
+    def test_normal_window_option(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, normal_window=4)
+        assert watcher._normal_window == 4
+        watcher.stop()
+
+    def test_visible_auto_option(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, visible_auto=True)
+        assert watcher.visible_auto is True
+        watcher.stop()
+
+    def test_auto_baselines(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, visible_auto=True)
+        watcher._update_auto_baselines([1.0, 2.0, 3.0, 4.0], [10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4])
+        assert round(watcher._auto_cpu, 1) == 3.0
+        assert round(watcher._auto_mem, 1) == 30.0
+        assert round(watcher._auto_io, 1) == 0.3
+        watcher.stop()
+
+    def test_trend_env_vars(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(
+            q, trend_window=6, trend_cpu=2.5, trend_mem=20.0, trend_io=0.5
+        )
+        assert watcher._trend_window == 6
+        assert watcher._trend_cpu == 2.5
+        assert watcher._trend_mem == 20.0
+        assert watcher._trend_io == 0.5
+        watcher.stop()
+
+    def test_trend_io_window(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, trend_io_window=7)
+        assert watcher._trend_io_window == 7
+        watcher.stop()
+
+    def test_trend_ratio_env_vars(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, trend_slow_ratio=0.1, trend_fast_ratio=0.4)
+        assert watcher._trend_slow_ratio == 0.1
+        assert watcher._trend_fast_ratio == 0.4
+        watcher.stop()
+
+    def test_ignore_age_option(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, ignore_age=2.5)
+        assert watcher.ignore_age == 2.5
+        watcher.stop()
+
+    def test_change_mad_option(self) -> None:
+        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        watcher = ProcessWatcher(q, change_mad_mult=5.0)
+        assert watcher.change_mad_mult == 5.0
+        watcher.stop()
+
+    def test_change_decay(self) -> None:
+        ProcessEntry.change_score_threshold = 3.0
+        ProcessEntry.cpu_threshold = 0.1
+        ProcessEntry.change_decay = 0.5
+        ProcessEntry.change_ratio = 0.0
+        ProcessEntry.change_alpha = 0.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=1.0,
+            mem=1.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        other = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=1.2,
+            mem=1.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert not base.changed_basic(other)
+        assert not base.changed_basic(other)
+        assert base.changed_basic(other)
+
+    def test_compute_trends(self) -> None:
+        entry = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=5.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+            max_samples=20,
+        )
+        for i in range(10):
+            entry.add_sample(5.0 + i, 0.2 * i, 100.0 + i)
+        entry.compute_trends(5, 5, 5, 1.0, 4.0, 0.5)
+        assert entry.trending_cpu
+        assert entry.trending_mem
+        assert entry.trending_io
+
+    def test_update_level(self) -> None:
+        entry = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=45.0,
+            mem=300.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        entry.update_level(40.0, 200.0, 1.0, 80.0, 500.0)
+        assert entry.level == "warning"
+        entry.cpu = 90.0
+        entry.update_level(40.0, 200.0, 1.0, 80.0, 500.0)
+        assert entry.level == "critical"
+
+    def test_baseline_change_detection(self) -> None:
+        ProcessEntry.change_alpha = 0.5
+        ProcessEntry.change_ratio = 0.3
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.0,
+            mem=100.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        small = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=10.2,
+            mem=100.1,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert not base.changed_basic(small)
+        large = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=14.0,
+            mem=115.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert base.changed_basic(large)
+
+    def test_baseline_variance(self) -> None:
+        ProcessEntry.change_alpha = 0.5
+        ProcessEntry.change_std_mult = 2.0
+        base = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=5.0,
+            mem=50.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        for i in range(10):
+            sample = ProcessEntry(
+                pid=1,
+                name="p",
+                cpu=5.0 + i * 0.1,
+                mem=50.0,
+                user="u",
+                start=0.0,
+                status="",
+                cpu_time=0.0,
+                threads=1,
+                read_bytes=0,
+                write_bytes=0,
+                files=0,
+                conns=0,
+            )
+            base.changed_basic(sample)
+        assert base.baseline_cpu_var > 0
+        assert base.baseline_cpu_mad > 0
+        spike = ProcessEntry(
+            pid=1,
+            name="p",
+            cpu=8.0,
+            mem=50.0,
+            user="u",
+            start=0.0,
+            status="",
+            cpu_time=0.0,
+            threads=1,
+            read_bytes=0,
+            write_bytes=0,
+            files=0,
+            conns=0,
+        )
+        assert base.changed_basic(spike)
 
 
 if __name__ == "__main__":
