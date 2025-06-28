@@ -43,7 +43,7 @@ class SystemInfoDialog(ctk.CTkToplevel):
         ctk.CTkOptionMenu(
             toolbar,
             variable=self.interval_var,
-            values=[1, 2, 5, 10],
+            values=["1", "2", "5", "10"],
             command=lambda _: self._restart_loop(),
             width=80,
         ).pack(side="right", padx=5)
@@ -66,12 +66,12 @@ class SystemInfoDialog(ctk.CTkToplevel):
         # Gauges and charts
         gauge_frame = ctk.CTkFrame(self.perf_tab, fg_color="transparent")
         gauge_frame.pack(fill="x")
-        self.cpu_gauge = Gauge(gauge_frame, "CPU")
-        self.mem_gauge = Gauge(gauge_frame, "Memory", color="#2386c8")
-        self.disk_gauge = Gauge(gauge_frame, "Disk", color="#dbb73a")
-        self.temp_gauge = Gauge(gauge_frame, "Temp", color="#d9534f")
-        self.batt_gauge = Gauge(gauge_frame, "Battery", color="#5cb85c")
-        self.net_gauge = Gauge(gauge_frame, "Network", color="#8e44ad")
+        self.cpu_gauge = Gauge(gauge_frame, "CPU", auto_color=True)
+        self.mem_gauge = Gauge(gauge_frame, "Memory", color="#2386c8", auto_color=True)
+        self.disk_gauge = Gauge(gauge_frame, "Disk", color="#dbb73a", auto_color=True)
+        self.temp_gauge = Gauge(gauge_frame, "Temp", color="#d9534f", auto_color=True)
+        self.batt_gauge = Gauge(gauge_frame, "Battery", color="#5cb85c", auto_color=True)
+        self.net_gauge = Gauge(gauge_frame, "Network", color="#8e44ad", auto_color=True)
         self.cpu_gauge.grid(row=0, column=0, padx=10, pady=10)
         self.mem_gauge.grid(row=0, column=1, padx=10, pady=10)
         self.disk_gauge.grid(row=0, column=2, padx=10, pady=10)

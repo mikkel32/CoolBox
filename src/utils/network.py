@@ -30,6 +30,12 @@ _CACHE_FILE = Path(
 # Cache manager instance used by both sync and async scanners
 PORT_CACHE: CacheManager[List[int]] = CacheManager[List[int]](_CACHE_FILE)
 
+
+def _flags_key(*, with_services: bool, with_banner: bool, with_latency: bool) -> str:
+    """Return a short string representing option flags for cache keys."""
+    return f"{int(with_services)}{int(with_banner)}{int(with_latency)}"
+
+
 # In-memory cache for host resolution results
 _HOST_CACHE: Dict[tuple[str, int | None], tuple[str, int, float]] = {}
 _HOST_CACHE_TTL = float(os.environ.get("HOST_CACHE_TTL", 300))
@@ -485,7 +491,7 @@ def scan_ports(
     force IPv4 or IPv6 scanning. ``timeout`` controls the connection timeout
     in seconds.
     """
-    cache_key = f"{host}|{start}|{end}"
+    cache_key = f"{host}|{start}|{end}|{_flags_key(with_services=with_services, with_banner=with_banner, with_latency=with_latency)}"
     if cache_ttl > 0:
         PORT_CACHE.prune()
         cached = PORT_CACHE.get(cache_key, cache_ttl)
@@ -559,7 +565,7 @@ async def async_scan_ports(
     ``socket.AF_INET6``. ``timeout`` sets the connection timeout in seconds.
     """
 
-    cache_key = f"{host}|{start}|{end}"
+    cache_key = f"{host}|{start}|{end}|{_flags_key(with_services=with_services, with_banner=with_banner, with_latency=with_latency)}"
     if cache_ttl > 0:
         PORT_CACHE.prune()
         cached = PORT_CACHE.get(cache_key, cache_ttl)
@@ -742,7 +748,7 @@ def scan_port_list(
             progress(None)
         return {}
 
-    key = f"{host}|{','.join(map(str, port_list))}"
+    key = f"{host}|{','.join(map(str, port_list))}|{_flags_key(with_services=with_services, with_banner=with_banner, with_latency=with_latency)}"
     if cache_ttl > 0:
         PORT_CACHE.prune()
         cached = PORT_CACHE.get(key, cache_ttl)
@@ -814,7 +820,7 @@ async def async_scan_port_list(
             progress(None)
         return {}
 
-    key = f"{host}|{','.join(map(str, port_list))}"
+    key = f"{host}|{','.join(map(str, port_list))}|{_flags_key(with_services=with_services, with_banner=with_banner, with_latency=with_latency)}"
     if cache_ttl > 0:
         PORT_CACHE.prune()
         cached = PORT_CACHE.get(key, cache_ttl)

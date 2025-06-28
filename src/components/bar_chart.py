@@ -25,4 +25,3 @@ class BarChart(ctk.CTkFrame):
         self._bars = self._ax.bar(range(len(values)), values, color="#3B8ED0")
         self._ax.grid(True, axis="y", linestyle="--", alpha=0.5)
         self._canvas.draw_idle()
-

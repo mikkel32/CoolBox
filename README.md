@@ -14,6 +14,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   `Ctrl+Q` shortcut.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
+- **Dynamic Gauges**: Resource gauges automatically change color from green to yellow to red as usage increases for quick visual feedback.
   It also includes an advanced Force Quit utility with a searchable process
   list, automatic refresh, sort options, and multi-select termination. It can
   kill processes by name, command line pattern, port, host, open file, executable path
@@ -267,10 +268,13 @@ To automatically spin up a Docker/Podman or Vagrant environment and attach a
 debugger, run:
 
 ```bash
-python main.py --vm-debug
+python main.py --vm-debug --vm-prefer docker --open-code --debug-port 5679
 ```
-This calls ``launch_vm_debug`` which tries Docker or Podman first, then Vagrant,
-falling back to ``run_debug.sh`` if neither is available.
+This calls ``launch_vm_debug`` which tries Docker, Podman or Vagrant depending
+on ``--vm-prefer`` (or auto-detection when omitted). ``--open-code`` opens
+Visual Studio Code once the environment starts and ``--debug-port`` sets the
+debug server port. If no backend is available the app runs locally under
+``debugpy``.
 
 ### Network Scanner CLI
 
