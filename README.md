@@ -345,6 +345,9 @@ Docker environments.  You may also use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
 ``run_debug.sh`` so you can still debug locally.
+When this fallback occurs the application waits for a debugger to attach on
+``DEBUG_PORT`` (default ``5678``). Run ``python scripts/run_vm_debug.py --list``
+to verify whether Docker, Podman or Vagrant are available on your system.
 
 ### Debugging in a Vagrant VM
 

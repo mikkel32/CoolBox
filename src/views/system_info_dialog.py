@@ -106,7 +106,7 @@ class SystemInfoDialog(ctk.CTkToplevel):
         self.disk_read_chart.pack(fill="both", expand=True, pady=5)
         self.disk_write_chart = LineChart(chart_frame, "Disk Write", "#f28e2b")
         self.disk_write_chart.pack(fill="both", expand=True, pady=(0, 5))
-        NavigationToolbar2Tk(self.cpu_chart._canvas, chart_frame).pack(
+        NavigationToolbar2Tk(self.cpu_chart._mpl_canvas, chart_frame).pack(
             side="bottom", fill="x"
         )
 
