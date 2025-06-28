@@ -119,4 +119,3 @@ class StatusBar(ctk.CTkFrame):
         self.accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
         self.colors["info"] = self.accent
         self.progress.configure(progress_color=self.accent)
-

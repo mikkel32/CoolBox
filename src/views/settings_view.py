@@ -94,9 +94,12 @@ class SettingsView(BaseView):
             value=self.app.config.get("theme", {}).get("accent_color", "#007acc")
         )
         self.accent_display = ctk.CTkLabel(
-            color_frame, text=" ", width=20, fg_color=self.accent_color_var.get()
+            color_frame,
+            text=" ",
+            width=20,
+            fg_color=self.accent_color_var.get(),
         )
-        self.accent_display.pack(side="left", padx=6)
+        self.accent_display.grid(row=1, column=0, sticky="w", padx=6, pady=(6, 0))
 
         # Custom accent color picker
         accent_btn = ctk.CTkButton(
@@ -105,7 +108,7 @@ class SettingsView(BaseView):
             width=140,
             command=self._pick_accent_color,
         )
-        accent_btn.pack(side="left", padx=10)
+        accent_btn.grid(row=1, column=1, sticky="w", padx=10, pady=(6, 0))
         self.add_tooltip(accent_btn, "Pick a custom accent color")
 
         # Theme management buttons

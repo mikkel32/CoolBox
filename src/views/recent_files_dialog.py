@@ -67,4 +67,3 @@ class RecentFilesDialog(BaseDialog):
             self.app.config.save()
             self.app.refresh_recent_files()
         row.destroy()
-

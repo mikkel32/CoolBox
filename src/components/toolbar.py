@@ -4,7 +4,6 @@ Toolbar component with common actions
 
 import customtkinter as ctk
 from tkinter import filedialog
-from pathlib import Path
 
 from ..utils import file_manager, open_path
 from ..utils.ui import center_window

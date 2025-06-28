@@ -6,7 +6,6 @@ import threading
 
 from ..utils import (
     AutoScanInfo,
-    HTTPInfo,
     async_auto_scan,
     parse_ports,
     ports_as_range,
