@@ -17,7 +17,11 @@ class SystemInfoDialog(ctk.CTkToplevel):
         super().__init__(app.window)
         self.app = app
         self.title("System Info")
-        self.geometry("600x500")
+        # Provide a wider default size so all gauges and charts fit without
+        # clipping. The previous width of 600px was not sufficient for the
+        # six gauges displayed side by side. Increasing the width ensures the
+        # interface is fully visible on start-up.
+        self.geometry("900x600")
         self.resizable(True, True)
 
         self._after_id: int | None = None
@@ -58,7 +62,8 @@ class SystemInfoDialog(ctk.CTkToplevel):
         self.hw_tab = tabview.add("Hardware")
 
         # Overview text
-        self.info_box = ctk.CTkTextbox(self.overview_tab, width=520, height=300)
+        # Match the wider window so text uses available space
+        self.info_box = ctk.CTkTextbox(self.overview_tab, width=820, height=300)
         self.info_box.pack(fill="both", expand=True)
         self.info_box.insert("1.0", get_system_info())
         self.info_box.configure(state="disabled")
