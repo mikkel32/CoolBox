@@ -25,6 +25,7 @@ class QuickSettingsDialog(BaseDialog):
         self.accent_var = ctk.StringVar(
             value=app.theme.get_theme().get("accent_color", "#007acc")
         )
+        self.accent_var.trace_add("write", lambda *_: self._update_accent_preview())
         self.font_size_var = ctk.IntVar(value=app.config.get("font_size", 14))
 
         sw_menu = self.grid_switch(container, "Show Menu Bar", self.menu_var, 1)
@@ -65,7 +66,6 @@ class QuickSettingsDialog(BaseDialog):
         self._mark_font_role(self.accent_display, "normal")
         self.accent_display.grid(row=7, column=1, sticky="w", padx=self.gpadx, pady=self.gpady)
         self.add_tooltip(accent_btn, "Select custom accent color")
-        self._update_accent_preview()
 
         slider, lbl = self.grid_slider(
             container,
@@ -95,6 +95,7 @@ class QuickSettingsDialog(BaseDialog):
         self.sample_button = ctk.CTkButton(self.preview, text="Button", fg_color=self.accent, hover_color=self.accent)
         self.sample_button.grid(row=1, column=0, padx=self.gpadx, pady=self.gpady)
         ctk.CTkEntry(self.preview, placeholder_text="Entry").grid(row=1, column=1, sticky="ew", padx=self.gpadx, pady=self.gpady)
+        self._update_accent_preview()
 
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
         btn_frame.grid(row=10, column=0, columnspan=2, pady=10)
@@ -183,10 +184,11 @@ class QuickSettingsDialog(BaseDialog):
         color = colorchooser.askcolor(initialcolor=self.accent_var.get(), parent=self)
         if color and color[1]:
             self.accent_var.set(color[1])
-            self._update_accent_preview()
 
     def _update_accent_preview(self) -> None:
         """Refresh sample widget colors using the selected accent."""
         color = self.accent_var.get()
-        self.sample_button.configure(fg_color=color, hover_color=color)
-        self.accent_display.configure(text=color)
+        if hasattr(self, "sample_button"):
+            self.sample_button.configure(fg_color=color, hover_color=color)
+        if hasattr(self, "accent_display"):
+            self.accent_display.configure(text=color)

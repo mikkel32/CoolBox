@@ -51,6 +51,11 @@ class ToolsView(BaseView):
         self._create_text_tools()
         self._create_network_tools()
 
+        self.no_results = ctk.CTkLabel(
+            self.scroll_frame, text="No tools found", font=self.font
+        )
+        self.no_results.pack_forget()
+
         # Apply current styling
         self.refresh_fonts()
         self.refresh_theme()
@@ -82,6 +87,13 @@ class ToolsView(BaseView):
                     frame.pack_forget()
                 elif not frame.winfo_viewable() and not query:
                     frame.pack(fill="x", padx=20, pady=5)
+
+        visible = any(frame.winfo_viewable() for frame, *_ in self._tool_items)
+        if visible:
+            if self.no_results.winfo_ismapped():
+                self.no_results.pack_forget()
+        else:
+            self.no_results.pack(pady=20)
 
     def _focus_search(self) -> None:
         """Focus the tools search box when active."""
