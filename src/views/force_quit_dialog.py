@@ -69,6 +69,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
         detail_env = os.getenv("FORCE_QUIT_DETAIL_INTERVAL")
         max_env = os.getenv("FORCE_QUIT_MAX")
         worker_env = os.getenv("FORCE_QUIT_WORKERS")
+        min_workers_env = os.getenv("FORCE_QUIT_MIN_WORKERS")
+        max_workers_env = os.getenv("FORCE_QUIT_MAX_WORKERS")
         cpu_alert_env = os.getenv("FORCE_QUIT_CPU_ALERT")
         mem_alert_env = os.getenv("FORCE_QUIT_MEM_ALERT")
         sample_env = os.getenv("FORCE_QUIT_SAMPLES")
@@ -79,6 +81,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         hide_system_env = os.getenv("FORCE_QUIT_HIDE_SYSTEM")
         show_deltas_env = os.getenv("FORCE_QUIT_SHOW_DELTAS")
         adaptive_env = os.getenv("FORCE_QUIT_ADAPTIVE")
+        auto_interval_env = os.getenv("FORCE_QUIT_AUTO_INTERVAL")
         adaptive_detail_env = os.getenv("FORCE_QUIT_ADAPTIVE_DETAIL")
         conn_interval_env = os.getenv("FORCE_QUIT_CONN_INTERVAL")
         file_interval_env = os.getenv("FORCE_QUIT_FILE_INTERVAL")
@@ -118,9 +121,25 @@ class ForceQuitDialog(ctk.CTkToplevel):
         show_score_env = os.getenv("FORCE_QUIT_SHOW_SCORE")
         normal_window_env = os.getenv("FORCE_QUIT_NORMAL_WINDOW")
         ignore_age_env = os.getenv("FORCE_QUIT_IGNORE_AGE")
+        batch_size_env = os.getenv("FORCE_QUIT_BATCH_SIZE")
+        auto_batch_env = os.getenv("FORCE_QUIT_AUTO_BATCH")
+        min_batch_env = os.getenv("FORCE_QUIT_MIN_BATCH")
+        max_batch_env = os.getenv("FORCE_QUIT_MAX_BATCH")
+        min_interval_env = os.getenv("FORCE_QUIT_MIN_INTERVAL")
+        max_interval_env = os.getenv("FORCE_QUIT_MAX_INTERVAL")
         auto_env = os.getenv("FORCE_QUIT_AUTO_KILL", "").lower()
 
         workers = int(worker_env) if worker_env and worker_env.isdigit() else None
+        min_workers = (
+            int(min_workers_env)
+            if min_workers_env and min_workers_env.isdigit()
+            else int(cfg.get("force_quit_min_workers", 2))
+        )
+        max_workers = (
+            int(max_workers_env)
+            if max_workers_env and max_workers_env.isdigit()
+            else int(cfg.get("force_quit_max_workers", 16))
+        )
         interval = (
             float(interval_env)
             if interval_env
@@ -171,10 +190,45 @@ class ForceQuitDialog(ctk.CTkToplevel):
             if stable_skip_env and stable_skip_env.isdigit()
             else int(cfg.get("force_quit_stable_skip", 3))
         )
+        batch_size = (
+            int(batch_size_env)
+            if batch_size_env and batch_size_env.isdigit()
+            else int(cfg.get("force_quit_batch_size", 100))
+        )
+        auto_batch = (
+            auto_batch_env.lower() in {"1", "true", "yes"}
+            if auto_batch_env
+            else bool(cfg.get("force_quit_auto_batch", True))
+        )
+        min_batch = (
+            int(min_batch_env)
+            if min_batch_env and min_batch_env.isdigit()
+            else int(cfg.get("force_quit_min_batch", 25))
+        )
+        max_batch = (
+            int(max_batch_env)
+            if max_batch_env and max_batch_env.isdigit()
+            else int(cfg.get("force_quit_max_batch", 1000))
+        )
+        self.min_interval = (
+            float(min_interval_env)
+            if min_interval_env
+            else float(cfg.get("force_quit_min_interval", 0.5))
+        )
+        self.max_interval = (
+            float(max_interval_env)
+            if max_interval_env
+            else float(cfg.get("force_quit_max_interval", 10.0))
+        )
         if exclude_users_env:
             exclude_users = {u.strip().lower() for u in exclude_users_env.split(',') if u.strip()}
         else:
             exclude_users = {u.lower() for u in cfg.get("force_quit_exclude_users", [])}
+        ignore_names_env = os.getenv("FORCE_QUIT_IGNORE_NAMES")
+        if ignore_names_env:
+            ignore_names = {n.strip().lower() for n in ignore_names_env.split(',') if n.strip()}
+        else:
+            ignore_names = {n.lower() for n in cfg.get("force_quit_ignore_names", [])}
         slow_ratio = (
             float(slow_ratio_env)
             if slow_ratio_env
@@ -374,6 +428,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             else int(cfg.get("force_quit_normal_window", 3))
         )
         self.exclude_users = exclude_users
+        self.ignore_names = ignore_names
         self.cpu_alert = (
             float(cpu_alert_env)
             if cpu_alert_env
@@ -384,11 +439,14 @@ class ForceQuitDialog(ctk.CTkToplevel):
             if mem_alert_env
             else float(cfg.get("force_quit_mem_alert", 500.0))
         )
-        self.adaptive_refresh = (
-            adaptive_env.lower() in {"1", "true", "yes"}
-            if adaptive_env is not None
-            else bool(cfg.get("force_quit_adaptive", True))
-        )
+        if auto_interval_env is not None:
+            self.adaptive_refresh = auto_interval_env.lower() in {"1", "true", "yes"}
+        elif adaptive_env is not None:
+            self.adaptive_refresh = adaptive_env.lower() in {"1", "true", "yes"}
+        else:
+            self.adaptive_refresh = bool(
+                cfg.get("force_quit_auto_interval", cfg.get("force_quit_adaptive", True))
+            )
         self.adaptive_detail = (
             adaptive_detail_env.lower() in {"1", "true", "yes"}
             if adaptive_detail_env is not None
@@ -415,6 +473,8 @@ class ForceQuitDialog(ctk.CTkToplevel):
             interval=interval,
             detail_interval=detail,
             max_workers=workers,
+            min_workers=min_workers,
+            max_worker_limit=max_workers,
             sample_size=samples,
             limit=self.max_processes,
             adaptive=self.adaptive_refresh,
@@ -438,6 +498,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             trend_fast_ratio=self.trend_fast_ratio,
             hide_system=self.hide_system,
             exclude_users=self.exclude_users,
+            ignore_names=ignore_names,
             normal_window=self.normal_window,
             visible_cpu=self.visible_cpu,
             visible_mem=self.visible_mem,
@@ -453,6 +514,12 @@ class ForceQuitDialog(ctk.CTkToplevel):
             change_ratio=self.change_ratio,
             change_mad_mult=self.change_mad_mult,
             change_decay=self.change_decay,
+            batch_size=batch_size,
+            auto_batch=auto_batch,
+            min_batch_size=min_batch,
+            max_batch_size=max_batch,
+            min_interval=self.min_interval,
+            max_interval=self.max_interval,
         )
         self._watcher.start()
         self.after(0, self._auto_refresh)
@@ -1491,8 +1558,19 @@ class ForceQuitDialog(ctk.CTkToplevel):
         total_cpu = sum(p.cpu for p in self.process_snapshot.values())
         total_mem = sum(p.mem for p in self.process_snapshot.values())
         total = self._watcher.process_count
+        trend = self._watcher.recent_trend_ratio * 100
+        changed = self._watcher.recent_change_ratio * 100
+        batch = self._watcher.batch_size
+        avg_batch = self._watcher.average_batch_size
+        avg_cycle = self._watcher.average_cycle_time
+        avg_interval = self._watcher.average_interval
+        workers = self._watcher.worker_count
+        throughput = self._watcher.average_throughput
         self.status_var.set(
-            f"{count}/{total} processes ({selected} selected) | CPU {total_cpu:.1f}% | Mem {total_mem:.1f} MB"
+            f"{count}/{total} processes ({selected} selected) | CPU {total_cpu:.1f}% | "
+            f"Mem {total_mem:.1f} MB | Trending {trend:.0f}% | Changed {changed:.0f}% | "
+            f"Batch {batch} (avg {avg_batch:.0f}) | Cycle {avg_cycle:.2f}s | Int {avg_interval:.2f}s | "
+            f"Thr {throughput:.0f}/s | Workers {workers}"
         )
 
     def _on_selection(self, _event=None) -> None:
@@ -1861,6 +1939,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             auto = "none"
         cfg.set("force_quit_auto_kill", auto)
         cfg.set("force_quit_adaptive", self.adaptive_refresh)
+        cfg.set("force_quit_auto_interval", self.adaptive_refresh)
         cfg.set("force_quit_adaptive_detail", self.adaptive_detail)
         cfg.save()
         self._populate()
@@ -1914,6 +1993,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         except Exception:
             pass
         cfg.set("force_quit_adaptive", self.adaptive_refresh)
+        cfg.set("force_quit_auto_interval", self.adaptive_refresh)
         cfg.set("force_quit_adaptive_detail", self.adaptive_detail)
         cfg.set("force_quit_ratio_window", self._watcher._ratio_window)
         cfg.set("force_quit_trend_window", self._watcher._trend_window)
@@ -1942,6 +2022,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         cfg.set("force_quit_visible_auto", self.visible_auto)
         cfg.set("force_quit_hide_system", self.hide_system)
         cfg.set("force_quit_exclude_users", sorted(self.exclude_users))
+        cfg.set("force_quit_ignore_names", sorted(self.ignore_names))
         cfg.set("force_quit_slow_ratio", self._watcher._slow_ratio)
         cfg.set("force_quit_fast_ratio", self._watcher._fast_ratio)
         cfg.set("force_quit_show_trends", self.show_trends)
@@ -1952,6 +2033,14 @@ class ForceQuitDialog(ctk.CTkToplevel):
         cfg.set("force_quit_ignore_age", self.ignore_age)
         cfg.set("force_quit_normal_window", self.normal_window)
         cfg.set("force_quit_on_top", bool(self.attributes("-topmost")))
+        cfg.set("force_quit_batch_size", self._watcher.batch_size)
+        cfg.set("force_quit_auto_batch", self._watcher.auto_batch)
+        cfg.set("force_quit_min_batch", self._watcher.min_batch_size)
+        cfg.set("force_quit_max_batch", self._watcher.max_batch_size)
+        cfg.set("force_quit_min_interval", self._watcher.min_interval)
+        cfg.set("force_quit_max_interval", self._watcher.max_interval)
+        cfg.set("force_quit_min_workers", self._watcher.min_workers)
+        cfg.set("force_quit_max_workers", self._watcher.max_workers)
         cfg.save()
         if self._after_id is not None:
             self.after_cancel(self._after_id)
