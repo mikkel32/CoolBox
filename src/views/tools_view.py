@@ -14,27 +14,36 @@ from pathlib import Path
 import re
 import threading
 from PIL import ImageGrab
+from .base_view import BaseView
+from ..components.widgets import info_label
 
 
-class ToolsView(ctk.CTkFrame):
+class ToolsView(BaseView):
     """Tools and utilities view"""
 
     def __init__(self, parent, app):
         """Initialize tools view"""
-        super().__init__(parent, corner_radius=0)
-        self.app = app
+        super().__init__(parent, app)
 
         # Create scrollable frame
-        self.scroll_frame = ctk.CTkScrollableFrame(self)
-        self.scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        self.scroll_frame = self.create_scrollable_container()
 
         # Title
-        title = ctk.CTkLabel(
+        self.add_title(self.scroll_frame, "🛠️ Tools & Utilities")
+
+        self.search_var = ctk.StringVar()
+        self.search_entry = self.create_search_box(
             self.scroll_frame,
-            text="🛠️ Tools & Utilities",
-            font=ctk.CTkFont(size=24, weight="bold"),
+            self.search_var,
+            "Search tools...",
+            self._filter_tools,
         )
-        title.pack(pady=(0, 20))
+        self.search_entry.pack(fill="x", padx=20, pady=(0, 20))
+        self.add_tooltip(self.search_entry, "Filter tools by name")
+        self.app.window.bind("<Control-f>", lambda e: self._focus_search())
+        self._tool_items: list[
+            tuple[ctk.CTkFrame, str, str, ctk.CTkLabel, ctk.CTkLabel, callable]
+        ] = []
 
         # Create tool sections
         self._create_file_tools()
@@ -42,9 +51,48 @@ class ToolsView(ctk.CTkFrame):
         self._create_text_tools()
         self._create_network_tools()
 
+        # Apply current styling
+        self.refresh_fonts()
+        self.refresh_theme()
+
+    def refresh_theme(self) -> None:  # type: ignore[override]
+        super().refresh_theme()
+
+    def get_tools(self) -> list[tuple[str, str, callable]]:
+        """Return a list of available tools and their launch callbacks."""
+        tools: list[tuple[str, str, callable]] = []
+        for _, _, _, name_lbl, desc_lbl, cmd in self._tool_items:
+            tools.append((name_lbl.cget("text"), desc_lbl.cget("text"), cmd))
+        return tools
+
+    def _filter_tools(self) -> None:
+        query = self.search_var.get().lower()
+        accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
+        for frame, name, desc, name_lbl, desc_lbl, _ in self._tool_items:
+            match = query and (query in name or query in desc)
+            if match:
+                if not frame.winfo_viewable():
+                    frame.pack(fill="x", padx=20, pady=5)
+                name_lbl.configure(text_color=accent)
+                desc_lbl.configure(text_color=accent)
+            else:
+                name_lbl.configure(text_color=None)
+                desc_lbl.configure(text_color="gray")
+                if frame.winfo_viewable() and query:
+                    frame.pack_forget()
+                elif not frame.winfo_viewable() and not query:
+                    frame.pack(fill="x", padx=20, pady=5)
+
+    def _focus_search(self) -> None:
+        """Focus the tools search box when active."""
+        if self.app.current_view == "tools":
+            self.search_entry.focus_set()
+
     def _create_file_tools(self):
         """Create file manipulation tools"""
-        section = self._create_section("📁 File Tools")
+        section, body = self.add_collapsible_section(
+            self.scroll_frame, "📁 File Tools", key="tools_file"
+        )
 
         tools = [
             ("Batch Rename", "Rename multiple files at once", self._batch_rename),
@@ -56,11 +104,13 @@ class ToolsView(ctk.CTkFrame):
         ]
 
         for name, desc, func in tools:
-            self._create_tool_item(section, name, desc, func)
+            self._create_tool_item(body, name, desc, func)
 
     def _create_system_tools(self):
         """Create system tools"""
-        section = self._create_section("💻 System Tools")
+        section, body = self.add_collapsible_section(
+            self.scroll_frame, "💻 System Tools", key="tools_system"
+        )
 
         tools = [
             ("System Info", "View system information", self._system_info),
@@ -81,11 +131,13 @@ class ToolsView(ctk.CTkFrame):
         ]
 
         for name, desc, func in tools:
-            self._create_tool_item(section, name, desc, func)
+            self._create_tool_item(body, name, desc, func)
 
     def _create_text_tools(self):
         """Create text manipulation tools"""
-        section = self._create_section("📝 Text Tools")
+        section, body = self.add_collapsible_section(
+            self.scroll_frame, "📝 Text Tools", key="tools_text"
+        )
 
         tools = [
             ("Text Editor", "Advanced text editor", self._text_editor),
@@ -95,11 +147,13 @@ class ToolsView(ctk.CTkFrame):
         ]
 
         for name, desc, func in tools:
-            self._create_tool_item(section, name, desc, func)
+            self._create_tool_item(body, name, desc, func)
 
     def _create_network_tools(self):
         """Create network tools"""
-        section = self._create_section("🌐 Network Tools")
+        section, body = self.add_collapsible_section(
+            self.scroll_frame, "🌐 Network Tools", key="tools_network"
+        )
 
         tools = [
             ("Ping Tool", "Test network connectivity", self._ping_tool),
@@ -115,61 +169,44 @@ class ToolsView(ctk.CTkFrame):
         ]
 
         for name, desc, func in tools:
-            self._create_tool_item(section, name, desc, func)
+            self._create_tool_item(body, name, desc, func)
 
-    def _create_section(self, title: str) -> ctk.CTkFrame:
-        """Create a tool section"""
-        # Section frame
-        section = ctk.CTkFrame(self.scroll_frame)
-        section.pack(fill="x", pady=(0, 20))
-
-        # Section title
-        title_label = ctk.CTkLabel(
-            section,
-            text=title,
-            font=ctk.CTkFont(size=18, weight="bold"),
-        )
-        title_label.pack(anchor="w", padx=20, pady=(15, 10))
-
-        return section
 
     def _create_tool_item(self, parent, name: str, description: str, command):
         """Create a tool item"""
         # Tool frame
         tool_frame = ctk.CTkFrame(parent)
         tool_frame.pack(fill="x", padx=20, pady=5)
+        tool_frame.grid_columnconfigure(0, weight=1)
 
-        # Left side - info
         info_frame = ctk.CTkFrame(tool_frame, fg_color="transparent")
-        info_frame.pack(side="left", fill="x", expand=True, padx=20, pady=15)
+        info_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=15)
 
-        # Tool name
         name_label = ctk.CTkLabel(
             info_frame,
             text=name,
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=self.section_font,
             anchor="w",
         )
         name_label.pack(fill="x")
 
-        # Description
-        desc_label = ctk.CTkLabel(
-            info_frame,
-            text=description,
-            font=ctk.CTkFont(size=12),
-            text_color="gray",
-            anchor="w",
-        )
+        desc_label = info_label(info_frame, description, font=self.font)
         desc_label.pack(fill="x")
 
-        # Launch button
-        button = ctk.CTkButton(
-            tool_frame,
-            text="Launch",
-            command=command,
-            width=100,
+        button = self.grid_button(
+            tool_frame, "Launch", command, 0, column=1, columnspan=1, width=100
         )
-        button.pack(side="right", padx=20)
+        self.add_tooltip(button, f"Open {name}")
+        self._tool_items.append(
+            (
+                tool_frame,
+                name.lower(),
+                description.lower(),
+                name_label,
+                desc_label,
+                command,
+            )
+        )
 
     # Tool implementations
     def _batch_rename(self):
@@ -293,6 +330,7 @@ class ToolsView(ctk.CTkFrame):
             window.destroy()
 
         ctk.CTkButton(window, text="Delete Selected", command=delete_selected).pack(pady=5)
+        self.center_window(window)
 
     def _file_splitter(self):
         """Split a text file into smaller parts."""
@@ -429,6 +467,7 @@ class ToolsView(ctk.CTkFrame):
         ctk.CTkButton(btn_frame, text="Move", command=do_move).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="Delete", command=do_delete).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="List Dir", command=do_list).pack(side="left", padx=5)
+        self.center_window(window)
 
     def _system_info(self):
         """Open the enhanced System Info dialog."""
@@ -504,6 +543,7 @@ class ToolsView(ctk.CTkFrame):
         ctk.CTkButton(button_frame, text="Kill PID", command=kill_selected, width=100).pack(side="left", padx=5)
 
         schedule_refresh()
+        self.center_window(window)
 
     def _force_quit(self) -> None:
         """Open the advanced Force Quit dialog."""
@@ -647,6 +687,7 @@ class ToolsView(ctk.CTkFrame):
 
         ctk.CTkButton(toolbar, text="Open", command=open_file, width=80).pack(side="left", padx=5)
         ctk.CTkButton(toolbar, text="Save", command=save_file, width=80).pack(side="left", padx=5)
+        self.center_window(window)
 
     def _regex_tester(self):
         """Open a small regex testing utility."""
@@ -673,6 +714,7 @@ class ToolsView(ctk.CTkFrame):
                 result_label.configure(text=f"Error: {exc}")
 
         ctk.CTkButton(window, text="Test", command=run_test).pack(pady=5)
+        self.center_window(window)
 
     def _json_formatter(self):
         """Format JSON in a simple editor."""
@@ -680,8 +722,10 @@ class ToolsView(ctk.CTkFrame):
             self.app.status_bar.set_message("Opening JSON Formatter...", "info")
         window = ctk.CTkToplevel(self)
         window.title("JSON Formatter")
-        textbox = ctk.CTkTextbox(window, width=600, height=400)
-        textbox.pack(fill="both", expand=True, padx=10, pady=10)
+        frame = ctk.CTkFrame(window)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+        frame.grid_rowconfigure(0, weight=1)
+        textbox = self.grid_textbox(frame, "JSON:", 0, height=400)
 
         def format_json():
             try:
@@ -692,6 +736,7 @@ class ToolsView(ctk.CTkFrame):
                 messagebox.showerror("JSON Formatter", str(exc))
 
         ctk.CTkButton(window, text="Format", command=format_json).pack(pady=10)
+        self.center_window(window)
 
     def _base64_tool(self):
         """Encode or decode Base64 strings."""
@@ -700,11 +745,12 @@ class ToolsView(ctk.CTkFrame):
         window = ctk.CTkToplevel(self)
         window.title("Base64 Tool")
 
-        input_box = ctk.CTkTextbox(window, width=600, height=150)
-        input_box.pack(padx=10, pady=5, fill="both", expand=True)
-
-        output_box = ctk.CTkTextbox(window, width=600, height=150)
-        output_box.pack(padx=10, pady=5, fill="both", expand=True)
+        frame = ctk.CTkFrame(window)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_rowconfigure(1, weight=1)
+        input_box = self.grid_textbox(frame, "Input:", 0, height=150)
+        output_box = self.grid_textbox(frame, "Output:", 1, height=150)
 
         def encode():
             data = input_box.get("1.0", "end-1c").encode()
@@ -723,6 +769,7 @@ class ToolsView(ctk.CTkFrame):
         btn_frame.pack()
         ctk.CTkButton(btn_frame, text="Encode", command=encode).pack(side="left", padx=10)
         ctk.CTkButton(btn_frame, text="Decode", command=decode).pack(side="left", padx=10)
+        self.center_window(window)
 
     def _hash_calculator(self):
         """Calculate file checksums using various algorithms."""
@@ -732,17 +779,17 @@ class ToolsView(ctk.CTkFrame):
         window.title("Hash Calculator")
 
         file_var = ctk.StringVar()
-
-        entry = ctk.CTkEntry(window, textvariable=file_var, width=400)
-        entry.pack(padx=10, pady=(10, 5))
+        file_frame = ctk.CTkFrame(window)
+        file_frame.pack(fill="x", padx=10, pady=(10, 5))
 
         def browse() -> None:
             path = filedialog.askopenfilename(parent=window)
             if path:
                 file_var.set(path)
 
-        browse_btn = ctk.CTkButton(window, text="Browse", command=browse)
-        browse_btn.pack(pady=5)
+        self.grid_file_entry(
+            file_frame, "File:", file_var, 0, browse
+        )
 
         algo_var = ctk.StringVar(value="md5")
         ctk.CTkOptionMenu(
@@ -767,6 +814,7 @@ class ToolsView(ctk.CTkFrame):
                 messagebox.showerror("Hash", str(exc), parent=window)
 
         ctk.CTkButton(window, text="Compute", command=compute).pack(pady=5)
+        self.center_window(window)
 
     def _ping_tool(self):
         """Launch ping tool"""

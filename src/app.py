@@ -61,6 +61,7 @@ class CoolBoxApp:
         self.current_view: Optional[str] = None
         self.quick_settings_window: "QuickSettingsDialog | None" = None
         self.force_quit_window: "ForceQuitDialog | None" = None
+        self.dialogs: list[object] = []
 
         # Setup UI
         self._setup_ui()
@@ -107,7 +108,7 @@ class CoolBoxApp:
         # Create status bar if enabled
         self.status_bar: StatusBar | None = None
         if self.config.get("show_statusbar", True):
-            self.status_bar = StatusBar(self.main_container)
+            self.status_bar = StatusBar(self.main_container, self)
             self.status_bar.pack(fill="x", side="bottom")
 
         # Initialize views
@@ -115,6 +116,8 @@ class CoolBoxApp:
         self.refresh_recent_files()
         if self.menu_bar is not None:
             self.menu_bar.refresh_toggles()
+        self.update_fonts()
+        self.update_theme()
 
     def update_ui_visibility(self) -> None:
         """Show or hide optional UI elements based on config."""
@@ -138,7 +141,7 @@ class CoolBoxApp:
 
         if self.config.get("show_statusbar", True):
             if self.status_bar is None:
-                self.status_bar = StatusBar(self.main_container)
+                self.status_bar = StatusBar(self.main_container, self)
                 self.status_bar.pack(fill="x", side="bottom")
         elif self.status_bar is not None:
             self.status_bar.destroy()
@@ -232,6 +235,54 @@ class CoolBoxApp:
         self.force_quit_window.protocol(
             "WM_DELETE_WINDOW", self._on_force_quit_closed
         )
+
+    def register_dialog(self, dialog) -> None:
+        """Track an open dialog for global updates."""
+        if dialog not in self.dialogs:
+            self.dialogs.append(dialog)
+
+    def unregister_dialog(self, dialog) -> None:
+        """Remove *dialog* from the tracked list."""
+        if dialog in self.dialogs:
+            self.dialogs.remove(dialog)
+
+    def update_fonts(self) -> None:
+        """Refresh fonts for all views and dialogs."""
+        for view in self.views.values():
+            if hasattr(view, "refresh_fonts"):
+                view.refresh_fonts()
+        if self.sidebar is not None and hasattr(self.sidebar, "refresh_fonts"):
+            self.sidebar.refresh_fonts()
+        if self.toolbar is not None and hasattr(self.toolbar, "refresh_fonts"):
+            self.toolbar.refresh_fonts()
+        if self.status_bar is not None and hasattr(self.status_bar, "refresh_fonts"):
+            self.status_bar.refresh_fonts()
+        if self.menu_bar is not None and hasattr(self.menu_bar, "refresh_fonts"):
+            self.menu_bar.refresh_fonts()
+        for dlg in list(self.dialogs):
+            if dlg.winfo_exists():
+                dlg.refresh_fonts()
+            else:
+                self.dialogs.remove(dlg)
+
+    def update_theme(self) -> None:
+        """Refresh theme colors across views and dialogs."""
+        for view in self.views.values():
+            if hasattr(view, "refresh_theme"):
+                view.refresh_theme()
+        if self.sidebar is not None and hasattr(self.sidebar, "refresh_theme"):
+            self.sidebar.refresh_theme()
+        if self.toolbar is not None and hasattr(self.toolbar, "refresh_theme"):
+            self.toolbar.refresh_theme()
+        if self.status_bar is not None and hasattr(self.status_bar, "refresh_theme"):
+            self.status_bar.refresh_theme()
+        if self.menu_bar is not None and hasattr(self.menu_bar, "refresh_theme"):
+            self.menu_bar.refresh_theme()
+        for dlg in list(self.dialogs):
+            if dlg.winfo_exists() and hasattr(dlg, "refresh_theme"):
+                dlg.refresh_theme()
+            elif not dlg.winfo_exists():
+                self.dialogs.remove(dlg)
 
     def _on_force_quit_closed(self) -> None:
         if self.force_quit_window is not None and self.force_quit_window.winfo_exists():

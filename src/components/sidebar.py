@@ -21,6 +21,12 @@ class Sidebar(ctk.CTkFrame):
         self.icons: Dict[str, str] = {}
         self.labels: Dict[str, str] = {}
         self._tooltips: Dict[str, Tooltip] = {}
+        size = int(app.config.get("font_size", 14))
+        self.font = ctk.CTkFont(size=size)
+        self.title_font = ctk.CTkFont(size=size + 10, weight="bold")
+        self.accent = app.theme.get_theme().get("accent_color", "#1faaff")
+        self.active_color = [self.accent, self.accent]
+        self.inactive_color = ["#3B8ED0", "#1F6AA5"]
         self.grid_propagate(False)
 
         # Configure grid
@@ -30,7 +36,7 @@ class Sidebar(ctk.CTkFrame):
         self.title = ctk.CTkLabel(
             self,
             text="CoolBox",
-            font=ctk.CTkFont(size=24, weight="bold"),
+            font=self.title_font,
         )
         self.title.grid(row=0, column=0, padx=20, pady=(20, 30))
 
@@ -52,6 +58,7 @@ class Sidebar(ctk.CTkFrame):
             text="🌙 Dark Mode",
             command=self._toggle_theme,
             height=32,
+            font=self.font,
         )
         self.theme_toggle.grid(row=6, column=0, padx=20, pady=(10, 5), sticky="ew")
 
@@ -74,7 +81,7 @@ class Sidebar(ctk.CTkFrame):
             command=lambda: self.app.switch_view(name),
             height=40,
             anchor="w",
-            font=ctk.CTkFont(size=14),
+            font=self.font,
         )
         button.grid(row=row, column=0, padx=20, pady=5, sticky="ew")
         self.buttons[name] = button
@@ -89,11 +96,11 @@ class Sidebar(ctk.CTkFrame):
         """Set the active button"""
         # Reset all buttons
         for button in self.buttons.values():
-            button.configure(fg_color=["#3B8ED0", "#1F6AA5"])
+            button.configure(fg_color=self.inactive_color)
 
         # Highlight active button
         if view_name in self.buttons:
-            self.buttons[view_name].configure(fg_color=["#1F6AA5", "#144870"])
+            self.buttons[view_name].configure(fg_color=self.active_color)
 
     def _toggle_theme(self):
         """Toggle between light and dark theme"""
@@ -109,3 +116,19 @@ class Sidebar(ctk.CTkFrame):
 
         # Save preference
         self.app.config.set("appearance_mode", new_mode)
+
+    def refresh_fonts(self) -> None:
+        """Update fonts based on the current configuration."""
+        size = int(self.app.config.get("font_size", 14))
+        self.font.configure(size=size)
+        self.title_font.configure(size=size + 10)
+        self.title.configure(font=self.title_font)
+        for btn in self.buttons.values():
+            btn.configure(font=self.font)
+        self.theme_toggle.configure(font=self.font)
+
+    def refresh_theme(self) -> None:
+        """Refresh accent colors."""
+        self.accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
+        self.active_color = [self.accent, self.accent]
+        self.set_active(self.app.current_view or "home")

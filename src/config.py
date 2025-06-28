@@ -33,6 +33,7 @@ class Config:
             "show_toolbar": True,
             "show_statusbar": True,
             "show_menu": True,
+            "section_states": {},
             "force_quit_cpu_alert": 80.0,
             "force_quit_mem_alert": 500.0,
             "force_quit_auto_kill": "none",
@@ -160,6 +161,17 @@ class Config:
     def set(self, key: str, value: Any):
         """Set configuration value"""
         self.config[key] = value
+
+    def get_section_state(self, key: str, default: bool = True) -> bool:
+        """Return persisted expand/collapse state for *key*."""
+        states = self.config.setdefault("section_states", {})
+        return states.get(key, default)
+
+    def set_section_state(self, key: str, value: bool) -> None:
+        """Persist expand/collapse state for *key*."""
+        states = self.config.setdefault("section_states", {})
+        states[key] = value
+        self.save()
 
     def add_recent_file(self, filepath: str):
         """Add a file to recent files list"""

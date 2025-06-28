@@ -4,27 +4,34 @@ Settings view - Application preferences
 import customtkinter as ctk
 from tkinter import messagebox, colorchooser
 import json
+from src.utils import slugify
+from .base_view import BaseView
 
 
-class SettingsView(ctk.CTkFrame):
+class SettingsView(BaseView):
     """Settings and preferences view"""
 
     def __init__(self, parent, app):
         """Initialize settings view"""
-        super().__init__(parent, corner_radius=0)
-        self.app = app
+        super().__init__(parent, app)
 
         # Create scrollable frame
-        self.scroll_frame = ctk.CTkScrollableFrame(self)
-        self.scroll_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        self.scroll_frame = self.create_scrollable_container()
 
         # Title
-        title = ctk.CTkLabel(
+        self.add_title(self.scroll_frame, "⚙️ Settings")
+
+        self.search_var = ctk.StringVar()
+        self.search_entry = self.create_search_box(
             self.scroll_frame,
-            text="⚙️ Settings",
-            font=ctk.CTkFont(size=24, weight="bold"),
+            self.search_var,
+            "Search settings...",
+            self._filter_sections,
         )
-        title.pack(pady=(0, 20))
+        self.search_entry.pack(fill="x", padx=20, pady=(0, 10))
+        self.add_tooltip(self.search_entry, "Filter settings by text")
+        self.app.window.bind("<Control-f>", lambda e: self._focus_search())
+        self._sections: list[tuple[ctk.CTkFrame, str]] = []
 
         # Create settings sections
         self._create_appearance_settings()
@@ -38,53 +45,50 @@ class SettingsView(ctk.CTkFrame):
             command=self._save_settings,
             width=200,
             height=40,
-            font=ctk.CTkFont(size=14),
+            font=self.font,
         )
         save_btn.pack(pady=20)
+        self.add_tooltip(save_btn, "Save all configuration values")
+
+        # Apply current styling
+        self.refresh_fonts()
+        self.refresh_theme()
 
     def _create_appearance_settings(self):
         """Create appearance settings section"""
-        section = self._create_section("🎨 Appearance")
+        section, body = self._create_section("🎨 Appearance")
 
         # Theme selection
-        theme_frame = ctk.CTkFrame(section)
+        theme_frame = ctk.CTkFrame(body)
         theme_frame.pack(fill="x", padx=20, pady=10)
-
-        ctk.CTkLabel(
+        theme_frame.grid_columnconfigure(1, weight=1)
+        self.theme_var = ctk.StringVar(
+            value=self.app.config.get("appearance_mode", ctk.get_appearance_mode()).title()
+        )
+        theme_seg = self.grid_segmented(
             theme_frame,
-            text="Theme:",
-            width=150,
-            anchor="w",
-        ).pack(side="left")
-
-        self.theme_var = ctk.StringVar(value=ctk.get_appearance_mode())
-        theme_menu = ctk.CTkOptionMenu(
-            theme_frame,
-            values=["Light", "Dark", "System"],
-            variable=self.theme_var,
+            "Theme:",
+            self.theme_var,
+            ["Light", "Dark", "System"],
+            0,
             command=self._change_theme,
         )
-        theme_menu.pack(side="left", padx=10)
+        self.add_tooltip(theme_seg, "Preview appearance mode")
 
         # Color theme
-        color_frame = ctk.CTkFrame(section)
+        color_frame = ctk.CTkFrame(body)
         color_frame.pack(fill="x", padx=20, pady=10)
-
-        ctk.CTkLabel(
+        color_frame.grid_columnconfigure(1, weight=1)
+        self.color_var = ctk.StringVar(value=self.app.config.get("color_theme", "blue"))
+        color_seg = self.grid_segmented(
             color_frame,
-            text="Color Theme:",
-            width=150,
-            anchor="w",
-        ).pack(side="left")
-
-        self.color_var = ctk.StringVar(value="blue")
-        color_menu = ctk.CTkOptionMenu(
-            color_frame,
-            values=["blue", "green", "dark-blue"],
-            variable=self.color_var,
+            "Color Theme:",
+            self.color_var,
+            ["blue", "green", "dark-blue"],
+            0,
             command=self._change_color_theme,
         )
-        color_menu.pack(side="left", padx=10)
+        self.add_tooltip(color_seg, "Preview color theme")
 
         self.accent_color_var = ctk.StringVar(
             value=self.app.config.get("theme", {}).get("accent_color", "#007acc")
@@ -102,70 +106,62 @@ class SettingsView(ctk.CTkFrame):
             command=self._pick_accent_color,
         )
         accent_btn.pack(side="left", padx=10)
+        self.add_tooltip(accent_btn, "Pick a custom accent color")
 
         # Theme management buttons
-        theme_btns = ctk.CTkFrame(section)
+        theme_btns = ctk.CTkFrame(body)
         theme_btns.pack(fill="x", padx=20, pady=10)
 
-        ctk.CTkButton(
+        import_btn = ctk.CTkButton(
             theme_btns,
             text="Import Theme",
             command=self._import_theme,
             width=120,
-        ).pack(side="left", padx=5)
+        )
+        import_btn.pack(side="left", padx=5)
+        self.add_tooltip(import_btn, "Load a theme from file")
 
-        ctk.CTkButton(
+        export_btn = ctk.CTkButton(
             theme_btns,
             text="Export Theme",
             command=self._export_theme,
             width=120,
-        ).pack(side="left", padx=5)
+        )
+        export_btn.pack(side="left", padx=5)
+        self.add_tooltip(export_btn, "Save current theme to file")
 
-        ctk.CTkButton(
+        reset_btn = ctk.CTkButton(
             theme_btns,
             text="Reset Theme",
             command=self._reset_theme,
             width=120,
-        ).pack(side="left", padx=5)
+        )
+        reset_btn.pack(side="left", padx=5)
+        self.add_tooltip(reset_btn, "Restore default theme")
 
         # Font size
-        font_frame = ctk.CTkFrame(section)
+        font_frame = ctk.CTkFrame(body)
         font_frame.pack(fill="x", padx=20, pady=10)
-
-        ctk.CTkLabel(
-            font_frame,
-            text="Font Size:",
-            width=150,
-            anchor="w",
-        ).pack(side="left")
-
         self.font_size_var = ctk.IntVar(value=self.app.config.get("font_size", 14))
-        font_slider = ctk.CTkSlider(
+        font_slider, font_label = self.grid_slider(
             font_frame,
+            "Font Size:",
+            self.font_size_var,
+            0,
             from_=10,
             to=20,
-            variable=self.font_size_var,
-            width=200,
         )
-        font_slider.pack(side="left", padx=10)
-
-        font_label = ctk.CTkLabel(font_frame, text=str(self.font_size_var.get()))
-        font_label.pack(side="left", padx=10)
-
-        # Update label when slider changes
-        def update_font_label(value):
-            font_label.configure(text=str(int(value)))
-
-        font_slider.configure(command=update_font_label)
+        self.add_tooltip(font_slider, "Adjust UI font size")
+        self._register_section(section, "appearance")
 
     def _create_general_settings(self):
         """Create general settings section"""
-        section = self._create_section("⚙️ General")
+        section, body = self._create_section("⚙️ General")
 
         # Auto-save
         self.auto_save_var = ctk.BooleanVar(value=self.app.config.get("auto_save", True))
         auto_save_check = ctk.CTkCheckBox(
-            section,
+            body,
             text="Enable auto-save",
             variable=self.auto_save_var,
         )
@@ -174,7 +170,7 @@ class SettingsView(ctk.CTkFrame):
         # Show toolbar
         self.show_toolbar_var = ctk.BooleanVar(value=self.app.config.get("show_toolbar", True))
         toolbar_check = ctk.CTkCheckBox(
-            section,
+            body,
             text="Show toolbar",
             variable=self.show_toolbar_var,
         )
@@ -183,7 +179,7 @@ class SettingsView(ctk.CTkFrame):
         # Show status bar
         self.show_statusbar_var = ctk.BooleanVar(value=self.app.config.get("show_statusbar", True))
         statusbar_check = ctk.CTkCheckBox(
-            section,
+            body,
             text="Show status bar",
             variable=self.show_statusbar_var,
         )
@@ -192,14 +188,14 @@ class SettingsView(ctk.CTkFrame):
         # Show menu bar
         self.show_menu_var = ctk.BooleanVar(value=self.app.config.get("show_menu", True))
         menu_check = ctk.CTkCheckBox(
-            section,
+            body,
             text="Show menu bar",
             variable=self.show_menu_var,
         )
         menu_check.pack(anchor="w", padx=20, pady=5)
 
         # Recent files limit
-        recent_frame = ctk.CTkFrame(section)
+        recent_frame = ctk.CTkFrame(body)
         recent_frame.pack(fill="x", padx=20, pady=10)
 
         ctk.CTkLabel(
@@ -207,6 +203,7 @@ class SettingsView(ctk.CTkFrame):
             text="Recent files limit:",
             width=150,
             anchor="w",
+            font=self.font,
         ).pack(side="left")
 
         self.recent_limit_var = ctk.IntVar(value=self.app.config.get("max_recent_files", 10))
@@ -216,21 +213,22 @@ class SettingsView(ctk.CTkFrame):
             width=60,
         )
         recent_spinbox.pack(side="left", padx=10)
+        self._register_section(section, "general")
 
     def _create_advanced_settings(self):
         """Create advanced settings section"""
-        section = self._create_section("🔧 Advanced")
+        section, body = self._create_section("🔧 Advanced")
 
         # Clear cache button
         clear_cache_btn = ctk.CTkButton(
-            section,
+            body,
             text="🗑️ Clear Cache",
             command=self._clear_cache,
             width=200,
         )
         clear_cache_btn.pack(pady=10)
 
-        ttl_frame = ctk.CTkFrame(section)
+        ttl_frame = ctk.CTkFrame(body)
         ttl_frame.pack(fill="x", padx=20, pady=10)
 
         ctk.CTkLabel(
@@ -238,12 +236,13 @@ class SettingsView(ctk.CTkFrame):
             text="Scan cache TTL (s):",
             width=150,
             anchor="w",
+            font=self.font,
         ).pack(side="left")
 
         self.scan_ttl_var = ctk.IntVar(value=self.app.config.get("scan_cache_ttl", 300))
         ctk.CTkEntry(ttl_frame, textvariable=self.scan_ttl_var, width=80).pack(side="left", padx=10)
 
-        concurrency_frame = ctk.CTkFrame(section)
+        concurrency_frame = ctk.CTkFrame(body)
         concurrency_frame.pack(fill="x", padx=20, pady=10)
 
         ctk.CTkLabel(
@@ -251,12 +250,13 @@ class SettingsView(ctk.CTkFrame):
             text="Scan concurrency:",
             width=150,
             anchor="w",
+            font=self.font,
         ).pack(side="left")
 
         self.scan_concurrency_var = ctk.IntVar(value=self.app.config.get("scan_concurrency", 100))
         ctk.CTkEntry(concurrency_frame, textvariable=self.scan_concurrency_var, width=80).pack(side="left", padx=10)
 
-        timeout_frame = ctk.CTkFrame(section)
+        timeout_frame = ctk.CTkFrame(body)
         timeout_frame.pack(fill="x", padx=20, pady=10)
 
         ctk.CTkLabel(
@@ -264,12 +264,13 @@ class SettingsView(ctk.CTkFrame):
             text="Scan timeout (s):",
             width=150,
             anchor="w",
+            font=self.font,
         ).pack(side="left")
 
         self.scan_timeout_var = ctk.DoubleVar(value=self.app.config.get("scan_timeout", 0.5))
         ctk.CTkEntry(timeout_frame, textvariable=self.scan_timeout_var, width=80).pack(side="left", padx=10)
 
-        family_frame = ctk.CTkFrame(section)
+        family_frame = ctk.CTkFrame(body)
         family_frame.pack(fill="x", padx=20, pady=10)
 
         ctk.CTkLabel(
@@ -277,6 +278,7 @@ class SettingsView(ctk.CTkFrame):
             text="Address family:",
             width=150,
             anchor="w",
+            font=self.font,
         ).pack(side="left")
 
         self.scan_family_var = ctk.StringVar(value=self.app.config.get("scan_family", "auto"))
@@ -288,43 +290,43 @@ class SettingsView(ctk.CTkFrame):
 
         self.scan_services_var = ctk.BooleanVar(value=self.app.config.get("scan_services", False))
         ctk.CTkCheckBox(
-            section,
+            body,
             text="Show service names",
             variable=self.scan_services_var,
         ).pack(anchor="w", padx=20, pady=5)
 
         self.scan_banner_var = ctk.BooleanVar(value=self.app.config.get("scan_banner", False))
         ctk.CTkCheckBox(
-            section,
+            body,
             text="Capture banners",
             variable=self.scan_banner_var,
         ).pack(anchor="w", padx=20, pady=5)
 
         self.scan_latency_var = ctk.BooleanVar(value=self.app.config.get("scan_latency", False))
         ctk.CTkCheckBox(
-            section,
+            body,
             text="Measure latency",
             variable=self.scan_latency_var,
         ).pack(anchor="w", padx=20, pady=5)
 
         self.scan_ping_var = ctk.BooleanVar(value=self.app.config.get("scan_ping", False))
         ctk.CTkCheckBox(
-            section,
+            body,
             text="Ping hosts before scanning",
             variable=self.scan_ping_var,
         ).pack(anchor="w", padx=20, pady=5)
 
-        ping_opts = ctk.CTkFrame(section)
+        ping_opts = ctk.CTkFrame(body)
         ping_opts.pack(anchor="w", padx=20, pady=5)
-        ctk.CTkLabel(ping_opts, text="Ping timeout:").pack(side="left")
+        ctk.CTkLabel(ping_opts, text="Ping timeout:", font=self.font).pack(side="left")
         self.scan_ping_timeout_var = ctk.StringVar(value=str(self.app.config.get("scan_ping_timeout", 1.0)))
         ctk.CTkEntry(ping_opts, textvariable=self.scan_ping_timeout_var, width=60).pack(side="left", padx=(5, 15))
-        ctk.CTkLabel(ping_opts, text="Ping concurrency:").pack(side="left")
+        ctk.CTkLabel(ping_opts, text="Ping concurrency:", font=self.font).pack(side="left")
         self.scan_ping_conc_var = ctk.StringVar(value=str(self.app.config.get("scan_ping_concurrency", 100)))
         ctk.CTkEntry(ping_opts, textvariable=self.scan_ping_conc_var, width=60).pack(side="left", padx=(5, 0))
 
         clear_scan_cache_btn = ctk.CTkButton(
-            section,
+            body,
             text="🗑️ Clear Scan Cache",
             command=self._clear_scan_cache,
             width=200,
@@ -332,7 +334,7 @@ class SettingsView(ctk.CTkFrame):
         clear_scan_cache_btn.pack(pady=10)
 
         clear_host_cache_btn = ctk.CTkButton(
-            section,
+            body,
             text="🗑️ Clear Host Cache",
             command=self._clear_host_cache,
             width=200,
@@ -340,7 +342,7 @@ class SettingsView(ctk.CTkFrame):
         clear_host_cache_btn.pack(pady=10)
 
         open_cache_btn = ctk.CTkButton(
-            section,
+            body,
             text="📂 Open Cache Folder",
             command=self._open_cache_folder,
             width=200,
@@ -348,7 +350,7 @@ class SettingsView(ctk.CTkFrame):
         open_cache_btn.pack(pady=10)
 
         open_config_btn = ctk.CTkButton(
-            section,
+            body,
             text="📂 Open Config Folder",
             command=self._open_config_folder,
             width=200,
@@ -356,7 +358,7 @@ class SettingsView(ctk.CTkFrame):
         open_config_btn.pack(pady=10)
 
         open_config_file_btn = ctk.CTkButton(
-            section,
+            body,
             text="📄 Open Config File",
             command=self._open_config_file_external,
             width=200,
@@ -364,7 +366,7 @@ class SettingsView(ctk.CTkFrame):
         open_config_file_btn.pack(pady=10)
 
         edit_config_btn = ctk.CTkButton(
-            section,
+            body,
             text="📝 Edit Config File",
             command=self._edit_config_file,
             width=200,
@@ -373,7 +375,7 @@ class SettingsView(ctk.CTkFrame):
 
         # Reset settings button
         reset_btn = ctk.CTkButton(
-            section,
+            body,
             text="🔄 Reset to Defaults",
             command=self._reset_settings,
             width=200,
@@ -384,7 +386,7 @@ class SettingsView(ctk.CTkFrame):
 
         # Export settings
         export_btn = ctk.CTkButton(
-            section,
+            body,
             text="📤 Export Settings",
             command=self._export_settings,
             width=200,
@@ -393,27 +395,18 @@ class SettingsView(ctk.CTkFrame):
 
         # Import settings
         import_btn = ctk.CTkButton(
-            section,
+            body,
             text="📥 Import Settings",
             command=self._import_settings,
             width=200,
         )
         import_btn.pack(pady=10)
+        self._register_section(section, "advanced")
 
-    def _create_section(self, title: str) -> ctk.CTkFrame:
-        """Create a settings section"""
-        section = ctk.CTkFrame(self.scroll_frame)
-        section.pack(fill="x", pady=(0, 20))
-
-        # Section title
-        title_label = ctk.CTkLabel(
-            section,
-            text=title,
-            font=ctk.CTkFont(size=18, weight="bold"),
-        )
-        title_label.pack(anchor="w", padx=20, pady=(15, 10))
-
-        return section
+    def _create_section(self, title: str) -> tuple[ctk.CTkFrame, ctk.CTkFrame]:
+        """Create a collapsible settings section."""
+        key = f"settings_{slugify(title)}"
+        return self.add_collapsible_section(self.scroll_frame, title, key=key)
 
     def _change_theme(self, value):
         """Change application theme"""
@@ -456,6 +449,8 @@ class SettingsView(ctk.CTkFrame):
 
         # Save to file
         self.app.config.save()
+        self.app.update_fonts()
+        self.app.update_theme()
 
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Settings saved successfully!", "success")
@@ -478,6 +473,8 @@ class SettingsView(ctk.CTkFrame):
         if messagebox.askyesno("Reset Settings", "Are you sure you want to reset all settings to defaults?"):
             self.app.config.reset_to_defaults()
             self.app.theme.apply_theme(self.app.config.get("theme", {}))
+            self.app.update_fonts()
+            self.app.update_theme()
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message("Settings reset to defaults!", "success")
             self.app.switch_view("settings")
@@ -558,6 +555,7 @@ class SettingsView(ctk.CTkFrame):
         btn_frame.pack(pady=5)
         ctk.CTkButton(btn_frame, text="Save", command=save, width=100).pack(side="left", padx=5)
         ctk.CTkButton(btn_frame, text="Cancel", command=window.destroy, width=100).pack(side="left", padx=5)
+        self.center_window(window)
 
     def _export_settings(self):
         """Export settings to file"""
@@ -640,5 +638,50 @@ class SettingsView(ctk.CTkFrame):
         theme = self.app.theme.get_theme()
         self.accent_color_var.set(theme.get("accent_color", "#007acc"))
         self.accent_display.configure(fg_color=self.accent_color_var.get())
+        self.app.update_theme()
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Theme reset to defaults", "success")
+
+    # ------------------------------------------------------------------ search
+
+    def _register_section(self, frame: ctk.CTkFrame, title: str) -> None:
+        texts = " ".join(self._gather_texts(frame))
+        self._sections.append((frame, f"{title} {texts}".lower()))
+
+    def _gather_texts(self, widget: ctk.CTkBaseClass) -> list[str]:
+        parts: list[str] = []
+        if hasattr(widget, "cget") and "text" in widget.keys():
+            txt = widget.cget("text")
+            if txt:
+                parts.append(str(txt))
+        for child in widget.winfo_children():
+            parts.extend(self._gather_texts(child))
+        return parts
+
+    def _filter_sections(self) -> None:
+        query = self.search_var.get().lower()
+        accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
+        for frame, text in self._sections:
+            heading = frame.winfo_children()[0] if frame.winfo_children() else None
+            match = query and query in text
+            if match:
+                if not frame.winfo_viewable():
+                    frame.pack(fill="x", pady=(0, self.pady))
+                if isinstance(heading, ctk.CTkLabel):
+                    heading.configure(text_color=accent)
+            else:
+                if isinstance(heading, ctk.CTkLabel):
+                    heading.configure(text_color=None)
+                if frame.winfo_viewable() and query:
+                    frame.pack_forget()
+                elif not frame.winfo_viewable() and not query:
+                    frame.pack(fill="x", pady=(0, self.pady))
+
+    def _focus_search(self) -> None:
+        """Focus the settings search box when active."""
+        if self.app.current_view == "settings":
+            self.search_entry.focus_set()
+
+    def refresh_theme(self) -> None:  # type: ignore[override]
+        super().refresh_theme()
+        self.accent_display.configure(fg_color=self.accent)
