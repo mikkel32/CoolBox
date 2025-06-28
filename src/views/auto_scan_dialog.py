@@ -1,10 +1,16 @@
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import socket
 import asyncio
 import threading
 
-from ..utils import async_auto_scan, parse_ports, ports_as_range
+from ..utils import (
+    AutoScanInfo,
+    HTTPInfo,
+    async_auto_scan,
+    parse_ports,
+    ports_as_range,
+)
 
 
 class AutoNetworkScanDialog(ctk.CTkToplevel):
@@ -22,6 +28,8 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
+        self.last_results: dict[str, AutoScanInfo | list | dict] | None = None
+
         ctk.CTkLabel(
             self,
             text="Auto Network Scan",
@@ -33,8 +41,10 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         container.grid_columnconfigure(1, weight=1)
         container.grid_rowconfigure(0, weight=1)
 
-        form = ctk.CTkFrame(container)
-        form.grid(row=0, column=0, sticky="nw", padx=(0, 20))
+        tabview = ctk.CTkTabview(container)
+        tabview.grid(row=0, column=0, sticky="nw", padx=(0, 20))
+        form = tabview.add("Scan")
+        disp = tabview.add("Display")
 
         ctk.CTkLabel(
             form,
@@ -72,45 +82,150 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
             width=150,
         ).grid(row=4, column=1, padx=10, pady=5, sticky="ew")
 
-        self.services_var = ctk.BooleanVar(value=app.config.get("scan_services", False))
-        ctk.CTkCheckBox(
-            form,
-            text="Show service names",
-            variable=self.services_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(5, 0))
-
-        self.banner_var = ctk.BooleanVar(value=app.config.get("scan_banner", False))
-        ctk.CTkCheckBox(
-            form,
-            text="Capture banners",
-            variable=self.banner_var,
-        ).grid(row=6, column=0, columnspan=2, sticky="w")
-
-        self.latency_var = ctk.BooleanVar(value=app.config.get("scan_latency", False))
-        ctk.CTkCheckBox(
-            form,
-            text="Measure latency",
-            variable=self.latency_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w")
-
         form.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkButton(form, text="Start Scan", command=self._start_scan).grid(
-            row=8, column=0, columnspan=2, pady=(15, 0)
-        )
+        self.start_btn = ctk.CTkButton(form, text="Start Scan", command=self._start_scan)
+        self.start_btn.grid(row=5, column=0, columnspan=2, pady=(15, 0))
+
+        self.services_var = ctk.BooleanVar(value=app.config.get("scan_services", False))
+        ctk.CTkSwitch(
+            disp,
+            text="Show service names",
+            variable=self.services_var,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(5, 0))
+
+        self.banner_var = ctk.BooleanVar(value=app.config.get("scan_banner", False))
+        ctk.CTkSwitch(
+            disp,
+            text="Capture banners",
+            variable=self.banner_var,
+        ).grid(row=1, column=0, columnspan=2, sticky="w")
+
+        self.latency_var = ctk.BooleanVar(value=app.config.get("scan_latency", False))
+        ctk.CTkSwitch(
+            disp,
+            text="Measure latency",
+            variable=self.latency_var,
+        ).grid(row=2, column=0, columnspan=2, sticky="w")
+
+        self.preset_var = ctk.StringVar(value="Basic")
+        ctk.CTkSegmentedButton(
+            disp,
+            values=["Basic", "Detailed", "Full"],
+            variable=self.preset_var,
+            command=self._set_preset,
+        ).grid(row=3, column=0, columnspan=2, pady=(10, 10), sticky="ew")
+
+        self.hostname_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show hostnames",
+            variable=self.hostname_var,
+        ).grid(row=4, column=0, columnspan=2, sticky="w")
+
+        self.mac_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show MAC addresses",
+            variable=self.mac_var,
+        ).grid(row=5, column=0, columnspan=2, sticky="w")
+
+        self.conn_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show connection counts",
+            variable=self.conn_var,
+        ).grid(row=6, column=0, columnspan=2, sticky="w")
+
+        self.os_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show OS guess",
+            variable=self.os_var,
+        ).grid(row=7, column=0, columnspan=2, sticky="w")
+
+        self.vendor_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show MAC vendor",
+            variable=self.vendor_var,
+        ).grid(row=8, column=0, columnspan=2, sticky="w")
+
+        self.ping_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show ping latency",
+            variable=self.ping_var,
+        ).grid(row=9, column=0, columnspan=2, sticky="w")
+
+        self.ttl_var_disp = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show TTL",
+            variable=self.ttl_var_disp,
+        ).grid(row=10, column=0, columnspan=2, sticky="w")
+
+        self.http_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show HTTP info",
+            variable=self.http_var,
+        ).grid(row=11, column=0, columnspan=2, sticky="w")
+
+        self.device_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show device type",
+            variable=self.device_var,
+        ).grid(row=12, column=0, columnspan=2, sticky="w")
+
+        self.risk_var = ctk.BooleanVar()
+        ctk.CTkSwitch(
+            disp,
+            text="Show risk score",
+            variable=self.risk_var,
+        ).grid(row=13, column=0, columnspan=2, sticky="w")
 
         result_panel = ctk.CTkFrame(container)
         result_panel.grid(row=0, column=1, sticky="nsew")
         result_panel.grid_columnconfigure(0, weight=1)
-        result_panel.grid_rowconfigure(1, weight=1)
+        result_panel.grid_rowconfigure(4, weight=1)
 
         self.progress = ctk.CTkProgressBar(result_panel)
         self.progress.grid(row=0, column=0, sticky="ew")
         self.progress.set(0)
         self.progress.grid_remove()
 
+        self.progress_label = ctk.CTkLabel(result_panel, text="")
+        self.progress_label.grid(row=1, column=0, pady=(5, 0))
+        self.progress_label.grid_remove()
+
+        self.filter_var = ctk.StringVar()
+        filter_entry = ctk.CTkEntry(result_panel, textvariable=self.filter_var)
+        filter_entry.grid(row=2, column=0, sticky="ew", padx=5)
+        filter_entry.bind("<KeyRelease>", lambda e: self._filter_results())
+
+        btn_frame = ctk.CTkFrame(result_panel, fg_color="transparent")
+        btn_frame.grid(row=3, column=0, pady=(5, 0), sticky="ew")
+        btn_frame.grid_columnconfigure(0, weight=1)
+        btn_frame.grid_columnconfigure(1, weight=1)
+        btn_frame.grid_columnconfigure(2, weight=1)
+        self.export_btn = ctk.CTkButton(btn_frame, text="Export CSV", command=self._export_csv)
+        self.export_btn.grid(row=0, column=0, padx=(0, 10))
+        self.cancel_btn = ctk.CTkButton(btn_frame, text="Cancel", command=self._cancel_scan)
+        self.cancel_btn.grid(row=0, column=1)
+        self.sort_var = ctk.StringVar(value="Host")
+        ctk.CTkOptionMenu(
+            btn_frame,
+            values=["Host", "Risk", "Ports"],
+            variable=self.sort_var,
+            width=120,
+        ).grid(row=0, column=2, padx=(10, 0))
+        self.export_btn.grid_remove()
+        self.cancel_btn.grid_remove()
+
         self.result_area = ctk.CTkScrollableFrame(result_panel)
-        self.result_area.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+        self.result_area.grid(row=4, column=0, sticky="nsew", pady=(10, 0))
         self.result_area.grid_columnconfigure(0, weight=1)
         self.result_area.grid_rowconfigure(1, weight=1)
 
@@ -131,6 +246,10 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         self.rows_frame.grid_columnconfigure(1, weight=1)
 
     def _start_scan(self) -> None:
+        self.start_btn.configure(state="disabled")
+        self.export_btn.grid_remove()
+        self.cancel_btn.grid()
+        self.cancel_event = threading.Event()
         try:
             ports = parse_ports(self.port_var.get())
             conc = int(self.conc_var.get())
@@ -152,10 +271,17 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         def update(value: float | None) -> None:
             if value is None:
                 self.after(0, self.progress.grid_remove)
+                self.after(0, self.progress_label.grid_remove)
             else:
                 if not self.progress.winfo_ismapped():
                     self.progress.grid()
+                    self.progress_label.grid()
                 self.progress.set(value)
+                stage = "Detecting hosts" if value < 0.5 else "Scanning ports"
+                pct = int(value * 100)
+                self.progress_label.configure(text=f"{stage}... {pct}%")
+            if self.export_btn.winfo_ismapped():
+                self.after(0, self.export_btn.grid_remove)
 
         def run() -> None:
             if self.app.status_bar is not None:
@@ -168,54 +294,349 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
                 with_services=self.services_var.get(),
                 with_banner=self.banner_var.get(),
                 with_latency=self.latency_var.get(),
+                with_hostname=self.hostname_var.get(),
+                with_mac=self.mac_var.get(),
+                with_connections=self.conn_var.get(),
+                with_os=self.os_var.get(),
+                with_ttl=self.ttl_var_disp.get(),
+                with_ping_latency=self.ping_var.get(),
+                with_vendor=self.vendor_var.get(),
+                with_http_info=self.http_var.get(),
+                with_device_type=self.device_var.get(),
+                with_risk_score=self.risk_var.get(),
                 ping_concurrency=self.app.config.get("scan_ping_concurrency", conc),
                 ping_timeout=self.app.config.get("scan_ping_timeout", timeout),
+                cancel_event=self.cancel_event,
             )
-            if start_end:
-                s, e = start_end
-                results = asyncio.run(
-                    async_auto_scan(s, e, update, **kwargs)
-                )
-            else:
-                results = asyncio.run(
-                    async_auto_scan(ports[0], ports[-1], update, ports=ports, **kwargs)
-                )
+            try:
+                if start_end:
+                    s, e = start_end
+                    results = asyncio.run(
+                        async_auto_scan(s, e, update, **kwargs)
+                    )
+                else:
+                    results = asyncio.run(
+                        async_auto_scan(ports[0], ports[-1], update, ports=ports, **kwargs)
+                    )
+            finally:
+                if self.cancel_event.is_set():
+                    # ensure progress hidden when cancelled
+                    self.after(0, self.progress.grid_remove)
+                    self.after(0, self.progress_label.grid_remove)
 
             def show() -> None:
+                self.last_results = results
+                if self.cancel_event and self.cancel_event.is_set():
+                    self.progress_label.configure(text="Cancelled")
+                self.export_btn.grid()
                 for child in self.rows_frame.winfo_children():
                     child.destroy()
-                for host, ports in results.items():
+                items = list(results.items())
+                mode = self.sort_var.get().lower()
+                if mode == "risk":
+                    def risk_val(it):
+                        res = it[1]
+                        if isinstance(res, AutoScanInfo) and res.risk_score is not None:
+                            return res.risk_score
+                        return -1
+                    items.sort(key=risk_val, reverse=True)
+                elif mode == "ports":
+                    def port_count(it):
+                        res = it[1]
+                        ports_obj = res.ports if isinstance(res, AutoScanInfo) else res
+                        return len(ports_obj)
+                    items.sort(key=port_count, reverse=True)
+                else:
+                    items.sort(key=lambda x: x[0])
+                for host, result in items:
                     row = ctk.CTkFrame(self.rows_frame, fg_color="transparent")
                     row.grid(sticky="ew", pady=2)
                     row.grid_columnconfigure(0, weight=1)
                     row.grid_columnconfigure(1, weight=1)
-                    ctk.CTkLabel(row, text=host, anchor="w").grid(
+
+                    host_text = host
+                    text_color = None
+                    ports_data = result
+                    connections = None
+                    if isinstance(result, AutoScanInfo):
+                        ports_data = result.ports
+                        if self.hostname_var.get() and result.hostname:
+                            host_text += f" ({result.hostname})"
+                        if self.mac_var.get() and result.mac:
+                            host_text += f" [{result.mac}]"
+                        if self.vendor_var.get() and result.vendor:
+                            host_text += f" <{result.vendor}>"
+                        if self.ping_var.get() and result.ping_latency is not None:
+                            host_text += f" [{result.ping_latency * 1000:.1f}ms]"
+                        if self.conn_var.get():
+                            connections = result.connections or {}
+                        if self.os_var.get() and result.os_guess:
+                            host_text += f" {{{result.os_guess}}}"
+                        if self.ttl_var_disp.get() and result.ttl is not None:
+                            host_text += f" <TTL:{result.ttl}>"
+                        if self.device_var.get() and result.device_type:
+                            host_text += f" [{result.device_type}]"
+                        if self.risk_var.get() and result.risk_score is not None:
+                            host_text += f" <Risk:{result.risk_score}>"
+                            if result.risk_score >= 60:
+                                text_color = "#ff4444"
+                            elif result.risk_score >= 30:
+                                text_color = "#ffaa00"
+                            else:
+                                text_color = "#22dd22"
+
+                    ctk.CTkLabel(row, text=host_text, anchor="w", text_color=text_color).grid(
                         row=0, column=0, sticky="w", padx=(0, 10)
                     )
-                    if not ports:
+
+                    def fmt_port(p: int, info=None, svc=None, http=None) -> str:
+                        if info is not None:
+                            base = f"{p}({info.service}:{info.banner or ''})" if self.banner_var.get() else (
+                                f"{p}({info.service})" if self.services_var.get() else (
+                                    f"{p}({info.latency * 1000:.1f}ms)" if self.latency_var.get() and info.latency is not None else str(p)
+                                )
+                            )
+                        elif svc is not None:
+                            base = f"{p}({svc})"
+                        else:
+                            base = str(p)
+                        if http is not None and self.http_var.get():
+                            if http.server:
+                                base += f"<{http.server}>"
+                            elif http.title:
+                                base += f"<{http.title}>"
+                        if connections is not None:
+                            cnt = connections.get(p, 0)
+                            if cnt:
+                                base += f"[{cnt}]"
+                        return base
+
+                    http_map = result.http_info if isinstance(result, AutoScanInfo) else None
+                    if not ports_data:
                         ports_str = "none"
-                    elif self.banner_var.get() and isinstance(ports, dict):
-                        ports_str = ", ".join(
-                            f"{p}({info.service}:{info.banner or ''})"
-                            for p, info in ports.items()
-                        )
-                    elif self.services_var.get() and isinstance(ports, dict):
-                        ports_str = ", ".join(
-                            f"{p}({svc})" for p, svc in ports.items()
-                        )
-                    elif self.latency_var.get() and isinstance(ports, dict):
-                        ports_str = ", ".join(
-                            f"{p}({info.latency * 1000:.1f}ms)" if info.latency is not None else str(p)
-                            for p, info in ports.items()
-                        )
+                    elif isinstance(ports_data, dict):
+                        if self.banner_var.get():
+                            ports_str = ", ".join(
+                                fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
+                                for p, info in ports_data.items()
+                            )
+                        elif self.services_var.get():
+                            ports_str = ", ".join(
+                                fmt_port(p, svc=svc, http=http_map.get(p) if http_map else None)
+                                for p, svc in ports_data.items()
+                            )
+                        elif self.latency_var.get():
+                            ports_str = ", ".join(
+                                fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
+                                for p, info in ports_data.items()
+                            )
+                        else:
+                            ports_str = ", ".join(
+                                fmt_port(p, http=http_map.get(p) if http_map else None)
+                                for p in ports_data
+                            )
                     else:
-                        ports_str = ", ".join(str(p) for p in ports)
+                        ports_str = ", ".join(
+                            fmt_port(p, http=http_map.get(p) if http_map else None)
+                            for p in ports_data
+                        )
+
                     ctk.CTkLabel(row, text=ports_str, anchor="w").grid(
                         row=0, column=1, sticky="w"
                     )
                 if self.app.status_bar is not None:
                     self.app.status_bar.set_message("Scan complete", "success")
 
+                self.start_btn.configure(state="normal")
+                self.cancel_btn.grid_remove()
+                self.cancel_event = None
+
             self.after(0, show)
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _set_preset(self, value: str) -> None:
+        presets = {
+            "Basic": {
+                "services": False,
+                "banner": False,
+                "latency": False,
+                "ping": False,
+                "ttl": False,
+                "hostname": False,
+                "mac": False,
+                "connections": False,
+                "os": False,
+                "vendor": False,
+                "http": False,
+                "device": False,
+                "risk": False,
+            },
+            "Detailed": {
+                "services": True,
+                "banner": False,
+                "latency": True,
+                "ping": True,
+                "ttl": True,
+                "hostname": True,
+                "mac": True,
+                "connections": False,
+                "os": True,
+                "vendor": True,
+                "http": False,
+                "device": True,
+                "risk": True,
+            },
+            "Full": {
+                "services": True,
+                "banner": True,
+                "latency": True,
+                "ping": True,
+                "ttl": True,
+                "hostname": True,
+                "mac": True,
+                "connections": True,
+                "os": True,
+                "vendor": True,
+                "http": True,
+                "device": True,
+                "risk": True,
+            },
+        }
+        opts = presets.get(value)
+        if not opts:
+            return
+        self.services_var.set(opts["services"])
+        self.banner_var.set(opts["banner"])
+        self.latency_var.set(opts["latency"])
+        self.hostname_var.set(opts["hostname"])
+        self.mac_var.set(opts["mac"])
+        self.conn_var.set(opts["connections"])
+        self.os_var.set(opts["os"])
+        self.vendor_var.set(opts["vendor"])
+        self.ping_var.set(opts["ping"])
+        self.ttl_var_disp.set(opts["ttl"])
+        self.http_var.set(opts["http"])
+        self.device_var.set(opts["device"])
+        self.risk_var.set(opts["risk"])
+
+    def _filter_results(self) -> None:
+        query = self.filter_var.get().lower()
+        for row in self.rows_frame.winfo_children():
+            labels = row.winfo_children()
+            if not labels:
+                continue
+            text = labels[0].cget("text").lower()
+            ports_text = labels[1].cget("text").lower() if len(labels) > 1 else ""
+            if query in text or query in ports_text:
+                row.grid()
+            else:
+                row.grid_remove()
+
+    def _export_csv(self) -> None:
+        if not self.last_results:
+            messagebox.showerror("Auto Network Scan", "No results to export", parent=self)
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv")],
+            title="Save Scan Results",
+        )
+        if not path:
+            return
+        try:
+            import csv
+
+            with open(path, "w", newline="", encoding="utf-8") as fh:
+                writer = csv.writer(fh)
+                headers = ["host", "ports"]
+                if self.hostname_var.get():
+                    headers.append("hostname")
+                if self.mac_var.get():
+                    headers.append("mac")
+                if self.vendor_var.get():
+                    headers.append("vendor")
+                if self.os_var.get():
+                    headers.append("os")
+                if self.ping_var.get():
+                    headers.append("ping")
+                if self.ttl_var_disp.get():
+                    headers.append("ttl")
+                if self.http_var.get():
+                    headers.append("http")
+                if self.device_var.get():
+                    headers.append("device")
+                if self.risk_var.get():
+                    headers.append("risk")
+                writer.writerow(headers)
+                for host, result in self.last_results.items():
+                    hostname = ""
+                    mac = ""
+                    vendor = ""
+                    os_guess = ""
+                    ports = result
+                    if isinstance(result, AutoScanInfo):
+                        ports = result.ports
+                        hostname = result.hostname or ""
+                        mac = result.mac or ""
+                        vendor = result.vendor or ""
+                        os_guess = result.os_guess or ""
+                        http_map = result.http_info or {}
+                    else:
+                        http_map = {}
+                    port_list = (
+                        ",".join(str(p) for p in ports)
+                        if isinstance(ports, list)
+                        else ",".join(str(p) for p in ports.keys())
+                    )
+                    row = [host, port_list]
+                    if self.hostname_var.get():
+                        row.append(hostname)
+                    if self.mac_var.get():
+                        row.append(mac)
+                    if self.vendor_var.get():
+                        row.append(vendor)
+                    if self.os_var.get():
+                        row.append(os_guess)
+                    if self.ping_var.get():
+                        row.append(
+                            f"{result.ping_latency:.3f}"
+                            if isinstance(result, AutoScanInfo)
+                            and result.ping_latency is not None
+                            else ""
+                        )
+                    if self.ttl_var_disp.get():
+                        row.append(
+                            str(result.ttl)
+                            if isinstance(result, AutoScanInfo)
+                            and result.ttl is not None
+                            else ""
+                        )
+                    if self.http_var.get():
+                        info_parts = [
+                            f"{p}:{(http_map.get(p).server or '')}"
+                            for p in sorted(http_map)
+                        ]
+                        row.append(";".join(info_parts))
+                    if self.device_var.get():
+                        row.append(
+                            result.device_type
+                            if isinstance(result, AutoScanInfo)
+                            and result.device_type
+                            else ""
+                        )
+                    if self.risk_var.get():
+                        row.append(
+                            str(result.risk_score)
+                            if isinstance(result, AutoScanInfo)
+                            and result.risk_score is not None
+                            else ""
+                        )
+                    writer.writerow(row)
+            messagebox.showinfo("Auto Network Scan", f"Saved to {path}", parent=self)
+        except Exception as exc:
+            messagebox.showerror("Auto Network Scan", str(exc), parent=self)
+
+    def _cancel_scan(self) -> None:
+        if hasattr(self, "cancel_event") and self.cancel_event is not None:
+            self.cancel_event.set()

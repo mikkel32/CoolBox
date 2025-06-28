@@ -803,7 +803,13 @@ def test_async_auto_scan(monkeypatch):
     def fake_detect() -> list[str]:
         return ["localhost", "other"]
 
-    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return (host == "localhost", 64, 0.01)
+        if return_ttl:
+            return (host == "localhost", 64)
+        if return_latency:
+            return (host == "localhost", 0.01)
         return host == "localhost"
 
     monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
@@ -826,7 +832,13 @@ def test_async_auto_scan_with_services(monkeypatch):
     def fake_detect() -> list[str]:
         return ["localhost"]
 
-    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, 64, 0.01
+        if return_ttl:
+            return True, 64
+        if return_latency:
+            return True, 0.01
         return True
 
     monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
@@ -850,7 +862,13 @@ def test_async_auto_scan_with_banner(monkeypatch):
     def fake_detect() -> list[str]:
         return ["localhost"]
 
-    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, 64, 0.01
+        if return_ttl:
+            return True, 64
+        if return_latency:
+            return True, 0.01
         return True
 
     monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
@@ -872,11 +890,62 @@ def test_async_auto_scan_with_banner(monkeypatch):
     assert info.banner == "banner"
 
 
+def test_async_auto_scan_detailed(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost"]
+
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, 64, 0.01
+        if return_ttl:
+            return True, 64
+        if return_latency:
+            return True, 0.01
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+    monkeypatch.setattr(network, "get_mac_address", lambda h: "00:0c:29:aa:bb:cc")
+    monkeypatch.setattr(network, "_get_connection_counts", lambda ports: {p: 2 for p in ports})
+
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_auto_scan(
+                    port,
+                    port,
+                    ports=[port],
+                    with_mac=True,
+                    with_hostname=True,
+                    with_connections=True,
+                    with_os=True,
+                    with_vendor=True,
+                    with_device_type=True,
+                )
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    info = result["localhost"]
+    assert isinstance(info, network.AutoScanInfo)
+    assert info.mac == "00:0c:29:aa:bb:cc"
+    assert info.connections[port] == 2
+    assert info.os_guess == "Linux"
+    assert info.vendor == "VMware"
+    assert info.device_type == "Virtual Machine"
+
+
 def test_async_filter_active_hosts(monkeypatch):
     calls: list[str] = []
 
-    async def fake_ping(host: str, timeout: float = 1.0) -> bool:
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
         calls.append(host)
+        if return_ttl:
+            return (host == "1.1.1.1", 64 if host == "1.1.1.1" else None)
         return host == "1.1.1.1"
 
     monkeypatch.setattr(network, "_async_ping_host", fake_ping)
@@ -887,3 +956,275 @@ def test_async_filter_active_hosts(monkeypatch):
 
     assert result == ["1.1.1.1"]
     assert sorted(calls) == ["1.1.1.1", "2.2.2.2"]
+
+
+def test_async_filter_active_hosts_ttl(monkeypatch):
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if host == "1.1.1.1":
+            if return_ttl and return_latency:
+                return True, 64, 0.01
+            if return_ttl:
+                return True, 64
+            if return_latency:
+                return True, 0.01
+            return True
+        if return_ttl and return_latency:
+            return False, None, None
+        if return_ttl:
+            return False, None
+        if return_latency:
+            return False, None
+        return False
+
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    result = asyncio.run(
+        network.async_filter_active_hosts(["1.1.1.1", "2.2.2.2"], concurrency=2, return_ttl=True)
+    )
+
+    assert result == {"1.1.1.1": 64}
+
+
+def test_async_get_http_info():
+    import http.server
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Server", "TestServer")
+            self.end_headers()
+            self.wfile.write(b"<html><title>Hello</title></html>")
+
+    with http.server.HTTPServer(("localhost", 0), Handler) as srv:
+        port = srv.server_address[1]
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            info = asyncio.run(network.async_get_http_info("localhost", port))
+        finally:
+            srv.shutdown()
+            thread.join()
+
+    assert isinstance(info, network.HTTPInfo)
+    assert info.title == "Hello"
+
+
+def test_async_auto_scan_http_info(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost"]
+
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, 64, 0.01
+        if return_ttl:
+            return True, 64
+        if return_latency:
+            return True, 0.01
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    import http.server
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Server", "ScanServer")
+            self.end_headers()
+            self.wfile.write(b"<html><title>World</title></html>")
+
+    with http.server.HTTPServer(("localhost", 0), Handler) as srv:
+        port = srv.server_address[1]
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_auto_scan(
+                    port,
+                    port,
+                    ports=[port],
+                    with_http_info=True,
+                )
+            )
+        finally:
+            srv.shutdown()
+            thread.join()
+
+    info = result["localhost"]
+    assert isinstance(info, network.AutoScanInfo)
+    assert info.http_info is not None
+    assert port in info.http_info
+    assert info.http_info[port].title == "World"
+
+
+def test_async_auto_scan_ping_latency(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost"]
+
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, 64, 0.01
+        if return_ttl:
+            return True, 64
+        if return_latency:
+            return True, 0.01
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_auto_scan(
+                    port,
+                    port,
+                    ports=[port],
+                    with_ping_latency=True,
+                )
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    info = result["localhost"]
+    assert isinstance(info, network.AutoScanInfo)
+    assert info.ping_latency is not None
+
+
+def test_async_auto_scan_cancel(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost", "other"]
+
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, 64, 0.01
+        if return_ttl:
+            return True, 64
+        if return_latency:
+            return True, 0.01
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    cancel = asyncio.Event()
+    cancel.set()
+
+    result = asyncio.run(
+        network.async_auto_scan(1, 1, cancel_event=cancel)
+    )
+
+    assert result == {}
+
+
+def test_async_filter_active_hosts_cancel(monkeypatch):
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, None, 0.01
+        if return_ttl:
+            return True, None
+        if return_latency:
+            return True, 0.01
+        return True
+
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    cancel = asyncio.Event()
+    cancel.set()
+
+    result = asyncio.run(
+        network.async_filter_active_hosts(["1.1.1.1"], cancel_event=cancel)
+    )
+
+    assert result == []
+
+
+def test_guess_device_type():
+    info = network.AutoScanInfo({80: network.PortInfo("http")})
+    info.vendor = "Cisco"
+    info.http_info = {80: network.HTTPInfo(server="Cisco Router")}
+
+    assert network._guess_device_type(info) == "Router"
+
+
+def test_estimate_risk():
+    info = network.AutoScanInfo({21: network.PortInfo("ftp"), 80: network.PortInfo("http")})
+    info.os_guess = "Windows"
+    info.device_type = "Router"
+    score = network._estimate_risk(info)
+    assert score >= 50
+
+
+def test_async_auto_scan_risk(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost"]
+
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_auto_scan(
+                    port,
+                    port,
+                    ports=[port],
+                    with_risk_score=True,
+                )
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    info = result["localhost"]
+    assert isinstance(info, network.AutoScanInfo)
+    assert info.risk_score is not None
+
+
+def test_async_auto_scan_ttl(monkeypatch):
+    def fake_detect() -> list[str]:
+        return ["localhost"]
+
+    async def fake_ping(host: str, timeout: float = 1.0, *, return_ttl: bool = False, return_latency: bool = False):
+        if return_ttl and return_latency:
+            return True, 64, 0.01
+        if return_ttl:
+            return True, 64
+        if return_latency:
+            return True, 0.01
+        return True
+
+    monkeypatch.setattr(network, "detect_local_hosts", fake_detect)
+    monkeypatch.setattr(network, "_async_ping_host", fake_ping)
+
+    with socketserver.TCPServer(("localhost", 0), _Handler) as server:
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = asyncio.run(
+                network.async_auto_scan(
+                    port,
+                    port,
+                    ports=[port],
+                    with_ttl=True,
+                )
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+
+    info = result["localhost"]
+    assert isinstance(info, network.AutoScanInfo)
+    assert info.ttl == 64
