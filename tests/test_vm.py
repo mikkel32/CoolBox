@@ -117,6 +117,19 @@ def test_launch_vm_open_code(monkeypatch):
     assert calls[1][0] == "run_vagrant.sh"
 
 
+def test_launch_vm_open_code_missing(monkeypatch, capsys):
+    """Ensure a warning is printed if VS Code is not installed."""
+    def which(cmd: str) -> str | None:
+        return "/usr/bin/vagrant" if cmd == "vagrant" else None
+
+    monkeypatch.setattr(shutil, "which", which)
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
+    monkeypatch.setattr(subprocess, "check_call", lambda *a, **k: None)
+    launch_vm_debug(open_code=True)
+    out = capsys.readouterr().out
+    assert "code' command not found" in out
+
+
 def test_vm_cli_parse_defaults():
     args = vmcli.parse_args([])
     assert args.prefer == "auto"
