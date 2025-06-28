@@ -520,7 +520,6 @@ class ForceQuitDialog(BaseDialog):
             max_interval=self.max_interval,
         )
         self._watcher.start()
-        self.after(0, self._auto_refresh)
 
         container = self.create_container()
         self.add_title(container, "Force Quit Running Processes")
@@ -746,6 +745,9 @@ class ForceQuitDialog(BaseDialog):
         hsb.grid(row=1, column=0, sticky="ew")
         self.tree_frame.grid_rowconfigure(0, weight=1)
         self.tree_frame.grid_columnconfigure(0, weight=1)
+        self.empty_label = ctk.CTkLabel(self.tree_frame, text="No processes found")
+        self.empty_label.grid(row=0, column=0)
+        self.empty_label.grid_remove()
         for col in columns:
             self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
             narrow = {"PID", "CPU", "Mem", "Avg CPU", "Avg IO", "Score", "\u0394CPU", "\u0394Mem", "\u0394IO"}
@@ -1434,6 +1436,12 @@ class ForceQuitDialog(BaseDialog):
 
         self.after_idle(update_tree)
         self._update_status(len(processes))
+        if processes:
+            if self.empty_label.winfo_ismapped():
+                self.empty_label.grid_remove()
+        else:
+            self.empty_label.lift()
+            self.empty_label.grid()
 
     def _export_csv(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -1950,6 +1958,10 @@ class ForceQuitDialog(BaseDialog):
 
     def _auto_refresh(self) -> None:
         if not self.winfo_exists():
+            return
+        if not hasattr(self, "search_var"):
+            # Dialog not fully initialized yet
+            self._after_id = self.after(1000, self._auto_refresh)
             return
         if self.paused:
             self._after_id = self.after(1000, self._auto_refresh)

@@ -50,6 +50,11 @@ class SettingsView(BaseView):
         save_btn.pack(pady=20)
         self.add_tooltip(save_btn, "Save all configuration values")
 
+        self.no_results = ctk.CTkLabel(
+            self.scroll_frame, text="No settings found", font=self.font
+        )
+        self.no_results.pack_forget()
+
         # Apply current styling
         self.refresh_fonts()
         self.refresh_theme()
@@ -679,6 +684,13 @@ class SettingsView(BaseView):
                     frame.pack_forget()
                 elif not frame.winfo_viewable() and not query:
                     frame.pack(fill="x", pady=(0, self.pady))
+
+        visible = any(f.winfo_viewable() for f, _ in self._sections)
+        if visible:
+            if self.no_results.winfo_ismapped():
+                self.no_results.pack_forget()
+        else:
+            self.no_results.pack(pady=20)
 
     def _focus_search(self) -> None:
         """Focus the settings search box when active."""
