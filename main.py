@@ -27,17 +27,32 @@ def main() -> None:
         "--debug-port",
         type=int,
         default=5678,
-        help="Port for debugpy to listen on (default: 5678)",
+        help="Port for debugpy or --vm-debug listener (default: 5678)",
     )
     parser.add_argument(
         "--vm-debug",
         action="store_true",
         help="Launch inside a VM or container and wait for debugger",
     )
+    parser.add_argument(
+        "--vm-prefer",
+        choices=["docker", "vagrant", "podman", "auto"],
+        default="auto",
+        help="Preferred VM backend for --vm-debug",
+    )
+    parser.add_argument(
+        "--open-code",
+        action="store_true",
+        help="Open VS Code when launching --vm-debug",
+    )
     args = parser.parse_args()
 
     if args.vm_debug:
-        launch_vm_debug()
+        launch_vm_debug(
+            prefer=None if args.vm_prefer == "auto" else args.vm_prefer,
+            open_code=args.open_code,
+            port=args.debug_port,
+        )
         return
 
     if args.debug:
