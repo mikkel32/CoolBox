@@ -98,14 +98,13 @@ class QuickSettingsDialog(BaseDialog):
 
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
         btn_frame.grid(row=10, column=0, columnspan=2, pady=10)
-        btn_frame.grid_columnconfigure((0,1,2), weight=1)
+        btn_frame.grid_columnconfigure((0, 1, 2), weight=1)
         self.apply_btn = self.grid_button(btn_frame, "Apply", self._apply, 0, column=0, columnspan=1)
         self.add_tooltip(self.apply_btn, "Save settings")
         self.reset_btn = self.grid_button(btn_frame, "Reset", self._reset, 0, column=1, columnspan=1)
         self.add_tooltip(self.reset_btn, "Restore previous values")
         self.cancel_btn = self.grid_button(btn_frame, "Cancel", self.destroy, 0, column=2, columnspan=1)
         self.add_tooltip(self.cancel_btn, "Close without saving")
-        
         container.grid_columnconfigure(0, weight=1)
         container.grid_columnconfigure(1, weight=1)
 

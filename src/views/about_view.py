@@ -1,7 +1,6 @@
 """
 About view - Application info
 """
-import customtkinter as ctk
 from ..components.widgets import info_label
 from ..utils import open_path
 from .base_view import BaseView

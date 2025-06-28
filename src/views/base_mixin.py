@@ -419,8 +419,10 @@ class UIHelperMixin:
                 button_color=self.accent,
                 button_hover_color=self.accent,
             )
-        elif isinstance(parent, (ctk.CTkSwitch, ctk.CTkCheckBox)):
+        elif isinstance(parent, ctk.CTkSwitch):
             parent.configure(progress_color=self.accent, fg_color=self.accent)
+        elif isinstance(parent, ctk.CTkCheckBox):
+            parent.configure(border_color=self.accent, fg_color=self.accent)
         elif isinstance(parent, ctk.CTkRadioButton):
             parent.configure(border_color=self.accent, fg_color=self.accent)
         elif isinstance(parent, ctk.CTkSlider):

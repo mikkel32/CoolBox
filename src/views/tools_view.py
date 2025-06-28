@@ -171,7 +171,6 @@ class ToolsView(BaseView):
         for name, desc, func in tools:
             self._create_tool_item(body, name, desc, func)
 
-
     def _create_tool_item(self, parent, name: str, description: str, command):
         """Create a tool item"""
         # Tool frame
