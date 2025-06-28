@@ -321,7 +321,7 @@ python scripts/process_monitor_cli.py --interval 1.5 --limit 10 \
 
 ### Auto Network Scan
 
-From the **Tools** view choose *Auto Network Scan* to open a modern dialog with scanning options on the left and a results table on the right. CoolBox automatically detects local subnets using `psutil` and pings each address to find active hosts before scanning the specified ports. A progress bar tracks detection and scanning with results displayed in a scrollable list when complete.
+From the **Tools** view choose *Auto Network Scan* to open a modern dialog with scanning options on the left and a results table on the right. CoolBox automatically detects local subnets using `psutil` and pings each address to find active hosts before scanning the specified ports. A progress bar tracks detection and scanning with results displayed in a scrollable list when complete. Recent updates add HTTP metadata collection, vendor and device type guessing, ping latency and TTL measurements, and a risk score computed from open ports. Results can be filtered and exported to CSV.
 
 ### Debugging in a Dev Container
 

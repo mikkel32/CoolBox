@@ -7,8 +7,9 @@ import os
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+import ssl
 from pathlib import Path
-from typing import Callable, List, Dict, Iterable
+from typing import Callable, List, Dict, Iterable, Any
 import subprocess
 import platform
 import time
@@ -29,6 +30,15 @@ _CACHE_FILE = Path(
 
 # Cache manager instance used by both sync and async scanners
 PORT_CACHE: CacheManager[List[int]] = CacheManager[List[int]](_CACHE_FILE)
+
+
+def _cancelled(event: Any) -> bool:
+    """Return ``True`` if the optional *event* is set."""
+
+    try:
+        return bool(event and event.is_set())
+    except Exception:
+        return False
 
 
 def _flags_key(*, with_services: bool, with_banner: bool, with_latency: bool) -> str:
@@ -67,6 +77,36 @@ class PortInfo:
     service: str
     banner: str | None = None
     latency: float | None = None
+
+
+@dataclass
+class HTTPInfo:
+    """Simple HTTP metadata for a host and port."""
+
+    server: str | None = None
+    title: str | None = None
+
+
+@dataclass
+class AutoScanInfo:
+    """Detailed information returned by :func:`async_auto_scan`.
+
+    ``ports`` holds the open port results while optional metadata like
+    ``hostname`` or ``mac`` may be included when requested. ``vendor`` is a
+    best-effort lookup based on the MAC address prefix.
+    """
+
+    ports: List[int] | Dict[int, str] | Dict[int, PortInfo]
+    hostname: str | None = None
+    mac: str | None = None
+    connections: Dict[int, int] | None = None
+    os_guess: str | None = None
+    ping_latency: float | None = None
+    ttl: int | None = None
+    vendor: str | None = None
+    http_info: Dict[int, HTTPInfo] | None = None
+    device_type: str | None = None
+    risk_score: int | None = None
 
 
 def _get_service_name(port: int) -> str:
@@ -127,6 +167,199 @@ def clear_scan_cache() -> None:
 def clear_host_cache() -> None:
     """Clear cached DNS lookups."""
     _HOST_CACHE.clear()
+
+
+def get_mac_address(host: str) -> str | None:
+    """Return the MAC address for ``host`` if available."""
+    system = platform.system().lower()
+    if system == "windows":
+        cmd = ["arp", "-a", host]
+    else:
+        cmd = ["arp", "-n", host]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+    except Exception:
+        return None
+    for line in result.stdout.splitlines():
+        if host in line:
+            parts = line.split()
+            for part in parts:
+                if ":" in part and len(part) >= 17:
+                    return part
+    return None
+
+
+def get_mac_vendor(mac: str | None) -> str | None:
+    """Return a vendor name for ``mac`` using a simple prefix lookup."""
+
+    if not mac:
+        return None
+    mac = mac.lower().replace("-", ":")
+    parts = mac.split(":")
+    if len(parts) < 3:
+        return None
+    prefix = ":".join(parts[:3])
+    return _MAC_VENDORS.get(prefix)
+
+
+_LOCAL_ADDRS = {
+    addr.address
+    for addrs in psutil.net_if_addrs().values()
+    for addr in addrs
+    if addr.family in (socket.AF_INET, socket.AF_INET6)
+}
+
+# Minimal MAC prefix -> vendor mapping used for vendor lookups. This is not
+# exhaustive but provides common examples without requiring an external file.
+_MAC_VENDORS = {
+    "00:1a:2b": "Cisco",
+    "00:0c:29": "VMware",
+    "00:1c:42": "Parallels",
+    "b8:27:eb": "Raspberry Pi Foundation",
+    "3c:5a:b4": "Google",
+}
+
+
+def _is_local_host(host: str) -> bool:
+    """Return ``True`` if ``host`` refers to this machine."""
+    try:
+        ip = socket.gethostbyname(host)
+    except Exception:
+        ip = host
+    return ip in _LOCAL_ADDRS or ip.startswith("127.") or ip == "::1"
+
+
+def _get_connection_counts(ports: Iterable[int]) -> Dict[int, int]:
+    """Return active connection counts for ``ports`` on the local machine."""
+    counts = {p: 0 for p in ports}
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.laddr and conn.laddr.port in counts:
+                counts[conn.laddr.port] += 1
+    except Exception:
+        pass
+    return counts
+
+
+def _guess_os_from_ttl(ttl: int | None) -> str | None:
+    """Return a rough OS guess based on ``ttl`` from ping."""
+
+    if ttl is None:
+        return None
+    if ttl >= 255:
+        return "Cisco/Network"
+    if ttl >= 128:
+        return "Windows"
+    if ttl >= 64:
+        return "Linux"
+    return "Unknown"
+
+
+def _guess_device_type(info: AutoScanInfo) -> str | None:
+    """Return a best-effort device type guess for ``info``."""
+
+    ports = (
+        info.ports.keys()
+        if isinstance(info.ports, dict)
+        else info.ports
+    )
+    vendor = (info.vendor or "").lower()
+    server_str = " ".join(
+        (http.server or "").lower()
+        for http in (info.http_info or {}).values()
+        if http is not None
+    )
+
+    if 9100 in ports or 515 in ports:
+        return "Printer"
+    if any(v in vendor for v in ("cisco", "netgear", "tp-link", "d-link")):
+        return "Router"
+    if "vmware" in vendor:
+        return "Virtual Machine"
+    if "raspberry" in vendor or "raspberry" in server_str:
+        return "IoT"
+    if 22 in ports and not (80 in ports or 443 in ports):
+        return "Headless"
+    return None
+
+
+def _estimate_risk(info: AutoScanInfo) -> int:
+    """Return a simple risk score for ``info`` between 0 and 100."""
+
+    ports = (
+        info.ports.keys() if isinstance(info.ports, dict) else info.ports
+    )
+    score = 0
+    # basic weights for common ports
+    weights = {
+        23: 30,  # telnet
+        21: 25,  # ftp
+        445: 20,  # smb
+        139: 15,  # netbios
+        80: 10,
+        443: 5,
+        22: 5,
+    }
+    for p in ports:
+        score += weights.get(p, 1)
+
+    if info.os_guess == "Windows":
+        score += 5
+    device = info.device_type or _guess_device_type(info)
+    if device == "Router":
+        score += 10
+    if len(list(ports)) > 5:
+        score += 5
+
+    return min(score, 100)
+
+
+async def async_get_http_info(host: str, port: int, timeout: float = 2.0) -> HTTPInfo | None:
+    """Return simple HTTP information for ``host`` on ``port``.
+
+    A ``GET /`` request is made and the ``Server`` header and HTML ``<title>``
+    value are extracted when available. HTTPS is used automatically for port
+    443.
+    """
+
+    try:
+        addr, family = _resolve_host(host)
+        ssl_ctx = ssl.create_default_context() if port == 443 else None
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(addr, port, family=family, ssl=ssl_ctx),
+            timeout,
+        )
+        request = f"GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+        writer.write(request.encode())
+        await writer.drain()
+        data = await asyncio.wait_for(reader.read(4096), timeout)
+        writer.close()
+        await writer.wait_closed()
+    except Exception:
+        return None
+
+    # split headers and body
+    try:
+        header_part, body = data.split(b"\r\n\r\n", 1)
+    except ValueError:
+        header_part, body = data, b""
+    headers = header_part.decode(errors="ignore").splitlines()
+    server = None
+    for line in headers:
+        if line.lower().startswith("server:"):
+            server = line.split(":", 1)[1].strip()
+            break
+    title = None
+    if b"<title" in body.lower():
+        try:
+            start = body.lower().index(b"<title")
+            end = body.lower().index(b"</title", start)
+            title_tag = body[start:end]
+            title_start = title_tag.index(b">") + 1
+            title = title_tag[title_start:].decode(errors="ignore").strip()
+        except Exception:
+            title = None
+    return HTTPInfo(server, title)
 
 
 def _get_port_number(value: str) -> int:
@@ -324,8 +557,14 @@ def _ping_host(host: str, timeout: float = 1.0) -> bool:
     )
 
 
-async def _async_ping_host(host: str, timeout: float = 1.0) -> bool:
-    """Asynchronously ping ``host`` and return ``True`` if reachable."""
+async def _async_ping_host(
+    host: str,
+    timeout: float = 1.0,
+    *,
+    return_ttl: bool = False,
+    return_latency: bool = False,
+) -> bool | tuple[bool, int | None] | tuple[bool, int | None, float]:
+    """Asynchronously ping ``host`` and optionally return the TTL and latency."""
 
     system = platform.system().lower()
     if system == "windows":
@@ -333,14 +572,39 @@ async def _async_ping_host(host: str, timeout: float = 1.0) -> bool:
     else:
         cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
     try:
+        start_ts = time.perf_counter() if return_latency else 0.0
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE if return_ttl else asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        await asyncio.wait_for(proc.wait(), timeout + 1)
-        return proc.returncode == 0
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout + 1)
+        ok = proc.returncode == 0
+        latency_val = time.perf_counter() - start_ts if return_latency else None
+        ttl_val = None
+        if return_ttl and out:
+            text = out.decode(errors="ignore").lower()
+            for part in text.split():
+                if part.startswith("ttl="):
+                    try:
+                        ttl_val = int(part.split("=")[1])
+                    except ValueError:
+                        ttl_val = None
+                    break
+        if return_ttl and return_latency:
+            return ok, ttl_val, latency_val
+        if return_ttl:
+            return ok, ttl_val
+        if return_latency:
+            return ok, latency_val
+        return ok
     except Exception:
+        if return_ttl and return_latency:
+            return False, None, None
+        if return_ttl:
+            return False, None
+        if return_latency:
+            return False, None
         return False
 
 
@@ -350,21 +614,61 @@ async def async_filter_active_hosts(
     *,
     concurrency: int = 100,
     timeout: float = 1.0,
-) -> list[str]:
-    """Return a subset of ``hosts`` that respond to ping."""
+    return_ttl: bool = False,
+    return_latency: bool = False,
+    cancel_event: Any | None = None,
+) -> list[str] | Dict[str, object]:
+    """Return active hosts with optional TTL/latency details."""
 
     host_list = list(hosts)
-    active: list[str] = []
+    active_list: list[str] = []
+    active_map: Dict[str, object] = {}
     total = len(host_list)
     completed = 0
+
+    if _cancelled(cancel_event):
+        if progress is not None:
+            progress(None)
+        return active_map if return_ttl else active_list
 
     sem = asyncio.Semaphore(max(1, min(concurrency, total)))
 
     async def run(host: str) -> None:
         nonlocal completed
+        if _cancelled(cancel_event):
+            return
         async with sem:
-            if await _async_ping_host(host, timeout):
-                active.append(host)
+            if _cancelled(cancel_event):
+                return
+            res = await _async_ping_host(
+                host,
+                timeout,
+                return_ttl=return_ttl,
+                return_latency=return_latency,
+            )
+            if _cancelled(cancel_event):
+                return
+            if return_ttl or return_latency:
+                ok = res[0]  # type: ignore[index]
+                ttl_val = None
+                lat_val = None
+                if return_ttl and return_latency:
+                    ttl_val = res[1]  # type: ignore[index]
+                    lat_val = res[2]  # type: ignore[index]
+                elif return_ttl:
+                    ttl_val = res[1]  # type: ignore[index]
+                elif return_latency:
+                    lat_val = res[1]  # type: ignore[index]
+                if ok:
+                    if return_ttl and return_latency:
+                        active_map[host] = (ttl_val, lat_val)
+                    elif return_ttl:
+                        active_map[host] = ttl_val
+                    else:
+                        active_map[host] = lat_val
+            else:
+                if res:  # type: ignore[truthy-bool]
+                    active_list.append(host)
         completed += 1
         if progress is not None:
             progress(completed / total)
@@ -372,10 +676,15 @@ async def async_filter_active_hosts(
     tasks = [asyncio.create_task(run(h)) for h in host_list]
     await asyncio.gather(*tasks)
 
+    if _cancelled(cancel_event):
+        if progress is not None:
+            progress(None)
+        return active_map if return_ttl else active_list
+
     if progress is not None:
         progress(None)
 
-    return active
+    return active_map if (return_ttl or return_latency) else active_list
 
 
 async def async_auto_scan(
@@ -393,6 +702,17 @@ async def async_auto_scan(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
+    with_mac: bool = False,
+    with_hostname: bool = False,
+    with_connections: bool = False,
+    with_os: bool = False,
+    with_ttl: bool = False,
+    with_ping_latency: bool = False,
+    with_vendor: bool = False,
+    with_http_info: bool = False,
+    with_device_type: bool = False,
+    with_risk_score: bool = False,
+    cancel_event: Any | None = None,
 ) -> Dict[str, List[int]] | Dict[str, Dict[int, str]] | Dict[str, Dict[int, PortInfo]]:
     """Automatically scan detected hosts on local networks.
 
@@ -401,11 +721,26 @@ async def async_auto_scan(
     When ``with_banner`` is true, a short banner string is captured from each
     service and both the banner and service name are returned.
     ``ping_concurrency`` and ``ping_timeout`` override the values used when
-    pinging hosts during discovery.
+    pinging hosts during discovery. ``with_os`` adds a best-effort OS guess
+    derived from ping TTL values. ``with_ttl`` records the raw TTL for each host
+    and ``with_ping_latency`` records the round-trip time when ``True``.
+    ``with_vendor`` attempts to identify the
+    network adapter vendor using a small built-in prefix table when MAC
+    addresses are collected. ``with_http_info`` performs a simple HTTP request
+    for open web ports (80/443) and captures server and title information.
+    ``with_device_type`` adds a simple heuristic classification such as
+    "Router" or "Printer" based on vendor and open ports. ``with_risk_score``
+    calculates a basic risk value for each host using open ports and other
+    gathered metadata.
     """
 
     hosts = detect_local_hosts()
     if not hosts:
+        if progress is not None:
+            progress(None)
+        return {}
+
+    if _cancelled(cancel_event):
         if progress is not None:
             progress(None)
         return {}
@@ -419,12 +754,32 @@ async def async_auto_scan(
     else:
         det_prog = None
 
-    hosts = await async_filter_active_hosts(
+    filter_result = await async_filter_active_hosts(
         hosts,
         det_prog,
         concurrency=ping_concurrency or concurrency,
         timeout=ping_timeout or timeout,
+        return_ttl=with_os or with_ping_latency or with_ttl,
+        return_latency=with_ping_latency,
+        cancel_event=cancel_event,
     )
+    host_ttls: Dict[str, int | None] | None = None
+    host_lat: Dict[str, float | None] | None = None
+    if with_os or with_ping_latency or with_ttl:
+        if with_ping_latency and (with_os or with_ttl):
+            host_ttls = {h: t for h, (t, _) in filter_result.items()}  # type: ignore[assignment]
+            host_lat = {h: l for h, (_, l) in filter_result.items()}  # type: ignore[assignment]
+        elif with_os or with_ttl:
+            host_ttls = filter_result  # type: ignore[assignment]
+        else:
+            host_lat = filter_result  # type: ignore[assignment]
+        hosts = list(filter_result.keys())  # type: ignore[assignment]
+    else:
+        hosts = filter_result  # type: ignore[assignment]
+    if _cancelled(cancel_event):
+        if progress is not None:
+            progress(None)
+        return {}
     if not hosts:
         if progress is not None:
             progress(None)
@@ -440,7 +795,7 @@ async def async_auto_scan(
         scan_prog = None
 
     if ports is not None:
-        return await async_scan_targets_list(
+        results = await async_scan_targets_list(
             hosts,
             ports,
             scan_prog,
@@ -452,19 +807,106 @@ async def async_auto_scan(
             with_banner=with_banner,
             with_latency=with_latency,
         )
-    return await async_scan_targets(
-        hosts,
-        start,
-        end,
-        scan_prog,
-        concurrency=concurrency,
-        cache_ttl=cache_ttl,
-        family=family,
-        timeout=timeout,
-        with_services=with_services,
-        with_banner=with_banner,
-        with_latency=with_latency,
-    )
+    else:
+        results = await async_scan_targets(
+            hosts,
+            start,
+            end,
+            scan_prog,
+            concurrency=concurrency,
+            cache_ttl=cache_ttl,
+            family=family,
+            timeout=timeout,
+            with_services=with_services,
+            with_banner=with_banner,
+            with_latency=with_latency,
+        )
+
+    if _cancelled(cancel_event):
+        if progress is not None:
+            progress(None)
+        return {}
+
+    if not (
+        with_mac
+        or with_hostname
+        or with_connections
+        or with_os
+        or with_ping_latency
+        or with_ttl
+        or with_vendor
+        or with_http_info
+        or with_device_type
+        or with_risk_score
+    ):
+        return results
+
+    detailed: Dict[str, AutoScanInfo] = {}
+    for host, ports_open in results.items():
+        if _cancelled(cancel_event):
+            break
+        info = AutoScanInfo(ports_open)
+        if with_hostname:
+            try:
+                info.hostname = socket.gethostbyaddr(host)[0]
+            except Exception:
+                info.hostname = None
+        if with_mac or with_vendor:
+            mac_val = get_mac_address(host)
+            if with_mac:
+                info.mac = mac_val
+            if with_vendor:
+                info.vendor = get_mac_vendor(mac_val)
+        if with_connections and _is_local_host(host):
+            port_list = ports_open.keys() if isinstance(ports_open, dict) else ports_open
+            info.connections = _get_connection_counts(port_list)
+        ttl_val = host_ttls.get(host) if host_ttls else None
+        if with_os:
+            info.os_guess = _guess_os_from_ttl(ttl_val)
+        if with_ttl:
+            info.ttl = ttl_val
+        if with_ping_latency:
+            info.ping_latency = host_lat.get(host) if host_lat else None
+        detailed[host] = info
+
+    if with_http_info:
+        if _cancelled(cancel_event):
+            return detailed
+        tasks: list[tuple[str, int, asyncio.Task[HTTPInfo | None]]] = []
+        for host, info in detailed.items():
+            ports_iter = (
+                info.ports.keys()
+                if isinstance(info.ports, dict)
+                else info.ports
+            )
+            for port in ports_iter:
+                if _cancelled(cancel_event):
+                    break
+                task = asyncio.create_task(async_get_http_info(host, port))
+                tasks.append((host, port, task))
+
+        for host, port, task in tasks:
+            if _cancelled(cancel_event):
+                break
+            res = await task
+            if res is None:
+                continue
+            info = detailed[host]
+            if info.http_info is None:
+                info.http_info = {}
+            info.http_info[port] = res
+
+    if with_device_type:
+        for host, info in detailed.items():
+            if _cancelled(cancel_event):
+                break
+            info.device_type = _guess_device_type(info)
+
+    if with_risk_score:
+        for info in detailed.values():
+            info.risk_score = _estimate_risk(info)
+
+    return detailed
 
 
 def scan_ports(
