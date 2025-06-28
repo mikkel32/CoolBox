@@ -431,11 +431,10 @@ class ToolsView(ctk.CTkFrame):
         ctk.CTkButton(btn_frame, text="List Dir", command=do_list).pack(side="left", padx=5)
 
     def _system_info(self):
-        """Show system information with CPU and memory details."""
-        from src.utils import get_system_info
+        """Open the enhanced System Info dialog."""
+        from .system_info_dialog import SystemInfoDialog
 
-        info = "System Information:\n" + get_system_info()
-        messagebox.showinfo("System Info", info)
+        SystemInfoDialog(self.app)
 
     def _process_manager(self):
         """Display a simple cross-platform process manager."""

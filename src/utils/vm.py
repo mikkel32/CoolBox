@@ -49,9 +49,12 @@ def launch_vm_debug(
 
     root = Path(__file__).resolve().parents[2]
 
-    if open_code and shutil.which("code"):
-        # Launch VS Code in the background so it's ready when the VM starts
-        subprocess.Popen(["code", str(root)])
+    if open_code:
+        if shutil.which("code"):
+            # Launch VS Code in the background so it's ready when the VM starts
+            subprocess.Popen(["code", str(root)])
+        else:
+            print("warning: 'code' command not found; cannot open Visual Studio Code")
 
     backend = prefer or os.environ.get("PREFER_VM", "auto").lower()
     for name in _pick_backend(backend):

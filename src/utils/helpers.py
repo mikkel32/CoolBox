@@ -137,14 +137,67 @@ def calc_hashes(
 
 
 def get_system_info() -> str:
-    """Return a formatted multi-line string with system information."""
-    mem = psutil.virtual_memory().total / (1024 * 1024 * 1024)
-    info = (
-        f"Platform: {platform.system()} {platform.release()}\n"
-        f"Processor: {platform.processor()}\n"
-        f"Architecture: {platform.architecture()[0]}\n"
-        f"CPU Cores: {psutil.cpu_count(logical=True)}\n"
-        f"Memory: {mem:.1f} GB\n"
-        f"Python: {platform.python_version()}"
-    )
-    return info
+    """Return a formatted multi-line string with detailed system information."""
+    vm = psutil.virtual_memory()
+    total_mem = vm.total / (1024**3)
+    info_lines = [
+        f"Platform: {platform.system()} {platform.release()}",
+        f"Processor: {platform.processor()}",
+        f"Architecture: {platform.architecture()[0]}",
+        f"Physical Cores: {psutil.cpu_count(logical=False)}",
+        f"Logical Cores: {psutil.cpu_count(logical=True)}",
+        f"Total Memory: {total_mem:.1f} GB",
+        f"Python: {platform.python_version()}",
+    ]
+    return "\n".join(info_lines)
+
+
+def get_system_metrics() -> dict[str, Any]:
+    """Return live system metrics for UI dashboards."""
+    cpu = psutil.cpu_percent(interval=0.1)
+    cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
+    net = psutil.net_io_counters()
+    disk_io = psutil.disk_io_counters()
+    freq = psutil.cpu_freq()
+    per_core_freq = []
+    try:
+        per_core_freq = [f.current for f in psutil.cpu_freq(percpu=True)]
+    except Exception:
+        pass
+    temp: float | None = None
+    try:
+        temps = psutil.sensors_temperatures()
+        if temps:
+            for entries in temps.values():
+                if entries:
+                    temp = float(entries[0].current)
+                    break
+    except Exception:
+        temp = None
+    battery = None
+    try:
+        bat = psutil.sensors_battery()
+        if bat is not None:
+            battery = bat.percent
+    except Exception:
+        battery = None
+    return {
+        "cpu": cpu,
+        "cpu_per_core": cpu_per_core,
+        "memory": mem.percent,
+        "memory_used": mem.used / (1024**3),
+        "memory_total": mem.total / (1024**3),
+        "disk": disk.percent,
+        "disk_used": disk.used / (1024**3),
+        "disk_total": disk.total / (1024**3),
+        "sent": net.bytes_sent,
+        "recv": net.bytes_recv,
+        "read_bytes": disk_io.read_bytes,
+        "write_bytes": disk_io.write_bytes,
+        "cpu_freq": freq.current if freq else None,
+        "cpu_freq_per_core": per_core_freq,
+        "cpu_temp": temp,
+        "battery": battery,
+    }

@@ -1,6 +1,12 @@
 import sys
 import subprocess
-from src.utils import open_path, calc_hash, calc_hashes, get_system_info
+from src.utils import (
+    open_path,
+    calc_hash,
+    calc_hashes,
+    get_system_info,
+    get_system_metrics,
+)
 from src.utils.cache import CacheManager
 
 
@@ -23,6 +29,7 @@ def test_open_path(monkeypatch):
         class P:
             def __init__(self):
                 pass
+
         return P()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
@@ -42,6 +49,19 @@ def test_get_system_info():
     info = get_system_info()
     assert "Platform:" in info
     assert "Python:" in info
+
+
+def test_get_system_metrics():
+    metrics = get_system_metrics()
+    assert "cpu" in metrics
+    assert "memory" in metrics
+    assert "disk" in metrics
+    assert "cpu_per_core" in metrics
+    assert "cpu_freq" in metrics
+    assert "cpu_temp" in metrics
+    assert "battery" in metrics
+    assert "read_bytes" in metrics
+    assert "write_bytes" in metrics
 
 
 def test_calc_hash_cached_and_bulk(tmp_path):

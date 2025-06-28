@@ -7,6 +7,7 @@ from .helpers import (
     calc_hash_cached,
     calc_hashes,
     get_system_info,
+    get_system_metrics,
 )
 from .vm import launch_vm_debug
 from .file_manager import (
@@ -65,6 +66,7 @@ __all__ = [
     "calc_hash_cached",
     "calc_hashes",
     "get_system_info",
+    "get_system_metrics",
     "launch_vm_debug",
     "scan_ports",
     "async_scan_ports",
