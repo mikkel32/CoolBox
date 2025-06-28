@@ -10,17 +10,20 @@ class MenuBar:
 
     def __init__(self, window: ctk.CTk, app):
         self.app = app
-        self.menu = tk.Menu(window)
+        size = int(app.config.get("font_size", 14))
+        self.font = ctk.CTkFont(size=size)
+        self.menu = tk.Menu(window, font=self.font)
         self._build_menus()
         window.config(menu=self.menu)
 
     # ------------------------------------------------------------------
     def _build_menus(self) -> None:
-        file_menu = tk.Menu(self.menu, tearoff=0)
+        self.menus: list[tk.Menu] = []
+        file_menu = tk.Menu(self.menu, tearoff=0, font=self.font)
         file_menu.add_command(label="Open", command=self._open)
         file_menu.add_command(label="Save", command=self._save)
 
-        self.recent_menu = tk.Menu(file_menu, tearoff=0)
+        self.recent_menu = tk.Menu(file_menu, tearoff=0, font=self.font)
         file_menu.add_cascade(label="Open Recent", menu=self.recent_menu)
         self.update_recent_files()
 
@@ -32,8 +35,9 @@ class MenuBar:
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.app._on_closing)
         self.menu.add_cascade(label="File", menu=file_menu)
+        self.menus.append(file_menu)
 
-        view_menu = tk.Menu(self.menu, tearoff=0)
+        view_menu = tk.Menu(self.menu, tearoff=0, font=self.font)
         self.toolbar_var = tk.BooleanVar(
             value=self.app.config.get("show_toolbar", True)
         )
@@ -54,10 +58,12 @@ class MenuBar:
             label="Full Screen", variable=self.fullscreen_var, command=self._toggle_fullscreen
         )
         self.menu.add_cascade(label="View", menu=view_menu)
+        self.menus.append(view_menu)
 
-        help_menu = tk.Menu(self.menu, tearoff=0)
+        help_menu = tk.Menu(self.menu, tearoff=0, font=self.font)
         help_menu.add_command(label="About", command=lambda: self.app.switch_view("about"))
         self.menu.add_cascade(label="Help", menu=help_menu)
+        self.menus.append(help_menu)
 
     # ------------------------------------------------------------------
     def _open_quick_settings(self) -> None:
@@ -117,3 +123,19 @@ class MenuBar:
     def _toggle_fullscreen(self) -> None:
         self.app.toggle_fullscreen()
         self.fullscreen_var.set(self.app.window.attributes("-fullscreen"))
+
+    def refresh_fonts(self) -> None:
+        """Update menu fonts from the current configuration."""
+        size = int(self.app.config.get("font_size", 14))
+        self.font.configure(size=size)
+        self.menu.configure(font=self.font)
+        for menu in self.menus:
+            menu.configure(font=self.font)
+        self.update_recent_files()
+
+    def refresh_theme(self) -> None:
+        """Refresh menu highlight colors from the current theme."""
+        accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
+        self.menu.configure(activebackground=accent, activeforeground="white")
+        for menu in self.menus:
+            menu.configure(activebackground=accent, activeforeground="white")

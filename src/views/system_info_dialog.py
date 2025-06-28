@@ -8,42 +8,47 @@ from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 
 from ..utils import get_system_info, get_system_metrics
 from ..components import LineChart, Gauge, BarChart
+from .base_dialog import BaseDialog
 
 
-class SystemInfoDialog(ctk.CTkToplevel):
+class SystemInfoDialog(BaseDialog):
     """Modern dashboard window showing system metrics."""
 
     def __init__(self, app):
-        super().__init__(app.window)
-        self.app = app
-        self.title("System Info")
+        super().__init__(app, title="System Info", geometry="900x600", resizable=(True, True))
         # Provide a wider default size so all gauges and charts fit without
         # clipping. The previous width of 600px was not sufficient for the
         # six gauges displayed side by side. Increasing the width ensures the
         # interface is fully visible on start-up.
-        self.geometry("900x600")
-        self.resizable(True, True)
 
         self._after_id: int | None = None
         self.interval_var = tk.IntVar(value=1)
         self.paused = False
         self._create_layout()
         self._update_metrics()
+        self.center_window()
+
+        # Apply current styling
+        self.refresh_fonts()
+        self.refresh_theme()
 
     # ------------------------------------------------------------------ UI setup
     def _create_layout(self) -> None:
         toolbar = ctk.CTkFrame(self, fg_color="transparent")
         toolbar.pack(fill="x", padx=20, pady=(10, 0))
-        ctk.CTkButton(toolbar, text="Copy", width=100, command=self._copy_info).pack(
-            side="left", padx=5
-        )
-        ctk.CTkButton(
+        copy_btn = ctk.CTkButton(toolbar, text="Copy", width=100, command=self._copy_info)
+        copy_btn.pack(side="left", padx=5)
+        self.add_tooltip(copy_btn, "Copy system info to clipboard")
+        export_btn = ctk.CTkButton(
             toolbar, text="Export", width=100, command=self._export_json
-        ).pack(side="left", padx=5)
+        )
+        export_btn.pack(side="left", padx=5)
+        self.add_tooltip(export_btn, "Export metrics to JSON")
         self.pause_btn = ctk.CTkButton(
             toolbar, text="Pause", width=80, command=self._toggle_pause
         )
         self.pause_btn.pack(side="right")
+        self.add_tooltip(self.pause_btn, "Pause or resume updates")
         ctk.CTkOptionMenu(
             toolbar,
             variable=self.interval_var,
@@ -51,9 +56,9 @@ class SystemInfoDialog(ctk.CTkToplevel):
             command=lambda _: self._restart_loop(),
             width=80,
         ).pack(side="right", padx=5)
-        ctk.CTkButton(toolbar, text="Close", width=80, command=self.destroy).pack(
-            side="right", padx=5
-        )
+        close_btn = ctk.CTkButton(toolbar, text="Close", width=80, command=self.destroy)
+        close_btn.pack(side="right", padx=5)
+        self.add_tooltip(close_btn, "Close this window")
 
         tabview = ctk.CTkTabview(self)
         tabview.pack(fill="both", expand=True, padx=20, pady=20)
@@ -89,11 +94,11 @@ class SystemInfoDialog(ctk.CTkToplevel):
         perf_top = ctk.CTkFrame(self.perf_tab, fg_color="transparent")
         perf_top.pack(fill="x")
         self.net_label = ctk.CTkLabel(
-            perf_top, text="Network: 0 MB/s \u2191 / 0 MB/s \u2193"
+            perf_top, text="Network: 0 MB/s \u2191 / 0 MB/s \u2193", font=self.font
         )
         self.net_label.pack(anchor="w", padx=5)
         self.disk_io_label = ctk.CTkLabel(
-            perf_top, text="Disk I/O: 0 MB/s \u2193 / 0 MB/s \u2191"
+            perf_top, text="Disk I/O: 0 MB/s \u2193 / 0 MB/s \u2191", font=self.font
         )
         self.disk_io_label.pack(anchor="w", padx=5)
 
@@ -122,15 +127,15 @@ class SystemInfoDialog(ctk.CTkToplevel):
 
         other = ctk.CTkFrame(self.hw_tab, fg_color="transparent")
         other.pack(fill="x", pady=(10, 0))
-        self.freq_label = ctk.CTkLabel(other, text="CPU Freq: 0 MHz")
+        self.freq_label = ctk.CTkLabel(other, text="CPU Freq: 0 MHz", font=self.font)
         self.freq_label.pack(anchor="w")
-        self.temp_label = ctk.CTkLabel(other, text="CPU Temp: N/A")
+        self.temp_label = ctk.CTkLabel(other, text="CPU Temp: N/A", font=self.font)
         self.temp_label.pack(anchor="w")
-        self.mem_detail = ctk.CTkLabel(other, text="Memory: 0/0 GB")
+        self.mem_detail = ctk.CTkLabel(other, text="Memory: 0/0 GB", font=self.font)
         self.mem_detail.pack(anchor="w")
-        self.disk_detail = ctk.CTkLabel(other, text="Disk: 0/0 GB")
+        self.disk_detail = ctk.CTkLabel(other, text="Disk: 0/0 GB", font=self.font)
         self.disk_detail.pack(anchor="w")
-        self.battery_label = ctk.CTkLabel(other, text="Battery: N/A")
+        self.battery_label = ctk.CTkLabel(other, text="Battery: N/A", font=self.font)
         self.battery_label.pack(anchor="w")
 
     # --------------------------------------------------------------------- helpers

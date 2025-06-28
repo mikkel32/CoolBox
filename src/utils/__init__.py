@@ -3,6 +3,7 @@
 from .helpers import (
     log,
     open_path,
+    slugify,
     calc_hash,
     calc_hash_cached,
     calc_hashes,
@@ -55,6 +56,8 @@ from .network import (
     clear_host_cache,
 )
 
+from .ui import center_window
+
 from . import file_manager
 
 __all__ = [
@@ -70,6 +73,7 @@ __all__ = [
     "move_dir",
     "delete_dir",
     "open_path",
+    "slugify",
     "calc_hash",
     "calc_hash_cached",
     "calc_hashes",
@@ -108,4 +112,5 @@ __all__ = [
     "file_manager",
     "ProcessEntry",
     "ProcessWatcher",
+    "center_window",
 ]

@@ -4,42 +4,41 @@ Home view - Main dashboard
 import customtkinter as ctk
 from datetime import datetime
 from src.utils import open_path
+from .base_view import BaseView
+from ..components.widgets import info_label
 
 
-class HomeView(ctk.CTkFrame):
+class HomeView(BaseView):
     """Home/Dashboard view"""
 
     def __init__(self, parent, app):
         """Initialize home view"""
-        super().__init__(parent, corner_radius=0)
-        self.app = app
+        super().__init__(parent, app)
 
         # Create layout
         self._create_layout()
 
+        # Apply current styling
+        self.refresh_fonts()
+        self.refresh_theme()
+
     def _create_layout(self):
         """Create the home view layout"""
         # Main container with padding
-        container = ctk.CTkFrame(self)
-        container.pack(fill="both", expand=True, padx=20, pady=20)
+        container = self.create_container()
 
         # Welcome section
         welcome_frame = ctk.CTkFrame(container)
         welcome_frame.pack(fill="x", pady=(0, 20))
 
         # Welcome message
-        welcome_label = ctk.CTkLabel(
-            welcome_frame,
-            text="Welcome to CoolBox!",
-            font=ctk.CTkFont(size=28, weight="bold"),
-        )
-        welcome_label.pack(pady=20)
+        self.add_title(welcome_frame, "Welcome to CoolBox!")
 
         # Date/time
         date_label = ctk.CTkLabel(
             welcome_frame,
             text=datetime.now().strftime("%A, %B %d, %Y"),
-            font=ctk.CTkFont(size=16),
+            font=self.font,
         )
         date_label.pack()
 
@@ -52,6 +51,8 @@ class HomeView(ctk.CTkFrame):
             actions_frame.grid_columnconfigure(i, weight=1)
 
         # Quick action cards
+        self._action_buttons: list[ctk.CTkButton] = []
+
         self._create_action_card(
             actions_frame,
             "🚀 Quick Start",
@@ -89,17 +90,8 @@ class HomeView(ctk.CTkFrame):
         )
 
         # Statistics section
-        stats_frame = ctk.CTkFrame(container)
-        stats_frame.pack(fill="x", pady=(20, 0))
+        stats_frame = self.add_section(container, "📊 Statistics")
 
-        stats_label = ctk.CTkLabel(
-            stats_frame,
-            text="📊 Statistics",
-            font=ctk.CTkFont(size=18, weight="bold"),
-        )
-        stats_label.pack(anchor="w", padx=20, pady=10)
-
-        # Stats grid
         stats_grid = ctk.CTkFrame(stats_frame)
         stats_grid.pack(fill="x", padx=20, pady=10)
 
@@ -117,17 +109,12 @@ class HomeView(ctk.CTkFrame):
         title_label = ctk.CTkLabel(
             card,
             text=title,
-            font=ctk.CTkFont(size=18, weight="bold"),
+            font=self.section_font,
         )
         title_label.pack(pady=(20, 10))
 
         # Description
-        desc_label = ctk.CTkLabel(
-            card,
-            text=description,
-            font=ctk.CTkFont(size=12),
-            text_color="gray",
-        )
+        desc_label = info_label(card, description, font=self.font)
         desc_label.pack(pady=(0, 20))
 
         # Button
@@ -136,8 +123,12 @@ class HomeView(ctk.CTkFrame):
             text="Open",
             command=command,
             width=100,
+            fg_color=self.accent,
+            hover_color=self.accent,
         )
         button.pack()
+        self.add_tooltip(button, f"Launch {title}")
+        self._action_buttons.append(button)
 
     def _create_stat_item(self, parent, label: str, value: str, column: int):
         """Create a statistics item"""
@@ -145,22 +136,11 @@ class HomeView(ctk.CTkFrame):
         frame.grid(row=0, column=column, padx=10, sticky="ew")
         parent.grid_columnconfigure(column, weight=1)
 
-        # Value
-        value_label = ctk.CTkLabel(
-            frame,
-            text=value,
-            font=ctk.CTkFont(size=24, weight="bold"),
-        )
-        value_label.pack(pady=(10, 5))
+        value_lbl = self.grid_label(frame, value, 0, columnspan=1)
+        value_lbl.configure(font=self.section_font)
 
-        # Label
-        label_label = ctk.CTkLabel(
-            frame,
-            text=label,
-            font=ctk.CTkFont(size=12),
-            text_color="gray",
-        )
-        label_label.pack(pady=(0, 10))
+        label_lbl = info_label(frame, label, font=self.font)
+        label_lbl.grid(row=1, column=0, columnspan=1, sticky="w")
 
     def _quick_start(self):
         """Handle quick start action"""
@@ -198,17 +178,11 @@ class HomeView(ctk.CTkFrame):
                 f"Found {len(recent_files)} recent files", "info"
             )
 
-        window = ctk.CTkToplevel(self)
-        window.title("Recent Files")
+        from .recent_files_dialog import RecentFilesDialog
 
-        def open_file(path: str) -> None:
-            """Open *path* using the default application."""
-            open_path(path)
+        RecentFilesDialog(self.app, recent_files)
 
-        for path in recent_files:
-            ctk.CTkButton(
-                window,
-                text=path,
-                anchor="w",
-                command=lambda p=path: open_file(p),
-            ).pack(fill="x", padx=10, pady=5)
+    def refresh_theme(self) -> None:  # type: ignore[override]
+        super().refresh_theme()
+        for btn in self._action_buttons:
+            btn.configure(fg_color=self.accent, hover_color=self.accent)

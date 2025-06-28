@@ -13,31 +13,26 @@ from ..utils import (
 )
 
 
-class AutoNetworkScanDialog(ctk.CTkToplevel):
+from .base_dialog import BaseDialog
+
+
+class AutoNetworkScanDialog(BaseDialog):
     """Dialog for automatically scanning local networks with a polished layout."""
 
     def __init__(self, app):
-        super().__init__(app.window)
-        self.app = app
-        self.title("Auto Network Scan")
-        self.resizable(False, False)
-        # Increase default size for better readability and configure
-        # grid weights so widgets expand properly within the window
-        self.geometry("800x600")
+        super().__init__(app, title="Auto Network Scan", geometry="800x600")
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
         self.last_results: dict[str, AutoScanInfo | list | dict] | None = None
 
-        ctk.CTkLabel(
-            self,
-            text="Auto Network Scan",
-            font=ctk.CTkFont(size=20, weight="bold"),
-        ).grid(row=0, column=0, columnspan=2, pady=(10, 5))
+        self.add_title(self, "Auto Network Scan", use_pack=False).grid(
+            row=0, column=0, columnspan=2, pady=(10, 5)
+        )
 
         container = ctk.CTkFrame(self, fg_color="transparent")
-        container.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=20, pady=10)
+        container.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=self.padx, pady=10)
         container.grid_columnconfigure(1, weight=1)
         container.grid_rowconfigure(0, weight=1)
 
@@ -46,145 +41,93 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         form = tabview.add("Scan")
         disp = tabview.add("Display")
 
-        ctk.CTkLabel(
-            form,
-            text="Ports (22, 20-25, ssh,http, 20-30:2, top100):",
-        ).grid(row=0, column=0, sticky="w")
         self.port_var = ctk.StringVar(value="1-1024")
-        ctk.CTkEntry(form, textvariable=self.port_var, width=150).grid(
-            row=0, column=1, padx=10, pady=5, sticky="ew"
-        )
-
-        ctk.CTkLabel(form, text="Concurrency:").grid(row=1, column=0, sticky="w")
-        self.conc_var = ctk.StringVar(value=str(app.config.get("scan_concurrency", 100)))
-        ctk.CTkEntry(form, textvariable=self.conc_var, width=150).grid(
-            row=1, column=1, padx=10, pady=5, sticky="ew"
-        )
-
-        ctk.CTkLabel(form, text="Cache TTL:").grid(row=2, column=0, sticky="w")
-        self.ttl_var = ctk.StringVar(value=str(app.config.get("scan_cache_ttl", 300)))
-        ctk.CTkEntry(form, textvariable=self.ttl_var, width=150).grid(
-            row=2, column=1, padx=10, pady=5, sticky="ew"
-        )
-
-        ctk.CTkLabel(form, text="Timeout:").grid(row=3, column=0, sticky="w")
-        self.timeout_var = ctk.StringVar(value=str(app.config.get("scan_timeout", 0.5)))
-        ctk.CTkEntry(form, textvariable=self.timeout_var, width=150).grid(
-            row=3, column=1, padx=10, pady=5, sticky="ew"
-        )
-
-        ctk.CTkLabel(form, text="Family:").grid(row=4, column=0, sticky="w")
-        self.family_var = ctk.StringVar(value=app.config.get("scan_family", "auto").title())
-        ctk.CTkOptionMenu(
+        port_entry = self.grid_entry(
             form,
-            values=["Auto", "IPv4", "IPv6"],
-            variable=self.family_var,
+            "Ports (22, 20-25, ssh,http, 20-30:2, top100):",
+            self.port_var,
+            0,
             width=150,
-        ).grid(row=4, column=1, padx=10, pady=5, sticky="ew")
+        )
+        self.add_tooltip(port_entry, "Port ranges or names")
+
+        self.conc_var = ctk.StringVar(value=str(app.config.get("scan_concurrency", 100)))
+        conc_entry = self.grid_entry(form, "Concurrency:", self.conc_var, 1, width=150)
+        self.add_tooltip(conc_entry, "Number of workers")
+
+        self.ttl_var = ctk.StringVar(value=str(app.config.get("scan_cache_ttl", 300)))
+        ttl_entry = self.grid_entry(form, "Cache TTL:", self.ttl_var, 2, width=150)
+        self.add_tooltip(ttl_entry, "Seconds to keep host cache")
+
+        self.timeout_var = ctk.StringVar(value=str(app.config.get("scan_timeout", 0.5)))
+        timeout_entry = self.grid_entry(form, "Timeout:", self.timeout_var, 3, width=150)
+        self.add_tooltip(timeout_entry, "Connection timeout")
+
+        self.family_var = ctk.StringVar(value=app.config.get("scan_family", "auto").title())
+        family_menu = self.grid_optionmenu(
+            form,
+            "Family:",
+            self.family_var,
+            ["Auto", "IPv4", "IPv6"],
+            4,
+            width=150,
+        )
+        self.add_tooltip(family_menu, "Address family to scan")
 
         form.grid_columnconfigure(1, weight=1)
 
-        self.start_btn = ctk.CTkButton(form, text="Start Scan", command=self._start_scan)
-        self.start_btn.grid(row=5, column=0, columnspan=2, pady=(15, 0))
+        self.start_btn = self.grid_button(form, "Start Scan", self._start_scan, 5)
+        self.add_tooltip(self.start_btn, "Begin scanning the selected network")
+        self.grid_separator(form, 6)
 
         self.services_var = ctk.BooleanVar(value=app.config.get("scan_services", False))
-        ctk.CTkSwitch(
-            disp,
-            text="Show service names",
-            variable=self.services_var,
-        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(5, 0))
-
         self.banner_var = ctk.BooleanVar(value=app.config.get("scan_banner", False))
-        ctk.CTkSwitch(
-            disp,
-            text="Capture banners",
-            variable=self.banner_var,
-        ).grid(row=1, column=0, columnspan=2, sticky="w")
-
         self.latency_var = ctk.BooleanVar(value=app.config.get("scan_latency", False))
-        ctk.CTkSwitch(
-            disp,
-            text="Measure latency",
-            variable=self.latency_var,
-        ).grid(row=2, column=0, columnspan=2, sticky="w")
+        self.hostname_var = ctk.BooleanVar()
+        self.mac_var = ctk.BooleanVar()
+        self.conn_var = ctk.BooleanVar()
+        self.os_var = ctk.BooleanVar()
+        self.vendor_var = ctk.BooleanVar()
+        self.ping_var = ctk.BooleanVar()
+        self.ttl_var_disp = ctk.BooleanVar()
+        self.http_var = ctk.BooleanVar()
+        self.device_var = ctk.BooleanVar()
+        self.risk_var = ctk.BooleanVar()
+
+        switches = [
+            ("Show service names", self.services_var),
+            ("Capture banners", self.banner_var),
+            ("Measure latency", self.latency_var),
+        ]
+        for idx, (text, var) in enumerate(switches):
+            self.grid_switch(disp, text, var, idx)
 
         self.preset_var = ctk.StringVar(value="Basic")
-        ctk.CTkSegmentedButton(
+        preset_seg = self.grid_segmented(
             disp,
-            values=["Basic", "Detailed", "Full"],
-            variable=self.preset_var,
+            "Preset:",
+            self.preset_var,
+            ["Basic", "Detailed", "Full"],
+            len(switches),
             command=self._set_preset,
-        ).grid(row=3, column=0, columnspan=2, pady=(10, 10), sticky="ew")
+        )
+        self.add_tooltip(preset_seg, "Select result detail preset")
 
-        self.hostname_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show hostnames",
-            variable=self.hostname_var,
-        ).grid(row=4, column=0, columnspan=2, sticky="w")
-
-        self.mac_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show MAC addresses",
-            variable=self.mac_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w")
-
-        self.conn_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show connection counts",
-            variable=self.conn_var,
-        ).grid(row=6, column=0, columnspan=2, sticky="w")
-
-        self.os_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show OS guess",
-            variable=self.os_var,
-        ).grid(row=7, column=0, columnspan=2, sticky="w")
-
-        self.vendor_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show MAC vendor",
-            variable=self.vendor_var,
-        ).grid(row=8, column=0, columnspan=2, sticky="w")
-
-        self.ping_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show ping latency",
-            variable=self.ping_var,
-        ).grid(row=9, column=0, columnspan=2, sticky="w")
-
-        self.ttl_var_disp = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show TTL",
-            variable=self.ttl_var_disp,
-        ).grid(row=10, column=0, columnspan=2, sticky="w")
-
-        self.http_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show HTTP info",
-            variable=self.http_var,
-        ).grid(row=11, column=0, columnspan=2, sticky="w")
-
-        self.device_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show device type",
-            variable=self.device_var,
-        ).grid(row=12, column=0, columnspan=2, sticky="w")
-
-        self.risk_var = ctk.BooleanVar()
-        ctk.CTkSwitch(
-            disp,
-            text="Show risk score",
-            variable=self.risk_var,
-        ).grid(row=13, column=0, columnspan=2, sticky="w")
+        extra_switches = [
+            ("Show hostnames", self.hostname_var),
+            ("Show MAC addresses", self.mac_var),
+            ("Show connection counts", self.conn_var),
+            ("Show OS guess", self.os_var),
+            ("Show MAC vendor", self.vendor_var),
+            ("Show ping latency", self.ping_var),
+            ("Show TTL", self.ttl_var_disp),
+            ("Show HTTP info", self.http_var),
+            ("Show device type", self.device_var),
+            ("Show risk score", self.risk_var),
+        ]
+        base_row = len(switches) + 1
+        for idx, (text, var) in enumerate(extra_switches):
+            self.grid_switch(disp, text, var, base_row + idx)
 
         result_panel = ctk.CTkFrame(container)
         result_panel.grid(row=0, column=1, sticky="nsew")
@@ -204,23 +147,26 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         filter_entry = ctk.CTkEntry(result_panel, textvariable=self.filter_var)
         filter_entry.grid(row=2, column=0, sticky="ew", padx=5)
         filter_entry.bind("<KeyRelease>", lambda e: self._filter_results())
+        self.add_tooltip(filter_entry, "Filter results by host or ports")
 
         btn_frame = ctk.CTkFrame(result_panel, fg_color="transparent")
         btn_frame.grid(row=3, column=0, pady=(5, 0), sticky="ew")
         btn_frame.grid_columnconfigure(0, weight=1)
         btn_frame.grid_columnconfigure(1, weight=1)
         btn_frame.grid_columnconfigure(2, weight=1)
-        self.export_btn = ctk.CTkButton(btn_frame, text="Export CSV", command=self._export_csv)
-        self.export_btn.grid(row=0, column=0, padx=(0, 10))
-        self.cancel_btn = ctk.CTkButton(btn_frame, text="Cancel", command=self._cancel_scan)
-        self.cancel_btn.grid(row=0, column=1)
+        self.export_btn = self.grid_button(btn_frame, "Export CSV", self._export_csv, 0, columnspan=1)
+        self.add_tooltip(self.export_btn, "Save results to CSV")
+        self.cancel_btn = self.grid_button(btn_frame, "Cancel", self._cancel_scan, 0, columnspan=1)
+        self.add_tooltip(self.cancel_btn, "Abort the scan")
         self.sort_var = ctk.StringVar(value="Host")
-        ctk.CTkOptionMenu(
+        sort_menu = ctk.CTkOptionMenu(
             btn_frame,
             values=["Host", "Risk", "Ports"],
             variable=self.sort_var,
             width=120,
-        ).grid(row=0, column=2, padx=(10, 0))
+        )
+        sort_menu.grid(row=0, column=2, padx=(10, 0))
+        self.add_tooltip(sort_menu, "Sort displayed results")
         self.export_btn.grid_remove()
         self.cancel_btn.grid_remove()
 
@@ -233,17 +179,21 @@ class AutoNetworkScanDialog(ctk.CTkToplevel):
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
         header.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(header, text="Host", font=ctk.CTkFont(weight="bold"), anchor="w").grid(
-            row=0, column=0, sticky="w", padx=(0, 10)
-        )
-        ctk.CTkLabel(header, text="Open Ports", font=ctk.CTkFont(weight="bold"), anchor="w").grid(
-            row=0, column=1, sticky="w"
-        )
+        host_lbl = self.grid_label(header, "Host", 0, column=0, columnspan=1)
+        host_lbl.configure(font=self.section_font)
+        ports_lbl = self.grid_label(header, "Open Ports", 0, column=1, columnspan=1)
+        ports_lbl.configure(font=self.section_font)
 
         self.rows_frame = ctk.CTkFrame(self.result_area, fg_color="transparent")
         self.rows_frame.grid(row=1, column=0, sticky="nsew")
         self.rows_frame.grid_columnconfigure(0, weight=1)
         self.rows_frame.grid_columnconfigure(1, weight=1)
+
+        self.center_window()
+
+        # Apply current styling
+        self.refresh_fonts()
+        self.refresh_theme()
 
     def _start_scan(self) -> None:
         self.start_btn.configure(state="disabled")

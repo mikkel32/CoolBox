@@ -19,15 +19,14 @@ from tkinter import ttk
 import customtkinter as ctk
 import psutil
 from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+from .base_dialog import BaseDialog
 
 
-class ForceQuitDialog(ctk.CTkToplevel):
+class ForceQuitDialog(BaseDialog):
     """Dialog showing running processes that can be terminated."""
 
     def __init__(self, app):
-        super().__init__(app.window)
-        self.app = app
-        self.title("Force Quit")
+        super().__init__(app, title="Force Quit", resizable=(True, True))
         width_env = os.getenv("FORCE_QUIT_WIDTH")
         height_env = os.getenv("FORCE_QUIT_HEIGHT")
         sort_env = os.getenv("FORCE_QUIT_SORT")
@@ -44,7 +43,6 @@ class ForceQuitDialog(ctk.CTkToplevel):
             if height_env and height_env.isdigit()
             else int(cfg.get("force_quit_height", 650))
         )
-        self.resizable(True, True)
         self.geometry(f"{width}x{height}")
         if on_top_env is not None:
             on_top = on_top_env.lower() in {"1", "true", "yes"}
@@ -524,13 +522,10 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self._watcher.start()
         self.after(0, self._auto_refresh)
 
-        ctk.CTkLabel(
-            self,
-            text="Force Quit Running Processes",
-            font=ctk.CTkFont(size=18, weight="bold"),
-        ).pack(pady=10)
+        container = self.create_container()
+        self.add_title(container, "Force Quit Running Processes")
 
-        self.tabview = ctk.CTkTabview(self)
+        self.tabview = ctk.CTkTabview(container)
         self.tabview.pack(fill="both", expand=True)
         monitor_tab = self.tabview.add("Monitor")
         actions_tab = self.tabview.add("Actions")
@@ -561,6 +556,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         for i, (text, cmd) in enumerate(actions):
             btn = ctk.CTkButton(actions_scroll, text=text, command=cmd)
             btn.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="ew")
+            self.add_tooltip(btn, "Force terminate matching processes")
         actions_scroll.grid_columnconfigure(0, weight=1)
         actions_scroll.grid_columnconfigure(1, weight=1)
 
@@ -570,6 +566,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         entry = ctk.CTkEntry(search_frame, textvariable=self.search_var)
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<KeyRelease>", lambda _e: self._populate())
+        self.add_tooltip(entry, "Filter processes by text")
 
         self.filter_var = ctk.StringVar(value="Name")
         filter_menu = ctk.CTkOptionMenu(
@@ -599,6 +596,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             command=lambda _v: self._populate(),
         )
         filter_menu.pack(side="left", padx=5)
+        self.add_tooltip(filter_menu, "Choose filter field")
 
         self.sort_var = ctk.StringVar(value=self.sort_default)
         sort_menu = ctk.CTkOptionMenu(
@@ -623,6 +621,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             command=lambda _v: self._populate(),
         )
         sort_menu.pack(side="left", padx=5)
+        self.add_tooltip(sort_menu, "Sort processes")
 
         self.interval_var = ctk.StringVar(value=str(interval))
         interval_menu = ctk.CTkOptionMenu(
@@ -668,7 +667,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
         self.mem_alert_var = ctk.StringVar(value=str(self.mem_alert))
         self.auto_cpu_var = ctk.BooleanVar(value=self.auto_kill_cpu)
         self.auto_mem_var = ctk.BooleanVar(value=self.auto_kill_mem)
-        ctk.CTkLabel(options_frame, text="CPU ≥").pack(side="left")
+        ctk.CTkLabel(options_frame, text="CPU ≥", font=self.font).pack(side="left")
         ctk.CTkEntry(options_frame, width=60, textvariable=self.cpu_alert_var).pack(side="left", padx=5)
         ctk.CTkCheckBox(
             options_frame,
@@ -676,7 +675,7 @@ class ForceQuitDialog(ctk.CTkToplevel):
             variable=self.auto_cpu_var,
             command=lambda: setattr(self, "auto_kill_cpu", self.auto_cpu_var.get()),
         ).pack(side="left", padx=5)
-        ctk.CTkLabel(options_frame, text="Mem ≥ MB").pack(side="left", padx=(10, 0))
+        ctk.CTkLabel(options_frame, text="Mem ≥ MB", font=self.font).pack(side="left", padx=(10, 0))
         ctk.CTkEntry(options_frame, width=60, textvariable=self.mem_alert_var).pack(side="left", padx=5)
         ctk.CTkCheckBox(
             options_frame,
@@ -777,9 +776,14 @@ class ForceQuitDialog(ctk.CTkToplevel):
         ).pack(pady=(5, 0))
 
         self.status_var = ctk.StringVar(value="0 processes")
-        ctk.CTkLabel(monitor_tab, textvariable=self.status_var).pack(pady=(0, 5))
+        ctk.CTkLabel(monitor_tab, textvariable=self.status_var, font=self.font).pack(pady=(0, 5))
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.center_window()
+
+        # Apply current styling
+        self.refresh_fonts()
+        self.refresh_theme()
 
         self._auto_refresh()
 

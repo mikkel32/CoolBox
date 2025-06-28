@@ -7,6 +7,7 @@ from tkinter import filedialog
 from pathlib import Path
 
 from ..utils import file_manager, open_path
+from ..utils.ui import center_window
 import pyperclip
 from .tooltip import Tooltip
 
@@ -19,6 +20,9 @@ class Toolbar(ctk.CTkFrame):
         super().__init__(parent, height=50, corner_radius=0)
         self.app = app
         self._tooltips: list[Tooltip] = []
+        size = int(app.config.get("font_size", 14))
+        self.font = ctk.CTkFont(size=size)
+        self.buttons: list[ctk.CTkButton] = []
 
         # Prevent frame from shrinking
         self.pack_propagate(False)
@@ -26,6 +30,23 @@ class Toolbar(ctk.CTkFrame):
         # Create toolbar items
         self._create_toolbar_items()
         self.update_recent_files()
+
+    def refresh_fonts(self) -> None:
+        """Update widget fonts based on current config."""
+        size = int(self.app.config.get("font_size", 14))
+        self.font.configure(size=size)
+        for btn in self.buttons:
+            btn.configure(font=self.font)
+        self.search_entry.configure(font=self.font)
+        self.recent_menu.configure(font=self.font)
+
+    def refresh_theme(self) -> None:
+        """Update button colors using the current accent color."""
+        accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
+        for btn in self.buttons:
+            btn.configure(fg_color=accent, hover_color=accent)
+        self.search_entry.configure(border_color=accent)
+        self.recent_menu.configure(fg_color=accent, button_color=accent)
 
     def _create_toolbar_items(self):
         """Create toolbar buttons and items"""
@@ -71,6 +92,7 @@ class Toolbar(ctk.CTkFrame):
             variable=self.recent_var,
             command=self._open_recent,
             width=150,
+            font=self.font,
         )
         self.recent_menu.pack(side="right", padx=5)
 
@@ -81,8 +103,10 @@ class Toolbar(ctk.CTkFrame):
             placeholder_text="Search...",
             textvariable=self.search_var,
             width=200,
+            font=self.font,
         )
         self.search_entry.pack(side="right", padx=5)
+        self.search_entry.bind("<Return>", lambda e: self._search())
 
         # Search button
         self._create_button(right_frame, "🔍", "Search", self._search).pack(
@@ -90,19 +114,20 @@ class Toolbar(ctk.CTkFrame):
         )
 
     def _create_button(self, parent, icon: str, tooltip: str, command) -> ctk.CTkButton:
-        """Create a toolbar button"""
+        """Create a toolbar button and track it for updates."""
         btn = ctk.CTkButton(
             parent,
             text=icon,
             width=40,
             height=30,
             command=command,
-            font=ctk.CTkFont(size=16),
+            font=self.font,
         )
         tip = Tooltip(self, tooltip)
         btn.bind("<Enter>", lambda e, t=tip: self._on_hover(t, e))
         btn.bind("<Leave>", lambda e, t=tip: t.hide())
         self._tooltips.append(tip)
+        self.buttons.append(btn)
         return btn
 
     def _on_hover(self, tooltip: Tooltip, event) -> None:
@@ -165,48 +190,69 @@ class Toolbar(ctk.CTkFrame):
         self.app.open_quick_settings()
 
     def _search(self):
-        """Perform a simple filename search and show results."""
-        query = self.search_var.get().strip()
+        """Search files, tools, and settings for the query."""
+        query = self.search_var.get().strip().lower()
         if not query:
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message("Enter search query", "warning")
             return
 
-        if self.app.status_bar is not None:
-            self.app.status_bar.set_message(f"Searching for: {query}", "info")
+        results: list[tuple[str, str, callable]] = []
 
-        directory = filedialog.askdirectory(
-            title="Select folder to search", parent=self
-        )
-        if not directory:
+        tools_view = self.app.views.get("tools")
+        if hasattr(tools_view, "get_tools"):
+            for name, desc, cmd in tools_view.get_tools():
+                if query in name.lower() or query in desc.lower():
+                    results.append(
+                        ("Tool", name, lambda c=cmd: (self.app.switch_view("tools"), c()))
+                    )
+
+        settings_view = self.app.views.get("settings")
+        if hasattr(settings_view, "_sections"):
+            for frame, text in settings_view._sections:
+                if query in text:
+                    heading = frame.winfo_children()[0] if frame.winfo_children() else None
+                    title = heading.cget("text") if hasattr(heading, "cget") else "Settings"
+
+                    def open_sec(fr=frame, t=query):
+                        self.app.switch_view("settings")
+                        settings_view.search_var.set(t)
+                        settings_view._filter_sections()
+                        fr.after(100, lambda: fr.focus_set())
+
+                    results.append(("Setting", title, open_sec))
+
+        for path in self.app.config.get("recent_files", []):
+            if query in path.lower():
+                results.append(("File", path, lambda p=path: open_path(p)))
+
+        if not results:
+            if self.app.status_bar is not None:
+                self.app.status_bar.set_message("No matches found", "warning")
             return
-
-        matches = [p for p in Path(directory).rglob(f"*{query}*") if p.is_file()]
 
         window = ctk.CTkToplevel(self)
-        window.title(f"Search results for '{query}'")
-        window.geometry("600x400")
-
-        if not matches:
-            ctk.CTkLabel(window, text="No results found").pack(padx=20, pady=20)
-            return
-
+        window.title(f"Search results for '{self.search_var.get().strip()}'")
+        window.geometry("500x400")
         ctk.CTkLabel(
             window,
-            text=f"Results ({len(matches)})",
+            text=f"Results ({len(results)})",
             font=ctk.CTkFont(size=16, weight="bold"),
         ).pack(pady=(10, 5))
 
-        results_frame = ctk.CTkScrollableFrame(window)
-        results_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        for path in matches:
-            ctk.CTkButton(
-                results_frame,
-                text=str(path),
-                anchor="w",
-                command=lambda p=path: open_path(str(p)),
-            ).pack(fill="x", pady=2)
+        frame = ctk.CTkScrollableFrame(window)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+        accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
+        for category, label, action in results:
+            row = ctk.CTkFrame(frame, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            ctk.CTkLabel(row, text=f"{category}:", width=70, text_color=accent).pack(
+                side="left"
+            )
+            ctk.CTkButton(row, text=label, anchor="w", command=action).pack(
+                side="left", fill="x", expand=True
+            )
+        center_window(window)
 
     # ----- Recent files helpers -----
     def update_recent_files(self) -> None:

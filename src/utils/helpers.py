@@ -32,6 +32,13 @@ def open_path(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
+def slugify(text: str) -> str:
+    """Return *text* lowercased with non-alphanumerics replaced by underscores."""
+    return "_".join(
+        filter(None, ["".join(ch.lower() if ch.isalnum() else "" for ch in part) for part in text.split()])
+    )
+
+
 def calc_hash(path: str, algo: Literal["md5", "sha1", "sha256"] = "md5") -> str:
     """Return the hexadecimal hash of ``path`` using *algo*."""
     hash_func = getattr(hashlib, algo)()
