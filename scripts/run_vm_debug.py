@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Launch CoolBox in a VM or container for debugging."""
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Callable
 from importlib.util import module_from_spec, spec_from_file_location
@@ -33,7 +33,8 @@ def _load_launch() -> 'Callable[[str | None, bool, int], None]':
     return getattr(module, "launch_vm_debug")
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> Namespace:
+    """Return parsed command-line arguments."""
     parser = ArgumentParser(description="Launch CoolBox for debugging")
     parser.add_argument(
         "--prefer",
@@ -57,7 +58,11 @@ def main() -> None:
         action="store_true",
         help="List available VM backends and exit",
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
 
     if args.list:
         print("Available backends:", " ".join(available_backends()) or "none")

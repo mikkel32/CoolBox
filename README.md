@@ -115,6 +115,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   must remain normal before it is hidden.
   ``FORCE_QUIT_EXCLUDE_USERS`` can specify a comma separated list of usernames
   that should be ignored entirely by the Force Quit monitor.
+  ``FORCE_QUIT_IGNORE_NAMES`` lists process names that should be skipped when
+  gathering data. Use this to exclude lightweight helpers from monitoring.
   ``FORCE_QUIT_IGNORE_AGE`` skips processes younger than this many seconds so
   short-lived helpers do not clutter the list.
   ``FORCE_QUIT_IDLE_CPU`` sets the CPU percentage considered idle for adaptive
@@ -161,6 +163,19 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   scan so large systems can prefetch CPU times in parallel.
   ``FORCE_QUIT_LOAD_THRESHOLD`` sets the system CPU usage percentage that triggers a temporary pause in monitoring. When exceeded, the watcher skips ``FORCE_QUIT_LOAD_CYCLES`` refreshes to reduce contention.
   ``FORCE_QUIT_LOAD_CYCLES`` configures how many cycles are skipped each time the threshold is hit. Set the threshold to ``0`` to disable this behaviour.
+  ``FORCE_QUIT_BATCH_SIZE`` controls how many processes are scanned in each
+  refresh cycle so monitoring work is spread out more evenly. The default of
+  ``100`` can be overridden in ``config.json`` or via the environment.
+  ``FORCE_QUIT_AUTO_BATCH`` toggles dynamic tuning of the batch size based on
+  how long recent cycles take and the ratio of changed or trending processes.
+  ``FORCE_QUIT_MIN_BATCH`` and ``FORCE_QUIT_MAX_BATCH`` bound the adaptive
+  range.
+  ``FORCE_QUIT_AUTO_INTERVAL`` or ``force_quit_auto_interval`` enables dynamic
+  tuning of the refresh interval. ``FORCE_QUIT_MIN_INTERVAL`` and
+  ``FORCE_QUIT_MAX_INTERVAL`` bound the adaptive interval range.
+  ``FORCE_QUIT_MIN_WORKERS`` and ``FORCE_QUIT_MAX_WORKERS`` bound the thread
+  pool used by the watcher. The pool automatically scales between these limits
+  based on the number of processes being monitored.
   ``FORCE_QUIT_TREND_SLOW_RATIO`` and ``FORCE_QUIT_TREND_FAST_RATIO`` adjust how
   aggressively refresh intervals respond to the number of trending processes.
   Set ``FORCE_QUIT_AUTO_KILL`` to ``cpu``, ``mem`` or ``both`` to automatically
@@ -169,10 +184,15 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   window size persist across sessions when changed through the dialog. The
   interface now organizes advanced kill controls on a dedicated **Actions** tab
   with a toggleable details pane on the main monitor tab. A status bar shows the
-  total CPU and memory usage of listed processes, and the dialog can stay
-  **Always on Top** if enabled.
+  total CPU and memory usage of listed processes, the percentage currently
+  trending, the percentage changed and the active batch size with its recent
+  average, cycle time and refresh interval, and the dialog can
+  stay **Always on Top** if enabled.
 - **Network Scanner CLI**: Scan multiple hosts asynchronously with IPv4/IPv6
   support, host lookup caching, and configurable timeouts.
+- **Process Monitor CLI**: Display live CPU and memory usage in your terminal
+  using the same adaptive `ProcessWatcher` as Force Quit with optional dynamic
+  batching, interval tuning and worker scaling.
 - **Auto Network Scan**: Detects local networks, pings for active hosts and
   scans them automatically.
 
@@ -282,6 +302,18 @@ The ``PORTS`` argument accepts service names (``ssh``), ranges with optional
 steps (``20-30:2``), comma separated lists (``22,80``) and ``topN`` shortcuts.
 Hosts may be specified individually or using CIDR notation, ranges and ``*``
 wildcards like ``192.168.1.*``.
+
+### Process Monitor CLI
+
+Run ``scripts/process_monitor_cli.py`` to view live CPU and memory usage in the
+terminal. The script uses the same adaptive `ProcessWatcher` as the Force Quit
+dialog and accepts additional tuning options:
+
+```bash
+python scripts/process_monitor_cli.py --interval 1.5 --limit 10 \
+    --auto-interval --min-interval 0.5 --max-interval 5 \
+    --auto-batch --min-batch 50 --max-batch 500 --ignore-names bash --show-stats
+```
 
 ### Auto Network Scan
 

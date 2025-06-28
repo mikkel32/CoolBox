@@ -106,6 +106,21 @@ BULK_CPU_WORKERS = int(os.getenv("FORCE_QUIT_BULK_WORKERS", "4"))
 LOAD_THRESHOLD = float(os.getenv("FORCE_QUIT_LOAD_THRESHOLD", "0"))
 LOAD_CYCLES = int(os.getenv("FORCE_QUIT_LOAD_CYCLES", "2"))
 
+# Adaptive batch scanning
+BATCH_SIZE = int(os.getenv("FORCE_QUIT_BATCH_SIZE", "100"))
+AUTO_BATCH = os.getenv("FORCE_QUIT_AUTO_BATCH", "true").lower() in {"1", "true", "yes"}
+MIN_BATCH_SIZE = int(os.getenv("FORCE_QUIT_MIN_BATCH", "25"))
+MAX_BATCH_SIZE = int(os.getenv("FORCE_QUIT_MAX_BATCH", "1000"))
+
+# Adaptive interval tuning
+MIN_INTERVAL = float(os.getenv("FORCE_QUIT_MIN_INTERVAL", "0.5"))
+MAX_INTERVAL = float(os.getenv("FORCE_QUIT_MAX_INTERVAL", "10.0"))
+AUTO_INTERVAL = os.getenv("FORCE_QUIT_AUTO_INTERVAL", "true").lower() in {"1", "true", "yes"}
+
+# Dynamic thread pool scaling
+MIN_WORKERS = int(os.getenv("FORCE_QUIT_MIN_WORKERS", "2"))
+MAX_WORKERS = int(os.getenv("FORCE_QUIT_MAX_WORKERS", "16"))
+
 
 @dataclass(slots=True)
 class ProcessEntry:
@@ -435,9 +450,11 @@ class ProcessWatcher(threading.Thread):
         interval: float = 2.0,
         detail_interval: int = 3,
         max_workers: int | None = None,
+        min_workers: int = MIN_WORKERS,
+        max_worker_limit: int = MAX_WORKERS,
         sample_size: int = 5,
         limit: int | None = None,
-        adaptive: bool = True,
+        adaptive: bool = AUTO_INTERVAL,
         adaptive_detail: bool = True,
         *,
         conn_interval: float = 2.0,
@@ -449,6 +466,7 @@ class ProcessWatcher(threading.Thread):
         stable_skip: int = 3,
         hide_system: bool = False,
         exclude_users: set[str] | None = None,
+        ignore_names: set[str] | None = None,
         slow_ratio: float = 0.02,
         fast_ratio: float = 0.2,
         ratio_window: int = 5,
@@ -491,10 +509,19 @@ class ProcessWatcher(threading.Thread):
         bulk_cpu_workers: int = BULK_CPU_WORKERS,
         load_threshold: float = LOAD_THRESHOLD,
         load_cycles: int = LOAD_CYCLES,
+        batch_size: int = BATCH_SIZE,
+        auto_batch: bool = AUTO_BATCH,
+        min_batch_size: int = MIN_BATCH_SIZE,
+        max_batch_size: int = MAX_BATCH_SIZE,
+        min_interval: float = MIN_INTERVAL,
+        max_interval: float = MAX_INTERVAL,
     ) -> None:
         super().__init__(daemon=True)
         self.queue = queue
-        self.interval = max(0.5, float(interval))
+        self.min_interval = max(0.1, float(min_interval))
+        self.max_interval = max(self.min_interval, float(max_interval))
+        self.interval = float(interval)
+        self.interval = max(self.min_interval, min(self.max_interval, self.interval))
         self.target_interval = self.interval
         self.detail_interval = max(1, detail_interval)
         self.target_detail_interval = self.detail_interval
@@ -521,6 +548,9 @@ class ProcessWatcher(threading.Thread):
         self.file_global_threshold = int(file_global_threshold)
         self._last_ts = time.monotonic()
         workers = max_workers or min(8, (os.cpu_count() or 1) * 2)
+        workers = min(max_worker_limit, max(min_workers, workers))
+        self.min_workers = min_workers
+        self.max_workers = max_worker_limit
         self._executor = ThreadPoolExecutor(max_workers=workers)
         self._cpu_count = psutil.cpu_count(logical=True) or (os.cpu_count() or 1)
         self.sample_size = max(1, sample_size)
@@ -535,6 +565,7 @@ class ProcessWatcher(threading.Thread):
         self._ratio_history: deque[float] = deque(maxlen=self._ratio_window)
         self.hide_system = hide_system
         self.exclude_users: set[str] = {u.lower() for u in (exclude_users or set())}
+        self.ignore_names: set[str] = {n.lower() for n in (ignore_names or set())}
         self._trend_window = max(1, int(trend_window))
         self._trend_cpu = float(trend_cpu)
         self._trend_mem = float(trend_mem)
@@ -593,6 +624,22 @@ class ProcessWatcher(threading.Thread):
         self._load_skip = 0
         self._prev_system_time = self._system_time()
         self._system_time_delta = float(self._cpu_count)
+        self.batch_size = max(1, int(batch_size))
+        self.auto_batch = bool(auto_batch)
+        self.min_batch_size = max(1, int(min_batch_size))
+        self.max_batch_size = max(self.min_batch_size, int(max_batch_size))
+        self._batch_history = deque(maxlen=5)
+        self._interval_history = deque(maxlen=5)
+        self._cycle_time_history = deque(maxlen=5)
+        self._throughput_history = deque(maxlen=5)
+        self._proc_iter = None
+        self._proc_pids: list[int] = []
+        self._new_pids: set[int] = set()
+        self._cycle_updates = 0
+        self._cycle_trending = 0
+        self._cycle_elapsed = 0.0
+        self._last_change_ratio = 0.0
+        self._last_trend_ratio = 0.0
 
     def _update_idle_state(self, pid: int, cpu: float) -> None:
         """Update idle counters and skip interval for *pid* based on ``cpu``."""
@@ -708,6 +755,10 @@ class ProcessWatcher(threading.Thread):
             return True
         return False
 
+    def _should_ignore_process(self, name: str) -> bool:
+        """Return ``True`` if ``name`` matches any ignored process name."""
+        return name.lower() in self.ignore_names
+
     def _proc_cpu_time(
         self,
         pid: int,
@@ -774,6 +825,24 @@ class ProcessWatcher(threading.Thread):
                 results[pid] = val
         return results
 
+    def _next_batch(self, attrs: list[str]) -> tuple[list[psutil.Process], bool]:
+        """Return the next batch of processes and whether a full cycle ended."""
+        if self._proc_iter is None:
+            self._proc_pids = psutil.pids()
+            self.process_count = len(self._proc_pids)
+            self._new_pids = set(self._proc_pids)
+            self._proc_iter = psutil.process_iter(attrs=attrs)
+        procs: list[psutil.Process] = []
+        cycle_end = False
+        try:
+            for _ in range(self.batch_size):
+                proc = next(self._proc_iter)
+                procs.append(proc)
+        except StopIteration:
+            self._proc_iter = None
+            cycle_end = True
+        return procs, cycle_end
+
     def _maybe_sample_cpu(
         self,
         proc: psutil.Process,
@@ -826,8 +895,9 @@ class ProcessWatcher(threading.Thread):
         return cpu_time, cpu, io_rate
 
     def set_interval(self, interval: float) -> None:
-        self.target_interval = max(0.5, float(interval))
+        self.target_interval = max(self.min_interval, float(interval))
         self.interval = self.target_interval
+        self._clamp_interval()
 
     def set_detail_interval(self, interval: int) -> None:
         self.target_detail_interval = max(1, int(interval))
@@ -882,7 +952,6 @@ class ProcessWatcher(threading.Thread):
             now = time.monotonic()
             self._last_ts = now
             updates: dict[int, ProcessEntry] = {}
-            current: set[int] = set()
             trending = 0
 
             # Avoid fetching CPU times for all processes up front so idle
@@ -896,10 +965,9 @@ class ProcessWatcher(threading.Thread):
                 "memory_info",
                 "status",
                 "num_threads",
-                "io_counters",
             ]
-
-            self.process_count = 0
+            if hasattr(psutil.Process(), "io_counters"):
+                basic_attrs.append("io_counters")
 
             proc_data: dict[int, tuple[
                 psutil.Process,
@@ -915,7 +983,8 @@ class ProcessWatcher(threading.Thread):
             ]] = {}
             sample_pids: set[int] = set()
 
-            for proc in psutil.process_iter(attrs=basic_attrs):
+            procs, cycle_end = self._next_batch(basic_attrs)
+            for proc in procs:
                 try:
                     with proc.oneshot():
                         pid = proc.info["pid"]
@@ -924,6 +993,8 @@ class ProcessWatcher(threading.Thread):
                         if self.hide_system and user.lower() in {"root", "system", "localsystem"}:
                             continue
                         if user.lower() in self.exclude_users:
+                            continue
+                        if self._should_ignore_process(name):
                             continue
                         mem = proc.info["memory_info"].rss / (1024 * 1024)
                         start = proc.info.get("create_time", 0.0)
@@ -955,7 +1026,6 @@ class ProcessWatcher(threading.Thread):
                     status,
                     threads,
                 )
-                self.process_count += 1
 
             cpu_map: dict[int, float] = {}
             if len(sample_pids) >= self.bulk_cpu_threshold:
@@ -1166,7 +1236,6 @@ class ProcessWatcher(threading.Thread):
             now_ts = time.monotonic()
 
             for result in self._executor.map(collect, proc_data.values()):
-                self.process_count += 1
                 if not result:
                     continue
                 entry, changed_flag, trending_flag = result
@@ -1194,7 +1263,6 @@ class ProcessWatcher(threading.Thread):
                 ]
 
             for entry, changed in entries:
-                current.add(entry.pid)
                 if changed:
                     updates[entry.pid] = entry
                     self._stable_counts[entry.pid] = 0
@@ -1369,7 +1437,10 @@ class ProcessWatcher(threading.Thread):
             else:
                 self._last_detail_count = 0
 
-            removed = set(self._snapshot) - current
+            removed = set()
+            if cycle_end:
+                removed = set(self._snapshot) - self._new_pids
+                self._new_pids.clear()
 
             if updates or removed:
                 try:
@@ -1389,16 +1460,20 @@ class ProcessWatcher(threading.Thread):
                     self._normal_counts.pop(pid, None)
                     self._reset_idle_state(pid)
 
-            if self.adaptive:
-                elapsed = time.monotonic() - loop_start
-                if elapsed > self.target_interval * 1.5:
+            elapsed = time.monotonic() - loop_start
+            self._cycle_elapsed += elapsed
+            self._cycle_updates += len(updates)
+            self._cycle_trending += trending
+
+            if cycle_end and self.adaptive:
+                if self._cycle_elapsed > self.target_interval * 1.5:
                     self.interval = min(self.interval * 1.25, self.target_interval * 5)
-                elif elapsed < self.target_interval * 0.7 and self.interval > self.target_interval:
+                elif self._cycle_elapsed < self.target_interval * 0.7 and self.interval > self.target_interval:
                     self.interval = max(self.interval * 0.9, self.target_interval)
-                change_ratio = len(updates) / max(self.process_count, 1)
+                change_ratio = self._cycle_updates / max(self.process_count, 1)
                 self._ratio_history.append(change_ratio)
                 avg_ratio = sum(self._ratio_history) / len(self._ratio_history)
-                self._trend_history.append(trending / max(self.process_count, 1))
+                self._trend_history.append(self._cycle_trending / max(self.process_count, 1))
                 avg_trend = sum(self._trend_history) / len(self._trend_history)
                 if avg_ratio < self._slow_ratio and avg_trend < self._trend_slow_ratio:
                     self.interval = min(self.interval + 0.5, self.target_interval * 5)
@@ -1406,6 +1481,8 @@ class ProcessWatcher(threading.Thread):
                 elif avg_ratio > self._fast_ratio or avg_trend > self._trend_fast_ratio:
                     self.interval = max(self.interval - 0.5, self.target_interval)
                     self._stable_cycles = max(self._stable_cycles - 1, 1)
+                self._clamp_interval()
+                self._finish_cycle()
 
             if self._stop_event.wait(self.interval):
                 break
@@ -1426,6 +1503,113 @@ class ProcessWatcher(threading.Thread):
             self._global_conn_data.clear()
         if now - self._global_file_ts > self.cache_ttl:
             self._global_file_data.clear()
+
+    def _update_batch_size(self) -> None:
+        """Dynamically adjust ``batch_size`` using cycle time and activity."""
+        if not self.auto_batch:
+            return
+        change_ratio = self._cycle_updates / max(self.process_count, 1)
+        trend_ratio = self._cycle_trending / max(self.process_count, 1)
+        avg_time = (
+            sum(self._cycle_time_history) / len(self._cycle_time_history)
+            if self._cycle_time_history
+            else self._cycle_elapsed
+        )
+        if (
+            avg_time > self.target_interval * 1.5
+            or change_ratio > 0.5
+            or trend_ratio > 0.4
+        ) and self.batch_size > self.min_batch_size:
+            self.batch_size = max(self.min_batch_size, int(self.batch_size * 0.8))
+        elif (
+            avg_time < self.target_interval * 0.75
+            and change_ratio < 0.2
+            and trend_ratio < 0.2
+            and self.batch_size < self.max_batch_size
+        ):
+            self.batch_size = min(self.max_batch_size, int(self.batch_size * 1.2))
+        self._batch_history.append(self.batch_size)
+
+    def _clamp_interval(self) -> None:
+        """Ensure ``interval`` stays within configured bounds."""
+        self.interval = max(self.min_interval, min(self.max_interval, self.interval))
+
+    def _resize_executor(self, workers: int) -> None:
+        """Replace thread pool with *workers* threads."""
+        if workers == self._executor._max_workers:
+            return
+        self._executor.shutdown(wait=False)
+        self._executor = ThreadPoolExecutor(max_workers=workers)
+
+    def _maybe_resize_executor(self) -> None:
+        """Adjust thread pool size based on ``process_count``."""
+        cur = self._executor._max_workers
+        if self.process_count > cur * 4 and cur < self.max_workers:
+            self._resize_executor(min(self.max_workers, cur * 2))
+        elif self.process_count < cur * 2 and cur > self.min_workers:
+            self._resize_executor(max(self.min_workers, cur // 2))
+
+    def _finish_cycle(self) -> None:
+        """Finalize metrics and reset per-cycle counters."""
+        self._last_change_ratio = self._cycle_updates / max(self.process_count, 1)
+        self._last_trend_ratio = self._cycle_trending / max(self.process_count, 1)
+        self._cycle_time_history.append(self._cycle_elapsed)
+        self._interval_history.append(self.interval)
+        if self._cycle_elapsed:
+            self._throughput_history.append(
+                self.process_count / self._cycle_elapsed
+            )
+        self._clamp_interval()
+        self._update_batch_size()
+        self._maybe_resize_executor()
+        self._cycle_elapsed = 0.0
+        self._cycle_updates = 0
+        self._cycle_trending = 0
+
+    @property
+    def recent_change_ratio(self) -> float:
+        """Return the ratio of changed processes in the last cycle."""
+        return self._last_change_ratio
+
+    @property
+    def recent_trend_ratio(self) -> float:
+        """Return the ratio of trending processes in the last cycle."""
+        return self._last_trend_ratio
+
+    @property
+    def average_batch_size(self) -> float:
+        """Return the average batch size over recent cycles."""
+        if self._batch_history:
+            return sum(self._batch_history) / len(self._batch_history)
+        return float(self.batch_size)
+
+    @property
+    def average_cycle_time(self) -> float:
+        """Return the average cycle duration in seconds."""
+        if self._cycle_time_history:
+            return sum(self._cycle_time_history) / len(self._cycle_time_history)
+        return self.target_interval
+
+    @property
+    def average_interval(self) -> float:
+        """Return the average refresh interval in seconds."""
+        if self._interval_history:
+            return sum(self._interval_history) / len(self._interval_history)
+        return self.interval
+
+    @property
+    def average_throughput(self) -> float:
+        """Return average processes scanned per second."""
+        if self._throughput_history:
+            return sum(self._throughput_history) / len(self._throughput_history)
+        if self._cycle_elapsed:
+            return self.process_count / self._cycle_elapsed
+        return 0.0
+
+    @property
+    def worker_count(self) -> int:
+        """Return current thread pool size."""
+        return self._executor._max_workers
 
     def _update_auto_baselines(
         self, cpu_vals: list[float], mem_vals: list[float], io_vals: list[float]
@@ -1484,4 +1668,5 @@ class ProcessWatcher(threading.Thread):
 __all__ = [
     "ProcessEntry",
     "ProcessWatcher",
+    "MovingAverage",
 ]
