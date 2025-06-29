@@ -1,0 +1,11 @@
+{
+  "CTk": {
+    "color_scale": {
+      "primary_color": "#00ffff",
+      "secondary_color": "#1b1b1b",
+      "background_color": "#0a0a0a",
+      "text_color": "#ffffff",
+      "accent_color": "#ff00ff"
+    }
+  }
+}

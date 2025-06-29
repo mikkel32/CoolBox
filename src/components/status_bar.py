@@ -5,21 +5,23 @@ Status bar component for displaying messages
 import customtkinter as ctk
 from datetime import datetime
 from .tooltip import Tooltip
+from .base_component import BaseComponent
 
 
-class StatusBar(ctk.CTkFrame):
+class StatusBar(BaseComponent):
     """Application status bar"""
 
     def __init__(self, parent, app):
         """Initialize status bar"""
-        super().__init__(parent, height=30, corner_radius=0)
-        self.app = app
+        super().__init__(parent, app, height=30, corner_radius=0)
 
         # Prevent frame from shrinking
         self.pack_propagate(False)
 
         size = int(app.config.get("font_size", 14))
-        self.font = ctk.CTkFont(size=max(size - 2, 8))
+        scale = float(app.config.get("ui_scale", 1.0))
+        family = app.config.get("font_family", "Arial")
+        self.font = ctk.CTkFont(size=max(int((size - 2) * scale), 8), family=family)
         # Message label
         self.accent = app.theme.get_theme().get("accent_color", "#1faaff")
         self.message_label = ctk.CTkLabel(
@@ -28,6 +30,7 @@ class StatusBar(ctk.CTkFrame):
             anchor="w",
             font=self.font,
         )
+        self._mark_font_role(self.message_label, "normal")
         self.message_label.pack(side="left", padx=10)
 
         # Right side info
@@ -38,7 +41,7 @@ class StatusBar(ctk.CTkFrame):
         # Use a monospaced font and fixed width to avoid jitter when the
         # time text updates every second. Measure the width of the
         # "00:00:00" string so the label size adapts to the chosen font.
-        self.time_font = ctk.CTkFont(size=max(size - 2, 8), family="Courier")
+        self.time_font = ctk.CTkFont(size=max(int((size - 2) * scale), 8), family="Courier")
         try:
             width = self.time_font.measure("00:00:00")
         except Exception:  # pragma: no cover - measure may fail in headless env
@@ -49,6 +52,7 @@ class StatusBar(ctk.CTkFrame):
             font=self.time_font,
             width=width,
         )
+        self._mark_font_role(self.time_label, "normal")
         self.time_label.pack(side="right", padx=10)
 
         self._time_tip = Tooltip(self, "")
@@ -109,10 +113,15 @@ class StatusBar(ctk.CTkFrame):
     def refresh_fonts(self) -> None:
         """Refresh fonts using the application's font size."""
         size = int(self.app.config.get("font_size", 14))
-        self.font.configure(size=max(size - 2, 8))
-        self.time_font.configure(size=max(size - 2, 8))
+        scale = float(self.app.config.get("ui_scale", 1.0))
+        family = self.app.config.get("font_family", "Arial")
+        self.font.configure(size=max(int((size - 2) * scale), 8), family=family)
+        self.time_font.configure(size=max(int((size - 2) * scale), 8))
         self.message_label.configure(font=self.font)
         self.time_label.configure(font=self.time_font)
+
+    def refresh_scale(self) -> None:
+        self.refresh_fonts()
 
     def refresh_theme(self) -> None:
         """Refresh accent color used for info messages."""

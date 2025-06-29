@@ -3,6 +3,7 @@ Settings view - Application preferences
 """
 import customtkinter as ctk
 from tkinter import messagebox, colorchooser
+from pathlib import Path
 import json
 from src.utils import slugify
 from .base_view import BaseView
@@ -22,14 +23,14 @@ class SettingsView(BaseView):
         self.add_title(self.scroll_frame, "⚙️ Settings")
 
         self.search_var = ctk.StringVar()
-        self.search_entry = self.create_search_box(
+        self.search_entry = self.create_search_entry(
             self.scroll_frame,
             self.search_var,
-            "Search settings...",
             self._filter_sections,
+            placeholder="Search settings...",
         )
         self.search_entry.pack(fill="x", padx=20, pady=(0, 10))
-        self.add_tooltip(self.search_entry, "Filter settings by text")
+        self.add_tooltip(self.search_entry.button, "Filter settings by text")
         self.app.window.bind("<Control-f>", lambda e: self._focus_search())
         self._sections: list[tuple[ctk.CTkFrame, str]] = []
 
@@ -39,13 +40,16 @@ class SettingsView(BaseView):
         self._create_advanced_settings()
 
         # Save button
-        save_btn = ctk.CTkButton(
+        from ..components.icon_button import IconButton
+
+        save_btn = IconButton(
             self.scroll_frame,
-            text="💾 Save Settings",
+            self.app,
+            "💾",
+            text="Save Settings",
             command=self._save_settings,
-            width=200,
+            width=180,
             height=40,
-            font=self.font,
         )
         save_btn.pack(pady=20)
         self.add_tooltip(save_btn, "Save all configuration values")
@@ -89,7 +93,7 @@ class SettingsView(BaseView):
             color_frame,
             "Color Theme:",
             self.color_var,
-            ["blue", "green", "dark-blue"],
+            ["blue", "green", "dark-blue", "modern", "neon", "glass"],
             0,
             command=self._change_color_theme,
         )
@@ -115,6 +119,16 @@ class SettingsView(BaseView):
         )
         accent_btn.grid(row=1, column=1, sticky="w", padx=10, pady=(6, 0))
         self.add_tooltip(accent_btn, "Pick a custom accent color")
+
+        self.system_accent_var = ctk.BooleanVar(value=self.app.config.get("use_system_accent", False))
+        system_check = ctk.CTkCheckBox(
+            color_frame,
+            text="Use System Accent",
+            variable=self.system_accent_var,
+            command=self._toggle_system_accent,
+        )
+        system_check.grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=(6, 0))
+        self.add_tooltip(system_check, "Automatically match OS accent color")
 
         # Theme management buttons
         theme_btns = ctk.CTkFrame(body)
@@ -160,6 +174,38 @@ class SettingsView(BaseView):
             to=20,
         )
         self.add_tooltip(font_slider, "Adjust UI font size")
+
+        self.font_family_var = ctk.StringVar(
+            value=self.app.config.get("font_family", "Arial")
+        )
+        family_menu = ctk.CTkOptionMenu(
+            font_frame,
+            variable=self.font_family_var,
+            values=["Arial", "Helvetica", "Courier", "Times New Roman"],
+            command=lambda _: self.app.update_fonts(),
+        )
+        self._mark_font_role(family_menu, "normal")
+        family_menu.grid(row=1, column=0, columnspan=3, sticky="ew", padx=self.gpadx, pady=self.gpady)
+        self.add_tooltip(family_menu, "Select interface font")
+
+        scale_frame = ctk.CTkFrame(body)
+        scale_frame.pack(fill="x", padx=20, pady=10)
+        self.ui_scale_var = ctk.DoubleVar(value=self.app.config.get("ui_scale", 1.0))
+        scale_slider, scale_label = self.grid_slider(
+            scale_frame,
+            "UI Scale:",
+            self.ui_scale_var,
+            0,
+            from_=0.8,
+            to=1.6,
+        )
+        self.add_tooltip(scale_slider, "Adjust overall interface size")
+
+        def _update_scale(val: float) -> None:
+            self.app.config.set("ui_scale", float(val))
+            self.app.update_ui_scale()
+
+        scale_slider.configure(command=_update_scale)
         self._register_section(section, "appearance")
 
     def _create_general_settings(self):
@@ -201,6 +247,14 @@ class SettingsView(BaseView):
             variable=self.show_menu_var,
         )
         menu_check.pack(anchor="w", padx=20, pady=5)
+
+        self.animations_var = ctk.BooleanVar(value=self.app.config.get("enable_animations", True))
+        animations_check = ctk.CTkCheckBox(
+            body,
+            text="Enable animations",
+            variable=self.animations_var,
+        )
+        animations_check.pack(anchor="w", padx=20, pady=5)
 
         # Recent files limit
         recent_frame = ctk.CTkFrame(body)
@@ -424,7 +478,16 @@ class SettingsView(BaseView):
 
     def _change_color_theme(self, value):
         """Change color theme"""
-        ctk.set_default_color_theme(value)
+        if value in {"modern", "neon", "glass"}:
+            theme_path = (
+                Path(__file__).resolve().parents[1]
+                / "assets"
+                / "themes"
+                / f"{value}.json"
+            )
+            ctk.set_default_color_theme(str(theme_path))
+        else:
+            ctk.set_default_color_theme(value)
         if self.app.status_bar is not None:
             self.app.status_bar.set_message(f"Color theme changed to {value}", "info")
         messagebox.showinfo("Color Theme", "Please restart the application for changes to take effect")
@@ -434,11 +497,15 @@ class SettingsView(BaseView):
         # Update config
         self.app.config.set("appearance_mode", self.theme_var.get().lower())
         self.app.config.set("color_theme", self.color_var.get())
+        self.app.config.set("font_family", self.font_family_var.get())
         self.app.config.set("font_size", self.font_size_var.get())
+        self.app.config.set("ui_scale", float(self.ui_scale_var.get()))
+        self.app.config.set("use_system_accent", self.system_accent_var.get())
         self.app.config.set("auto_save", self.auto_save_var.get())
         self.app.config.set("show_toolbar", self.show_toolbar_var.get())
         self.app.config.set("show_statusbar", self.show_statusbar_var.get())
         self.app.config.set("show_menu", self.show_menu_var.get())
+        self.app.config.set("enable_animations", self.animations_var.get())
         self.app.config.set("max_recent_files", self.recent_limit_var.get())
         self.app.config.set("scan_cache_ttl", int(self.scan_ttl_var.get()))
         self.app.config.set("scan_concurrency", int(self.scan_concurrency_var.get()))
@@ -452,11 +519,29 @@ class SettingsView(BaseView):
         self.app.config.set("scan_ping_concurrency", int(self.scan_ping_conc_var.get()))
 
         theme = self.app.theme.get_theme()
+        if self.system_accent_var.get():
+            from src.utils.theme import get_system_accent_color
+
+            color = get_system_accent_color()
+            self.accent_color_var.set(color)
         theme["accent_color"] = self.accent_color_var.get()
         self.app.theme.apply_theme(theme)
 
+        color = self.color_var.get()
+        if color in {"modern", "neon", "glass"}:
+            theme_path = (
+                Path(__file__).resolve().parents[1]
+                / "assets"
+                / "themes"
+                / f"{color}.json"
+            )
+            ctk.set_default_color_theme(str(theme_path))
+        else:
+            ctk.set_default_color_theme(color)
+
         # Save to file
         self.app.config.save()
+        self.app.update_ui_scale()
         self.app.update_fonts()
         self.app.update_theme()
 
@@ -481,6 +566,9 @@ class SettingsView(BaseView):
         if messagebox.askyesno("Reset Settings", "Are you sure you want to reset all settings to defaults?"):
             self.app.config.reset_to_defaults()
             self.app.theme.apply_theme(self.app.config.get("theme", {}))
+            ctk.set_default_color_theme(
+                self.app.config.get("color_theme", "blue")
+            )
             self.app.update_fonts()
             self.app.update_theme()
             if self.app.status_bar is not None:
@@ -498,6 +586,11 @@ class SettingsView(BaseView):
             self.scan_ping_var.set(self.app.config.get("scan_ping", False))
             self.scan_ping_timeout_var.set(self.app.config.get("scan_ping_timeout", 1.0))
             self.scan_ping_conc_var.set(self.app.config.get("scan_ping_concurrency", 100))
+            self.ui_scale_var.set(self.app.config.get("ui_scale", 1.0))
+            self.font_family_var.set(self.app.config.get("font_family", "Arial"))
+            self.app.update_ui_scale()
+            self.system_accent_var.set(self.app.config.get("use_system_accent", False))
+            self.animations_var.set(self.app.config.get("enable_animations", True))
 
     def _clear_scan_cache(self) -> None:
         """Clear cached port scan results."""
@@ -610,6 +703,20 @@ class SettingsView(BaseView):
             theme["accent_color"] = color_code
             self.app.theme.apply_theme(theme)
 
+    def _toggle_system_accent(self) -> None:
+        if self.system_accent_var.get():
+            from src.utils.theme import get_system_accent_color
+
+            self.accent_color_var.set(get_system_accent_color())
+            self.accent_display.configure(fg_color=self.accent_color_var.get())
+            theme = self.app.theme.get_theme()
+            theme["accent_color"] = self.accent_color_var.get()
+            self.app.theme.apply_theme(theme)
+        else:
+            theme = self.app.theme.get_theme()
+            theme["accent_color"] = self.accent_color_var.get()
+            self.app.theme.apply_theme(theme)
+
     def _export_theme(self) -> None:
         """Export the current theme to a JSON file."""
         from tkinter import filedialog
@@ -646,6 +753,7 @@ class SettingsView(BaseView):
         theme = self.app.theme.get_theme()
         self.accent_color_var.set(theme.get("accent_color", "#007acc"))
         self.accent_display.configure(fg_color=self.accent_color_var.get())
+        ctk.set_default_color_theme("blue")
         self.app.update_theme()
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Theme reset to defaults", "success")

@@ -21,9 +21,14 @@ class RecentFilesDialog(BaseDialog):
         )
 
         self.search_var = ctk.StringVar()
-        entry = self.create_search_box(frame, self.search_var, "Search files...", self._filter)
+        entry = self.create_search_entry(
+            frame,
+            self.search_var,
+            self._filter,
+            placeholder="Search files...",
+        )
         entry.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, self.gpady))
-        self.add_tooltip(entry, "Filter recent files by name")
+        self.add_tooltip(entry.button, "Filter recent files by name")
 
         start_row = 2
         for idx, path in enumerate(files, start=start_row):

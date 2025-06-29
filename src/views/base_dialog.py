@@ -23,6 +23,9 @@ class BaseDialog(ctk.CTkToplevel, UIHelperMixin):
     def refresh_theme(self) -> None:  # type: ignore[override]
         UIHelperMixin.refresh_theme(self)
 
+    def refresh_scale(self) -> None:  # type: ignore[override]
+        UIHelperMixin.refresh_scale(self)
+
     def destroy(self) -> None:  # type: ignore[override]
         if hasattr(self.app, "unregister_dialog"):
             self.app.unregister_dialog(self)

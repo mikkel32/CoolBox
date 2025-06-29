@@ -3,11 +3,31 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Dict, TYPE_CHECKING
+import sys
 
 if TYPE_CHECKING:  # pragma: no cover - for type hints only
     from ..config import Config
 
 import customtkinter as ctk
+
+
+def get_system_accent_color() -> str:
+    """Return the OS accent color if available."""
+    try:
+        if sys.platform == "win32":
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\DWM"
+            ) as key:
+                value = winreg.QueryValueEx(key, "AccentColor")[0]
+            r = (value >> 16) & 0xFF
+            g = (value >> 8) & 0xFF
+            b = value & 0xFF
+            return f"#{r:02x}{g:02x}{b:02x}"
+    except Exception:
+        pass
+    return "#007acc"
 
 
 class ThemeManager:
