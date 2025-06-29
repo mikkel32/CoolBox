@@ -9,9 +9,8 @@ from .helpers import (
     calc_hashes,
     get_system_info,
     get_system_metrics,
-    find_free_port,
 )
-from .vm import VMManager, launch_vm_debug
+from .vm import launch_vm_debug
 from .file_manager import (
     read_text,
     write_text,
@@ -81,9 +80,7 @@ __all__ = [
     "calc_hashes",
     "get_system_info",
     "get_system_metrics",
-    "find_free_port",
     "launch_vm_debug",
-    "VMManager",
     "scan_ports",
     "async_scan_ports",
     "scan_port_list",
