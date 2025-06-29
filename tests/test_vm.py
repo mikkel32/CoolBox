@@ -141,12 +141,12 @@ def test_vm_cli_parse_defaults():
 def test_vm_cli_main_launch(monkeypatch):
     calls = []
 
-    def fake_launch(prefer=None, open_code=False, port=5678):
-        calls.append((prefer, open_code, port))
+    def fake_launch(prefer=None, open_code=False, port=5678, skip_deps=False):
+        calls.append((prefer, open_code, port, skip_deps))
 
     monkeypatch.setattr(vmcli, "_load_launch", lambda: fake_launch)
     vmcli.main(["--prefer", "docker", "--code", "--port", "1234"])
-    assert calls == [("docker", True, 1234)]
+    assert calls == [("docker", True, 1234, False)]
 
 
 def test_vm_cli_main_list(monkeypatch, capsys):

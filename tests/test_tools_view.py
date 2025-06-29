@@ -1,6 +1,5 @@
 import os
 import unittest
-import customtkinter as ctk
 from src.app import CoolBoxApp
 from src.views.tools_view import ToolsView
 

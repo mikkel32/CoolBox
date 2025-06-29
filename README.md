@@ -233,6 +233,8 @@ For a development environment with debugging tools, run:
 ```bash
 ./scripts/setup_dev_env.sh
 ```
+Pass ``--skip-deps`` to ``run_vm_debug.py`` or set ``SKIP_DEPS=1`` when
+running ``run_debug.sh`` to reuse existing Python packages.
 
 ### Running Tests
 
@@ -302,7 +304,22 @@ and supports a few useful options:
 * ``--services`` shows service names for each open port
 * ``--banner`` captures a short banner string from open ports
 * ``--latency`` measures connection latency for each port in milliseconds
+* ``--ping-latency`` records ping round-trip time for each host
+* ``--ping-ttl`` includes the TTL value from ping replies
+* ``--os`` shows a basic OS guess derived from ping TTL
+* ``--hostname`` displays resolved hostnames
+* ``--mac`` shows MAC addresses
+* ``--vendor`` adds vendor names for MAC prefixes
+* ``--connections`` lists active local connection counts
+* ``--http`` collects basic HTTP server information
+* ``--device`` guesses the device type
+* ``--risk`` shows a simple risk score
 * ``--top`` scans the top N most common ports instead of ``PORTS``
+* ``--auto`` automatically detects active hosts on local networks
+* ``--max-hosts`` limits the number of auto-detected hosts per network
+* ``--no-host-cache`` disables caching of detected hosts
+* ``--clear-cache`` clears cached scan, host and DNS data before scanning
+* ``--json`` writes scan results to a JSON file or stdout
 
 The ``PORTS`` argument accepts service names (``ssh``), ranges with optional
 steps (``20-30:2``), comma separated lists (``22,80``) and ``topN`` shortcuts.
@@ -371,7 +388,7 @@ current environment.  You can set ``PREFER_VM=docker``, ``PREFER_VM=podman`` or
 ``PREFER_VM=vagrant`` to force a specific backend or pass ``--prefer`` to
 ``run_vm_debug.py``. The ``run_vm_debug.sh`` wrapper now simply calls this
 Python script so all command line options like ``--prefer`` ``--code`` and
-``--port`` are
+``--port`` and ``--skip-deps`` are
 available on both Unix and Windows.
 Use the ``--code`` flag to open Visual Studio Code before launching the
 environment so it's ready to attach to the debug server.
