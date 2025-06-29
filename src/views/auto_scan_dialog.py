@@ -6,9 +6,10 @@ import threading
 
 from ..utils import (
     AutoScanInfo,
-    async_auto_scan,
+    async_auto_scan_iter,
     parse_ports,
     ports_as_range,
+    auto_scan_results_to_dict,
 )
 
 
@@ -153,9 +154,12 @@ class AutoNetworkScanDialog(BaseDialog):
         btn_frame.grid_columnconfigure(0, weight=1)
         btn_frame.grid_columnconfigure(1, weight=1)
         btn_frame.grid_columnconfigure(2, weight=1)
-        self.export_btn = self.grid_button(btn_frame, "Export CSV", self._export_csv, 0, columnspan=1)
-        self.add_tooltip(self.export_btn, "Save results to CSV")
-        self.cancel_btn = self.grid_button(btn_frame, "Cancel", self._cancel_scan, 0, columnspan=1)
+        btn_frame.grid_columnconfigure(3, weight=1)
+        self.export_csv_btn = self.grid_button(btn_frame, "Export CSV", self._export_csv, 0, columnspan=1)
+        self.add_tooltip(self.export_csv_btn, "Save results to CSV")
+        self.export_json_btn = self.grid_button(btn_frame, "Export JSON", self._export_json, 0, column=1, columnspan=1)
+        self.add_tooltip(self.export_json_btn, "Save results to JSON")
+        self.cancel_btn = self.grid_button(btn_frame, "Cancel", self._cancel_scan, 0, column=2, columnspan=1)
         self.add_tooltip(self.cancel_btn, "Abort the scan")
         self.sort_var = ctk.StringVar(value="Host")
         sort_menu = ctk.CTkOptionMenu(
@@ -164,9 +168,10 @@ class AutoNetworkScanDialog(BaseDialog):
             variable=self.sort_var,
             width=120,
         )
-        sort_menu.grid(row=0, column=2, padx=(10, 0))
+        sort_menu.grid(row=0, column=3, padx=(10, 0))
         self.add_tooltip(sort_menu, "Sort displayed results")
-        self.export_btn.grid_remove()
+        self.export_csv_btn.grid_remove()
+        self.export_json_btn.grid_remove()
         self.cancel_btn.grid_remove()
 
         self.result_area = ctk.CTkScrollableFrame(result_panel)
@@ -194,9 +199,147 @@ class AutoNetworkScanDialog(BaseDialog):
         self.refresh_fonts()
         self.refresh_theme()
 
+    def _refresh_rows(self) -> None:
+        """Refresh the results table from ``self.last_results``."""
+        for child in self.rows_frame.winfo_children():
+            child.destroy()
+
+        results = self.last_results or {}
+        items = list(results.items())
+        mode = self.sort_var.get().lower()
+        if mode == "risk":
+            def risk_val(it: tuple[str, AutoScanInfo | list | dict]) -> int:
+                res = it[1]
+                if isinstance(res, AutoScanInfo) and res.risk_score is not None:
+                    return res.risk_score
+                return -1
+            items.sort(key=risk_val, reverse=True)
+        elif mode == "ports":
+            def port_count(it: tuple[str, AutoScanInfo | list | dict]) -> int:
+                res = it[1]
+                ports_obj = res.ports if isinstance(res, AutoScanInfo) else res
+                return len(ports_obj)
+            items.sort(key=port_count, reverse=True)
+        else:
+            items.sort(key=lambda x: x[0])
+
+        if not items:
+            ctk.CTkLabel(
+                self.rows_frame,
+                text="No hosts found",
+                anchor="w",
+            ).grid(row=0, column=0, columnspan=2, sticky="w")
+            return
+
+        for host, result in items:
+            row = ctk.CTkFrame(self.rows_frame, fg_color="transparent")
+            row.grid(sticky="ew", pady=2)
+            row.grid_columnconfigure(0, weight=1)
+            row.grid_columnconfigure(1, weight=1)
+
+            host_text = host
+            text_color = None
+            ports_data: list | dict = result
+            connections = None
+            if isinstance(result, AutoScanInfo):
+                ports_data = result.ports
+                if self.hostname_var.get() and result.hostname:
+                    host_text += f" ({result.hostname})"
+                if self.mac_var.get() and result.mac:
+                    host_text += f" [{result.mac}]"
+                if self.vendor_var.get() and result.vendor:
+                    host_text += f" <{result.vendor}>"
+                if self.ping_var.get() and result.ping_latency is not None:
+                    host_text += f" [{result.ping_latency * 1000:.1f}ms]"
+                if self.conn_var.get():
+                    connections = result.connections or {}
+                if self.os_var.get() and result.os_guess:
+                    host_text += f" {{{result.os_guess}}}"
+                if self.ttl_var_disp.get() and result.ttl is not None:
+                    host_text += f" <TTL:{result.ttl}>"
+                if self.device_var.get() and result.device_type:
+                    host_text += f" [{result.device_type}]"
+                if self.risk_var.get() and result.risk_score is not None:
+                    host_text += f" <Risk:{result.risk_score}>"
+                    if result.risk_score >= 60:
+                        text_color = "#ff4444"
+                    elif result.risk_score >= 30:
+                        text_color = "#ffaa00"
+                    else:
+                        text_color = "#22dd22"
+
+            ctk.CTkLabel(row, text=host_text, anchor="w", text_color=text_color).grid(
+                row=0, column=0, sticky="w", padx=(0, 10)
+            )
+
+            def fmt_port(p: int, info=None, svc=None, http=None) -> str:
+                if info is not None:
+                    base = (
+                        f"{p}({info.service}:{info.banner or ''})"
+                        if self.banner_var.get()
+                        else (
+                            f"{p}({info.service})"
+                            if self.services_var.get()
+                            else (
+                                f"{p}({info.latency * 1000:.1f}ms)"
+                                if self.latency_var.get() and info.latency is not None
+                                else str(p)
+                            )
+                        )
+                    )
+                elif svc is not None:
+                    base = f"{p}({svc})"
+                else:
+                    base = str(p)
+                if http is not None and self.http_var.get():
+                    if http.server:
+                        base += f"<{http.server}>"
+                    elif http.title:
+                        base += f"<{http.title}>"
+                if connections is not None:
+                    cnt = connections.get(p, 0)
+                    if cnt:
+                        base += f"[{cnt}]"
+                return base
+
+            http_map = result.http_info if isinstance(result, AutoScanInfo) else None
+            if not ports_data:
+                ports_str = "none"
+            elif isinstance(ports_data, dict):
+                if self.banner_var.get():
+                    ports_str = ", ".join(
+                        fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
+                        for p, info in ports_data.items()
+                    )
+                elif self.services_var.get():
+                    ports_str = ", ".join(
+                        fmt_port(p, svc=svc, http=http_map.get(p) if http_map else None)
+                        for p, svc in ports_data.items()
+                    )
+                elif self.latency_var.get():
+                    ports_str = ", ".join(
+                        fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
+                        for p, info in ports_data.items()
+                    )
+                else:
+                    ports_str = ", ".join(
+                        fmt_port(p, http=http_map.get(p) if http_map else None)
+                        for p in ports_data
+                    )
+            else:
+                ports_str = ", ".join(
+                    fmt_port(p, http=http_map.get(p) if http_map else None)
+                    for p in ports_data
+                )
+
+            ctk.CTkLabel(row, text=ports_str, anchor="w").grid(
+                row=0, column=1, sticky="w"
+            )
+
     def _start_scan(self) -> None:
         self.start_btn.configure(state="disabled")
-        self.export_btn.grid_remove()
+        self.export_csv_btn.grid_remove()
+        self.export_json_btn.grid_remove()
         self.cancel_btn.grid()
         self.cancel_event = threading.Event()
         try:
@@ -206,9 +349,22 @@ class AutoNetworkScanDialog(BaseDialog):
             timeout = float(self.timeout_var.get())
         except Exception as exc:
             messagebox.showerror("Auto Network Scan", str(exc), parent=self)
+            self.start_btn.configure(state="normal")
+            self.cancel_btn.grid_remove()
+            self.progress.grid_remove()
+            self.progress_label.grid_remove()
             return
 
+        # reset and display progress bar immediately
+        self.progress.set(0)
+        self.progress.grid()
+        self.progress_label.configure(text="Detecting hosts... 0%")
+        self.progress_label.grid()
+
         start_end = ports_as_range(ports)
+
+        port_count = len(ports) if start_end is None else start_end[1] - start_end[0] + 1
+        detect_weight = 1.0 / (port_count + 1)
 
         fam_opt = self.family_var.get().lower()
         fam = None
@@ -219,18 +375,23 @@ class AutoNetworkScanDialog(BaseDialog):
 
         def update(value: float | None) -> None:
             if value is None:
-                self.after(0, self.progress.grid_remove)
-                self.after(0, self.progress_label.grid_remove)
+                # Show 100% before hiding for clearer feedback
+                self.progress.set(1.0)
+                self.progress_label.configure(text="Scan complete")
+                self.after(750, self.progress.grid_remove)
+                self.after(750, self.progress_label.grid_remove)
             else:
                 if not self.progress.winfo_ismapped():
                     self.progress.grid()
                     self.progress_label.grid()
                 self.progress.set(value)
-                stage = "Detecting hosts" if value < 0.5 else "Scanning ports"
+                stage = "Detecting hosts" if value < detect_weight else "Scanning ports"
                 pct = int(value * 100)
                 self.progress_label.configure(text=f"{stage}... {pct}%")
-            if self.export_btn.winfo_ismapped():
-                self.after(0, self.export_btn.grid_remove)
+            if self.export_csv_btn.winfo_ismapped():
+                self.after(0, self.export_csv_btn.grid_remove)
+            if self.export_json_btn.winfo_ismapped():
+                self.after(0, self.export_json_btn.grid_remove)
 
         def run() -> None:
             if self.app.status_bar is not None:
@@ -257,19 +418,23 @@ class AutoNetworkScanDialog(BaseDialog):
                 ping_timeout=self.app.config.get("scan_ping_timeout", timeout),
                 cancel_event=self.cancel_event,
             )
-            try:
+            results: dict[str, AutoScanInfo | list | dict] = {}
+
+            async def run_scan() -> None:
                 if start_end:
                     s, e = start_end
-                    results = asyncio.run(
-                        async_auto_scan(s, e, update, **kwargs)
-                    )
+                    ait = async_auto_scan_iter(s, e, update, **kwargs)
                 else:
-                    results = asyncio.run(
-                        async_auto_scan(ports[0], ports[-1], update, ports=ports, **kwargs)
-                    )
+                    ait = async_auto_scan_iter(ports[0], ports[-1], update, ports=ports, **kwargs)
+                async for host, info in ait:
+                    results[host] = info
+                    self.last_results = results.copy()
+                    self.after(0, self._refresh_rows)
+
+            try:
+                asyncio.run(run_scan())
             finally:
                 if self.cancel_event.is_set():
-                    # ensure progress hidden when cancelled
                     self.after(0, self.progress.grid_remove)
                     self.after(0, self.progress_label.grid_remove)
 
@@ -277,122 +442,11 @@ class AutoNetworkScanDialog(BaseDialog):
                 self.last_results = results
                 if self.cancel_event and self.cancel_event.is_set():
                     self.progress_label.configure(text="Cancelled")
-                self.export_btn.grid()
-                for child in self.rows_frame.winfo_children():
-                    child.destroy()
-                items = list(results.items())
-                mode = self.sort_var.get().lower()
-                if mode == "risk":
-                    def risk_val(it):
-                        res = it[1]
-                        if isinstance(res, AutoScanInfo) and res.risk_score is not None:
-                            return res.risk_score
-                        return -1
-                    items.sort(key=risk_val, reverse=True)
-                elif mode == "ports":
-                    def port_count(it):
-                        res = it[1]
-                        ports_obj = res.ports if isinstance(res, AutoScanInfo) else res
-                        return len(ports_obj)
-                    items.sort(key=port_count, reverse=True)
                 else:
-                    items.sort(key=lambda x: x[0])
-                for host, result in items:
-                    row = ctk.CTkFrame(self.rows_frame, fg_color="transparent")
-                    row.grid(sticky="ew", pady=2)
-                    row.grid_columnconfigure(0, weight=1)
-                    row.grid_columnconfigure(1, weight=1)
-
-                    host_text = host
-                    text_color = None
-                    ports_data = result
-                    connections = None
-                    if isinstance(result, AutoScanInfo):
-                        ports_data = result.ports
-                        if self.hostname_var.get() and result.hostname:
-                            host_text += f" ({result.hostname})"
-                        if self.mac_var.get() and result.mac:
-                            host_text += f" [{result.mac}]"
-                        if self.vendor_var.get() and result.vendor:
-                            host_text += f" <{result.vendor}>"
-                        if self.ping_var.get() and result.ping_latency is not None:
-                            host_text += f" [{result.ping_latency * 1000:.1f}ms]"
-                        if self.conn_var.get():
-                            connections = result.connections or {}
-                        if self.os_var.get() and result.os_guess:
-                            host_text += f" {{{result.os_guess}}}"
-                        if self.ttl_var_disp.get() and result.ttl is not None:
-                            host_text += f" <TTL:{result.ttl}>"
-                        if self.device_var.get() and result.device_type:
-                            host_text += f" [{result.device_type}]"
-                        if self.risk_var.get() and result.risk_score is not None:
-                            host_text += f" <Risk:{result.risk_score}>"
-                            if result.risk_score >= 60:
-                                text_color = "#ff4444"
-                            elif result.risk_score >= 30:
-                                text_color = "#ffaa00"
-                            else:
-                                text_color = "#22dd22"
-
-                    ctk.CTkLabel(row, text=host_text, anchor="w", text_color=text_color).grid(
-                        row=0, column=0, sticky="w", padx=(0, 10)
-                    )
-
-                    def fmt_port(p: int, info=None, svc=None, http=None) -> str:
-                        if info is not None:
-                            base = f"{p}({info.service}:{info.banner or ''})" if self.banner_var.get() else (
-                                f"{p}({info.service})" if self.services_var.get() else (
-                                    f"{p}({info.latency * 1000:.1f}ms)" if self.latency_var.get() and info.latency is not None else str(p)
-                                )
-                            )
-                        elif svc is not None:
-                            base = f"{p}({svc})"
-                        else:
-                            base = str(p)
-                        if http is not None and self.http_var.get():
-                            if http.server:
-                                base += f"<{http.server}>"
-                            elif http.title:
-                                base += f"<{http.title}>"
-                        if connections is not None:
-                            cnt = connections.get(p, 0)
-                            if cnt:
-                                base += f"[{cnt}]"
-                        return base
-
-                    http_map = result.http_info if isinstance(result, AutoScanInfo) else None
-                    if not ports_data:
-                        ports_str = "none"
-                    elif isinstance(ports_data, dict):
-                        if self.banner_var.get():
-                            ports_str = ", ".join(
-                                fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
-                                for p, info in ports_data.items()
-                            )
-                        elif self.services_var.get():
-                            ports_str = ", ".join(
-                                fmt_port(p, svc=svc, http=http_map.get(p) if http_map else None)
-                                for p, svc in ports_data.items()
-                            )
-                        elif self.latency_var.get():
-                            ports_str = ", ".join(
-                                fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
-                                for p, info in ports_data.items()
-                            )
-                        else:
-                            ports_str = ", ".join(
-                                fmt_port(p, http=http_map.get(p) if http_map else None)
-                                for p in ports_data
-                            )
-                    else:
-                        ports_str = ", ".join(
-                            fmt_port(p, http=http_map.get(p) if http_map else None)
-                            for p in ports_data
-                        )
-
-                    ctk.CTkLabel(row, text=ports_str, anchor="w").grid(
-                        row=0, column=1, sticky="w"
-                    )
+                    self.progress_label.configure(text="Scan complete")
+                self.export_csv_btn.grid()
+                self.export_json_btn.grid()
+                self._refresh_rows()
                 if self.app.status_bar is not None:
                     self.app.status_bar.set_message("Scan complete", "success")
 
@@ -582,6 +636,27 @@ class AutoNetworkScanDialog(BaseDialog):
                             else ""
                         )
                     writer.writerow(row)
+            messagebox.showinfo("Auto Network Scan", f"Saved to {path}", parent=self)
+        except Exception as exc:
+            messagebox.showerror("Auto Network Scan", str(exc), parent=self)
+
+    def _export_json(self) -> None:
+        if not self.last_results:
+            messagebox.showerror("Auto Network Scan", "No results to export", parent=self)
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON Files", "*.json")],
+            title="Save Scan Results",
+        )
+        if not path:
+            return
+        try:
+            import json
+
+            data = auto_scan_results_to_dict(self.last_results)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
             messagebox.showinfo("Auto Network Scan", f"Saved to {path}", parent=self)
         except Exception as exc:
             messagebox.showerror("Auto Network Scan", str(exc), parent=self)

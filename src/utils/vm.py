@@ -32,6 +32,7 @@ def launch_vm_debug(
     *,
     open_code: bool = False,
     port: int = 5678,
+    skip_deps: bool = False,
 ) -> None:
     """Launch CoolBox inside a VM or fall back to local debugging.
 
@@ -62,6 +63,8 @@ def launch_vm_debug(
             print(f"Launching CoolBox in {name} for debugging...")
             env = os.environ.copy()
             env["DEBUG_PORT"] = str(port)
+            if skip_deps:
+                env["SKIP_DEPS"] = "1"
             if name in {"docker", "podman"}:
                 script = root / "scripts" / "run_devcontainer.sh"
                 subprocess.check_call([str(script), name], env=env)
@@ -73,4 +76,6 @@ def launch_vm_debug(
         print("No VM backend available; launching locally under debugpy...")
         env = os.environ.copy()
         env["DEBUG_PORT"] = str(port)
+        if skip_deps:
+            env["SKIP_DEPS"] = "1"
         subprocess.check_call([str(root / "scripts" / "run_debug.sh")], env=env)

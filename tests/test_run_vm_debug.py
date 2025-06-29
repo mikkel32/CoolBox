@@ -36,7 +36,7 @@ def test_main_list_backends(monkeypatch, capsys):
 def test_main_passes_port(monkeypatch):
     called = {}
 
-    def fake_launch(prefer=None, open_code=False, port=5678):
+    def fake_launch(prefer=None, open_code=False, port=5678, skip_deps=False):
         called["prefer"] = prefer
         called["open_code"] = open_code
         called["port"] = port
@@ -45,3 +45,19 @@ def test_main_passes_port(monkeypatch):
     monkeypatch.setattr(rvd.sys, "argv", ["run_vm_debug.py", "--port", "9999"])
     rvd.main()
     assert called["port"] == 9999
+
+
+def test_main_skip_deps(monkeypatch):
+    called = {}
+
+    def fake_launch(prefer=None, open_code=False, port=5678, skip_deps=False):
+        called["skip_deps"] = skip_deps
+
+    monkeypatch.setattr(rvd, "_load_launch", lambda: fake_launch)
+    monkeypatch.setattr(
+        rvd.sys,
+        "argv",
+        ["run_vm_debug.py", "--skip-deps"],
+    )
+    rvd.main()
+    assert called["skip_deps"] is True
