@@ -6,36 +6,17 @@ from src.utils.ui import center_window
 class UIHelperMixin:
     """Mixin providing common UI helpers for views and dialogs."""
 
-    def __init__(self, app=None):
+    def __init__(self, app):
         self.app = app
-        self._registered_widgets: list[object] = []
-        # fonts and padding will be configured via update_scale()
-        self.font = ctk.CTkFont()
-        self.title_font = ctk.CTkFont(weight="bold")
-        self.section_font = ctk.CTkFont(weight="bold")
-        self.accent = "#1faaff"
-        if app is not None:
-            self.accent = app.theme.get_theme().get("accent_color", "#1faaff")
-        self.update_scale()
-
-    def update_scale(self) -> None:
-        """Refresh cached padding and font sizes using current UI scale."""
-        if self.app is not None:
-            scale = float(self.app.config.get("ui_scale", 1.0))
-            base = int(self.app.config.get("font_size", 14))
-            family = self.app.config.get("font_family", "Arial")
-        else:
-            scale = 1.0
-            base = 14
-            family = "Arial"
-        self.padx = int(20 * scale)
-        self.pady = int(20 * scale)
-        self.gpadx = int(5 * scale)
-        self.gpady = int(5 * scale)
-        self.font.configure(size=int(base * scale), family=family)
-        self.title_font.configure(size=int((base + 10) * scale), family=family)
-        self.section_font.configure(size=int((base + 4) * scale), family=family)
-        self.scale = scale
+        self.padx = 20
+        self.pady = 20
+        self.gpadx = 5
+        self.gpady = 5
+        size = int(app.config.get("font_size", 14))
+        self.font = ctk.CTkFont(size=size)
+        self.title_font = ctk.CTkFont(size=size + 10, weight="bold")
+        self.section_font = ctk.CTkFont(size=size + 4, weight="bold")
+        self.accent = app.theme.get_theme().get("accent_color", "#1faaff")
 
     # ------------------------------------------------------------------ font utils
     def _mark_font_role(self, widget: ctk.CTkBaseClass, role: str) -> None:
@@ -62,39 +43,12 @@ class UIHelperMixin:
         for child in parent.winfo_children():
             self.apply_fonts(child)
 
-    def register_widget(self, widget: object) -> None:
-        """Track a custom widget for theme and scale updates."""
-        if widget not in self._registered_widgets:
-            self._registered_widgets.append(widget)
-
-    def refresh_scale(self) -> None:
-        """Update padding, fonts and child widgets for new UI scale."""
-        self.update_scale()
-        self.apply_fonts()
-        for widget in list(self._registered_widgets):
-            try:
-                if hasattr(widget, "refresh_scale"):
-                    widget.refresh_scale()
-            except Exception:
-                pass
-
     def create_container(self, parent=None):
         """Return a padded container frame."""
         parent = parent or self
         container = ctk.CTkFrame(parent)
         container.pack(fill="both", expand=True, padx=self.padx, pady=self.pady)
         return container
-
-    def create_card(self, parent=None, **kwargs):
-        """Return a CardFrame with standard padding."""
-        from ..components.card_frame import CardFrame
-
-        parent = parent or self
-        card = CardFrame(parent, self.app, **kwargs)
-        card.pack(fill="both", expand=True, padx=self.padx, pady=self.pady)
-        if hasattr(self, "register_widget"):
-            self.register_widget(card)
-        return card
 
     def add_title(self, parent, text: str, *, use_pack: bool = True):
         """Return a title label and optionally pack it."""
@@ -123,13 +77,10 @@ class UIHelperMixin:
         """Create a section that can be collapsed/expanded."""
         if key is not None:
             expanded = self.app.config.get_section_state(key, expanded)
-        from ..components.card_frame import CardFrame
-
-        section = CardFrame(parent, self.app)
+        section = ctk.CTkFrame(parent)
         section.pack(fill="x", pady=(0, self.pady))
-        container = section.inner
 
-        header = ctk.CTkFrame(container, fg_color="transparent")
+        header = ctk.CTkFrame(section, fg_color="transparent")
         header.pack(fill="x")
         icon = ctk.CTkLabel(header, text="▼" if expanded else "▶", width=20)
         icon.pack(side="left")
@@ -137,7 +88,7 @@ class UIHelperMixin:
         self._mark_font_role(label, "section")
         label.pack(side="left", padx=5)
 
-        content = ctk.CTkFrame(container)
+        content = ctk.CTkFrame(section)
         if expanded:
             content.pack(fill="x", padx=self.padx)
 
@@ -399,19 +350,6 @@ class UIHelperMixin:
         entry.bind("<Escape>", lambda e: (variable.set(""), callback()))
         return entry
 
-    def create_search_entry(
-        self,
-        parent: ctk.CTkFrame,
-        variable: ctk.StringVar,
-        callback,
-        placeholder: str = "Search...",
-    ):
-        """Return a SearchEntry widget with a built-in button."""
-        from ..components.search_entry import SearchEntry
-
-        entry = SearchEntry(parent, self.app, variable, callback, placeholder=placeholder)
-        return entry
-
     def create_scrollable_container(self) -> ctk.CTkScrollableFrame:
         """Return a scrollable frame with standard padding."""
         frame = ctk.CTkScrollableFrame(self)
@@ -456,21 +394,16 @@ class UIHelperMixin:
 
     def refresh_fonts(self) -> None:
         """Update fonts based on the current config."""
-        self.update_scale()
+        size = int(self.app.config.get("font_size", 14))
+        self.font.configure(size=size)
+        self.title_font.configure(size=size + 10)
+        self.section_font.configure(size=size + 4)
         self.apply_fonts()
 
     def refresh_theme(self) -> None:
         """Refresh cached theme colors."""
-        if self.app is None:
-            return
         self.accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
         self.apply_theme()
-        for widget in list(self._registered_widgets):
-            try:
-                if hasattr(widget, "refresh_theme"):
-                    widget.refresh_theme()
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------ theme helpers
     def apply_theme(self, parent: ctk.CTkBaseClass | None = None) -> None:

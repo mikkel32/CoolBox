@@ -16,7 +16,6 @@ import threading
 from PIL import ImageGrab
 from .base_view import BaseView
 from ..components.widgets import info_label
-from ..components.icon_button import IconButton
 
 
 class ToolsView(BaseView):
@@ -33,14 +32,14 @@ class ToolsView(BaseView):
         self.add_title(self.scroll_frame, "🛠️ Tools & Utilities")
 
         self.search_var = ctk.StringVar()
-        self.search_entry = self.create_search_entry(
+        self.search_entry = self.create_search_box(
             self.scroll_frame,
             self.search_var,
+            "Search tools...",
             self._filter_tools,
-            placeholder="Search tools...",
         )
         self.search_entry.pack(fill="x", padx=20, pady=(0, 20))
-        self.add_tooltip(self.search_entry.button, "Filter tools by name")
+        self.add_tooltip(self.search_entry, "Filter tools by name")
         self.app.window.bind("<Control-f>", lambda e: self._focus_search())
         self._tool_items: list[
             tuple[ctk.CTkFrame, str, str, ctk.CTkLabel, ctk.CTkLabel, callable]
@@ -187,14 +186,11 @@ class ToolsView(BaseView):
     def _create_tool_item(self, parent, name: str, description: str, command):
         """Create a tool item"""
         # Tool frame
-        from ..components.card_frame import CardFrame
-
-        tool_frame = CardFrame(parent, self.app, shadow=True)
+        tool_frame = ctk.CTkFrame(parent)
         tool_frame.pack(fill="x", padx=20, pady=5)
-        self.register_widget(tool_frame)
         tool_frame.grid_columnconfigure(0, weight=1)
 
-        info_frame = ctk.CTkFrame(tool_frame.inner, fg_color="transparent")
+        info_frame = ctk.CTkFrame(tool_frame, fg_color="transparent")
         info_frame.grid(row=0, column=0, sticky="nsew", padx=20, pady=15)
 
         name_label = ctk.CTkLabel(
@@ -208,18 +204,10 @@ class ToolsView(BaseView):
         desc_label = info_label(info_frame, description, font=self.font)
         desc_label.pack(fill="x")
 
-        from ..components.icon_button import IconButton
-
-        button = IconButton(
-            tool_frame.inner,
-            self.app,
-            "▶",
-            text="Launch",
-            command=command,
-            tooltip=f"Open {name}",
-            width=100,
+        button = self.grid_button(
+            tool_frame, "Launch", command, 0, column=1, columnspan=1, width=100
         )
-        button.grid(row=0, column=1, padx=self.gpadx, pady=self.gpady)
+        self.add_tooltip(button, f"Open {name}")
         self._tool_items.append(
             (
                 tool_frame,
@@ -352,7 +340,7 @@ class ToolsView(BaseView):
             messagebox.showinfo("Duplicate Finder", f"Removed {removed} files")
             window.destroy()
 
-        IconButton(window, self.app, "🗑", text="Delete Selected", command=delete_selected, width=140).pack(pady=5)
+        ctk.CTkButton(window, text="Delete Selected", command=delete_selected).pack(pady=5)
         self.center_window(window)
 
     def _file_splitter(self):
@@ -486,10 +474,10 @@ class ToolsView(BaseView):
 
         btn_frame = ctk.CTkFrame(window)
         btn_frame.pack(pady=5)
-        IconButton(btn_frame, self.app, "📄", text="Copy", command=do_copy, width=80).pack(side="left", padx=5)
-        IconButton(btn_frame, self.app, "📂", text="Move", command=do_move, width=80).pack(side="left", padx=5)
-        IconButton(btn_frame, self.app, "🗑", text="Delete", command=do_delete, width=80).pack(side="left", padx=5)
-        IconButton(btn_frame, self.app, "📋", text="List Dir", command=do_list, width=80).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Copy", command=do_copy).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Move", command=do_move).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="Delete", command=do_delete).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="List Dir", command=do_list).pack(side="left", padx=5)
         self.center_window(window)
 
     def _system_info(self):
@@ -562,8 +550,8 @@ class ToolsView(BaseView):
 
         button_frame = ctk.CTkFrame(window, fg_color="transparent")
         button_frame.pack(pady=5)
-        IconButton(button_frame, self.app, "🔄", text="Refresh", command=refresh, width=100).pack(side="left", padx=5)
-        IconButton(button_frame, self.app, "✖", text="Kill PID", command=kill_selected, width=100).pack(side="left", padx=5)
+        ctk.CTkButton(button_frame, text="Refresh", command=refresh, width=100).pack(side="left", padx=5)
+        ctk.CTkButton(button_frame, text="Kill PID", command=kill_selected, width=100).pack(side="left", padx=5)
 
         schedule_refresh()
         self.center_window(window)
@@ -708,8 +696,8 @@ class ToolsView(BaseView):
                 except Exception as exc:
                     messagebox.showerror("Text Editor", str(exc))
 
-        IconButton(toolbar, self.app, "📂", text="Open", command=open_file, width=80).pack(side="left", padx=5)
-        IconButton(toolbar, self.app, "💾", text="Save", command=save_file, width=80).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="Open", command=open_file, width=80).pack(side="left", padx=5)
+        ctk.CTkButton(toolbar, text="Save", command=save_file, width=80).pack(side="left", padx=5)
         self.center_window(window)
 
     def _regex_tester(self):
@@ -736,7 +724,7 @@ class ToolsView(BaseView):
             except re.error as exc:
                 result_label.configure(text=f"Error: {exc}")
 
-        IconButton(window, self.app, "✔", text="Test", command=run_test, width=100).pack(pady=5)
+        ctk.CTkButton(window, text="Test", command=run_test).pack(pady=5)
         self.center_window(window)
 
     def _json_formatter(self):
@@ -758,7 +746,7 @@ class ToolsView(BaseView):
             except Exception as exc:
                 messagebox.showerror("JSON Formatter", str(exc))
 
-        IconButton(window, self.app, "🎨", text="Format", command=format_json, width=100).pack(pady=10)
+        ctk.CTkButton(window, text="Format", command=format_json).pack(pady=10)
         self.center_window(window)
 
     def _base64_tool(self):
@@ -790,8 +778,8 @@ class ToolsView(BaseView):
 
         btn_frame = ctk.CTkFrame(window, fg_color="transparent")
         btn_frame.pack()
-        IconButton(btn_frame, self.app, "➡", text="Encode", command=encode, width=100).pack(side="left", padx=10)
-        IconButton(btn_frame, self.app, "⬅", text="Decode", command=decode, width=100).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Encode", command=encode).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="Decode", command=decode).pack(side="left", padx=10)
         self.center_window(window)
 
     def _hash_calculator(self):
@@ -836,7 +824,7 @@ class ToolsView(BaseView):
             except Exception as exc:
                 messagebox.showerror("Hash", str(exc), parent=window)
 
-        IconButton(window, self.app, "⚙", text="Compute", command=compute, width=100).pack(pady=5)
+        ctk.CTkButton(window, text="Compute", command=compute).pack(pady=5)
         self.center_window(window)
 
     def _ping_tool(self):

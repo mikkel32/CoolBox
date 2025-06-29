@@ -1,22 +1,13 @@
+import customtkinter as ctk
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from .base_component import BaseComponent
 
-
-class LineChart(BaseComponent):
+class LineChart(ctk.CTkFrame):
     """Simple line chart widget with matplotlib."""
 
-    def __init__(
-        self,
-        master,
-        title: str,
-        color: str = "#1f6aa5",
-        *,
-        size: tuple[float, float] = (4, 2),
-        app=None,
-        owner=None,
-    ) -> None:
+    def __init__(self, master, title: str, color: str = "#1f6aa5", *,
+                 size: tuple[float, float] = (4, 2)) -> None:
         """Create a new line chart widget.
 
         Parameters
@@ -30,30 +21,15 @@ class LineChart(BaseComponent):
         size:
             Matplotlib figure size as ``(width, height)`` in inches.
         """
-        app = app or getattr(master, "app", None)
-        super().__init__(master, app)
-        if owner is not None and hasattr(owner, "register_widget"):
-            owner.register_widget(self)
-
-        scale = 1.0
-        base = 14
-        family = "Arial"
-        if self.app is not None:
-            base = int(self.app.config.get("font_size", 14))
-            scale = float(self.app.config.get("ui_scale", 1.0))
-            family = self.app.config.get("font_family", "Arial")
-        self.font_size = int(base * scale)
-        self.title_size = int((base + 2) * scale)
-        self.font_family = family
-
+        super().__init__(master)
         self._fig = Figure(figsize=size, dpi=100)
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_title(title, fontsize=self.title_size, fontfamily=self.font_family)
+        self._ax.set_title(title)
         self._ax.set_ylim(0, 100)
         self._ax.set_xlim(0, 60)
-        self._ax.set_ylabel("%", fontsize=self.font_size, fontfamily=self.font_family)
+        self._ax.set_ylabel("%")
         self._ax.grid(True, linestyle="--", alpha=0.5)
-        (self._line,) = self._ax.plot([], [], color=color, linewidth=2)
+        self._line, = self._ax.plot([], [], color=color, linewidth=2)
         self._data: list[float] = []
         canvas = FigureCanvasTkAgg(self._fig, master=self)
         canvas.draw()
@@ -81,26 +57,3 @@ class LineChart(BaseComponent):
         self._line.set_data([], [])
         self._ax.set_xlim(0, 60)
         self._mpl_canvas.draw_idle()
-
-    def refresh_fonts(self) -> None:
-        if self.app is None:
-            return
-        base = int(self.app.config.get("font_size", 14))
-        scale = float(self.app.config.get("ui_scale", 1.0))
-        family = self.app.config.get("font_family", "Arial")
-        self.font_size = int(base * scale)
-        self.title_size = int((base + 2) * scale)
-        self.font_family = family
-        self._ax.title.set_fontsize(self.title_size)
-        self._ax.title.set_fontfamily(self.font_family)
-        self._ax.yaxis.label.set_fontsize(self.font_size)
-        self._ax.yaxis.label.set_fontfamily(self.font_family)
-        for label in list(self._ax.get_xticklabels()) + list(
-            self._ax.get_yticklabels()
-        ):
-            label.set_fontsize(self.font_size)
-            label.set_fontfamily(self.font_family)
-        self._mpl_canvas.draw_idle()
-
-    def refresh_scale(self) -> None:
-        self.refresh_fonts()

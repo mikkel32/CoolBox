@@ -11,25 +11,12 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Configurable UI**: Toggle the menu bar, toolbar and status bar on demand. The
   menu bar now includes recent files, a Quick Settings dialog and a fullscreen
   toggle. Quick Settings can also be launched from the toolbar or with the
-  `Ctrl+Q` shortcut. Font size, font family and overall UI scale preview across
-  the entire application while adjusting so every view updates instantly.
+  `Ctrl+Q` shortcut.
 - **Unified Styling**: All views and dialogs inherit from shared base classes
-  so fonts, accent colors and scaling update instantly when settings change.
+  so fonts and accent colors update instantly when settings change.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Dynamic Gauges**: Resource gauges automatically change color from green to yellow to red as usage increases for quick visual feedback.
-- **Modern Theme**: A sleek dark color palette with customizable accent color delivers a professional look.
-- **Neon Theme**: Vibrant cyan and magenta highlights available via the new "neon" color theme option.
-- **Glass Theme**: Subtle glass-like interface with soft aqua accents for a refined look.
-- **Responsive Charts**: Gauges and charts scale with the global UI settings so metrics remain legible at any size. Their fonts and accent colors refresh automatically when the theme or UI scale changes. Custom widgets now register themselves with their parent views so style updates propagate without extra code.
-- **Icon Buttons**: Consistent accent-colored buttons with built-in tooltips modernize the toolbar and action panels.
-- **Search Entry**: Search fields feature an integrated icon button for a tidy, unified look.
-- **Card Layout**: Sections are wrapped in padded card frames with accent-colored borders for a sleek, professional look.
-- **Segmented Navigation**: Sidebar navigation uses modern segmented buttons for quick switching between views.
-- **Splash Screen**: A polished startup splash briefly appears while the app loads.
-- **System Accent Option**: Match the accent color to your operating system automatically.
-- **Animated Transitions**: Views slide smoothly when switching for a polished feel.
-- **Keyboard Shortcuts**: Press `F1` to view and learn the global shortcut keys.
   It also includes an advanced Force Quit utility with a searchable process
   list, automatic refresh, sort options, and multi-select termination. It can
   kill processes by name, command line pattern, port, host, open file, executable path

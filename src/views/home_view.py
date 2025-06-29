@@ -102,52 +102,44 @@ class HomeView(BaseView):
 
     def _create_action_card(self, parent, title: str, description: str, command, row: int, col: int):
         """Create an action card"""
-        from ..components.card_frame import CardFrame
-
-        card = CardFrame(parent, self.app, height=150, shadow=True)
+        card = ctk.CTkFrame(parent, height=150)
         card.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-        self.register_widget(card)
 
         # Title
         title_label = ctk.CTkLabel(
-            card.inner,
+            card,
             text=title,
             font=self.section_font,
         )
         title_label.pack(pady=(20, 10))
 
         # Description
-        desc_label = info_label(card.inner, description, font=self.font)
+        desc_label = info_label(card, description, font=self.font)
         desc_label.pack(pady=(0, 20))
 
         # Button
-        from ..components.icon_button import IconButton
-
-        button = IconButton(
-            card.inner,
-            self.app,
-            "➡",  # open icon
+        button = ctk.CTkButton(
+            card,
             text="Open",
             command=command,
-            tooltip=f"Launch {title}",
-            width=120,
+            width=100,
+            fg_color=self.accent,
+            hover_color=self.accent,
         )
         button.pack()
+        self.add_tooltip(button, f"Launch {title}")
         self._action_buttons.append(button)
 
     def _create_stat_item(self, parent, label: str, value: str, column: int):
         """Create a statistics item"""
-        from ..components.card_frame import CardFrame
-
-        frame = CardFrame(parent, self.app, shadow=True)
-        frame.grid(row=0, column=column, padx=10, pady=5, sticky="ew")
-        self.register_widget(frame)
+        frame = ctk.CTkFrame(parent)
+        frame.grid(row=0, column=column, padx=10, sticky="ew")
         parent.grid_columnconfigure(column, weight=1)
 
-        value_lbl = self.grid_label(frame.inner, value, 0, columnspan=1)
+        value_lbl = self.grid_label(frame, value, 0, columnspan=1)
         value_lbl.configure(font=self.section_font)
 
-        label_lbl = info_label(frame.inner, label, font=self.font)
+        label_lbl = info_label(frame, label, font=self.font)
         label_lbl.grid(row=1, column=0, columnspan=1, sticky="w")
 
     def _quick_start(self):
