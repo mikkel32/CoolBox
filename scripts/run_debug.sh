@@ -20,39 +20,11 @@ if command -v pkill >/dev/null 2>&1; then
     pkill -f "debugpy --listen $DEBUG_PORT" 2>/dev/null || true
 fi
 
-# Launch the application waiting for a debugger to attach. If no display is
-# available we try ``pyvirtualdisplay`` first and then ``xvfb-run`` as a
-# fallback so Tkinter can initialize correctly in headless environments.
+# Launch the application waiting for debugger to attach.  If no display
+# is available, ``xvfb-run`` provides a virtual framebuffer so Tkinter
+# can initialize correctly.
 if [ -z "$DISPLAY" ]; then
-    if python - "$DEBUG_PORT" <<'EOF'
-import sys
-import subprocess
-
-port = sys.argv[1]
-try:
-    from pyvirtualdisplay import Display
-
-    display = Display()
-    display.start()
-    try:
-        subprocess.check_call([
-            sys.executable,
-            "-Xfrozen_modules=off",
-            "-m",
-            "debugpy",
-            "--listen",
-            port,
-            "--wait-for-client",
-            "main.py",
-        ])
-    finally:
-        display.stop()
-except Exception:
-    sys.exit(1)
-EOF
-    then
-        exit 0
-    elif command -v xvfb-run >/dev/null 2>&1; then
+    if command -v xvfb-run >/dev/null 2>&1; then
         exec xvfb-run -a python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client main.py
     else
         echo "warning: xvfb-run not found; running without virtual display" >&2

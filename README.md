@@ -359,10 +359,7 @@ This requires Docker or Podman to be installed on your system. Like
 Docker environments.  You may also use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
-``run_debug.sh`` so you can still debug locally. When this fallback runs
-without an available display it first attempts to start a temporary
-virtual display using ``pyvirtualdisplay`` and only falls back to
-``xvfb-run`` if that fails.
+``run_debug.sh`` so you can still debug locally.
 When this fallback occurs the application waits for a debugger to attach on
 ``DEBUG_PORT`` (default ``5678``). Run ``python scripts/run_vm_debug.py --list``
 to verify whether Docker, Podman or Vagrant are available on your system.
@@ -387,10 +384,8 @@ current environment.  You can set ``PREFER_VM=docker``, ``PREFER_VM=podman`` or
 ``PREFER_VM=vagrant`` to force a specific backend or pass ``--prefer`` to
 ``run_vm_debug.py``. The ``run_vm_debug.sh`` wrapper now simply calls this
 Python script so all command line options like ``--prefer`` ``--code`` and
-``--port`` (or ``--auto-port`` to pick a free port) are
-available on both Unix and Windows. ``--auto-port`` chooses an unused
-TCP port so multiple debug sessions can run concurrently without
-conflicts.
+``--port`` are
+available on both Unix and Windows.
 Use the ``--code`` flag to open Visual Studio Code before launching the
 environment so it's ready to attach to the debug server.
 Run ``python scripts/run_vm_debug.py --list`` to display the backends
