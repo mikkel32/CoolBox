@@ -54,6 +54,11 @@ def parse_args(argv: list[str] | None = None) -> Namespace:
         help="Debug port to use when launching the environment",
     )
     parser.add_argument(
+        "--auto-port",
+        action="store_true",
+        help="Choose a free debug port automatically",
+    )
+    parser.add_argument(
         "--list",
         action="store_true",
         help="List available VM backends and exit",
@@ -73,10 +78,11 @@ def main(argv: list[str] | None = None) -> None:
         "Starting debug environment using",
         args.prefer if args.prefer != "auto" else "auto-detected backend",
     )
+    port = 0 if args.auto_port else args.port
     launch(
         prefer=args.prefer if args.prefer != "auto" else None,
         open_code=args.code,
-        port=args.port,
+        port=port,
     )
 
 

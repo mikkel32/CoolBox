@@ -40,10 +40,23 @@ class CoolBoxApp:
         self.config = Config()
         self.state = AppState()
 
+        # Initialize collections used by scaling and later setup
+        self.views: Dict[str, ctk.CTkFrame] = {}
+        self.current_view: Optional[str] = None
+        self.quick_settings_window: "QuickSettingsDialog | None" = None
+        self.force_quit_window: "ForceQuitDialog | None" = None
+        self.dialogs: list[object] = []
+        # Optional UI components (set during _setup_ui)
+        self.sidebar: Sidebar | None = None
+        self.toolbar: Toolbar | None = None
+        self.menu_bar: MenuBar | None = None
+        self.status_bar: StatusBar | None = None
+
         # Set appearance
         ctk.set_appearance_mode(self.config.get("appearance_mode", "dark"))
         ctk.set_default_color_theme(self.config.get("color_theme", "blue"))
 
+        # Apply scaling before creating the main window
         self.update_ui_scale()
 
         # Create main window
@@ -52,24 +65,20 @@ class CoolBoxApp:
         self.window.geometry(
             f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 800)}"
         )
+
+        # Theme manager must be ready before views are created or the splash
+        # screen displays.  This ensures UIHelperMixin subclasses can access
+        # ``self.theme`` during initialization.
+        self.theme = ThemeManager(config=self.config)
+        self.theme.apply_theme(self.config.get("theme", {}))
+        log("Initialized theme manager")
+
         if self.config.get("show_splash", True):
             self.window.withdraw()
             SplashScreen(self, on_close=self.window.deiconify)
 
         # Set minimum window size
         self.window.minsize(800, 600)
-
-        # Theme manager
-        self.theme = ThemeManager(config=self.config)
-        self.theme.apply_theme(self.config.get("theme", {}))
-        log("Initialized theme manager")
-
-        # Initialize views dict
-        self.views: Dict[str, ctk.CTkFrame] = {}
-        self.current_view: Optional[str] = None
-        self.quick_settings_window: "QuickSettingsDialog | None" = None
-        self.force_quit_window: "ForceQuitDialog | None" = None
-        self.dialogs: list[object] = []
 
         # Setup UI
         self._setup_ui()
@@ -121,6 +130,8 @@ class CoolBoxApp:
 
         # Initialize views
         self._init_views()
+        # Apply scaling to newly created views and components
+        self.update_ui_scale()
         self.refresh_recent_files()
         if self.menu_bar is not None:
             self.menu_bar.refresh_toggles()
