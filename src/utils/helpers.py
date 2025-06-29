@@ -208,3 +208,21 @@ def get_system_metrics() -> dict[str, Any]:
         "cpu_temp": temp,
         "battery": battery,
     }
+
+
+def find_free_port(start: int = 49152, end: int = 65535) -> int:
+    """Return an available TCP port within the given range.
+
+    By default the IANA ephemeral port range ``49152-65535`` is searched so
+    collisions with well-known or registered ports are avoided.
+    """
+    import socket
+    for port in range(start, end):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("", port))
+            except OSError:
+                continue
+            return port
+    raise RuntimeError(f"No free port found between {start} and {end}")

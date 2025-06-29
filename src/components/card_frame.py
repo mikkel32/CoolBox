@@ -10,7 +10,9 @@ class CardFrame(BaseComponent):
         self.padding = padding
         self.shadow = None
         if shadow:
-            self.shadow = ctk.CTkFrame(parent, corner_radius=8, fg_color="#00000020")
+            # Tk 8.6 doesn't support 8-digit hex colors, so we approximate the
+            # translucent shadow with a dark gray that works across platforms.
+            self.shadow = ctk.CTkFrame(parent, corner_radius=8, fg_color="#212121")
             self.shadow.place(in_=self, relx=0, rely=0, x=2, y=2, relwidth=1, relheight=1)
         self.configure(corner_radius=8, border_width=1)
         self.inner = ctk.CTkFrame(self, fg_color="transparent")
@@ -28,7 +30,8 @@ class CardFrame(BaseComponent):
         if getattr(self, "app", None) is not None:
             self.configure(border_color=self.accent)
         if self.shadow is not None:
-            self.shadow.configure(fg_color="#00000020")
+            # Keep the shadow consistent with the initialization color.
+            self.shadow.configure(fg_color="#212121")
 
     def destroy(self) -> None:  # type: ignore[override]
         if self.shadow is not None:
