@@ -8,17 +8,20 @@ from tkinter import filedialog
 from ..utils import file_manager, open_path
 from ..utils.ui import center_window
 import pyperclip
-from .base_component import BaseComponent
-from .icon_button import IconButton
+from .tooltip import Tooltip
 
 
-class Toolbar(BaseComponent):
+class Toolbar(ctk.CTkFrame):
     """Application toolbar"""
 
     def __init__(self, parent, app):
         """Initialize toolbar"""
-        super().__init__(parent, app, height=50, corner_radius=0)
-        self.buttons: list[IconButton] = []
+        super().__init__(parent, height=50, corner_radius=0)
+        self.app = app
+        self._tooltips: list[Tooltip] = []
+        size = int(app.config.get("font_size", 14))
+        self.font = ctk.CTkFont(size=size)
+        self.buttons: list[ctk.CTkButton] = []
 
         # Prevent frame from shrinking
         self.pack_propagate(False)
@@ -30,16 +33,11 @@ class Toolbar(BaseComponent):
     def refresh_fonts(self) -> None:
         """Update widget fonts based on current config."""
         size = int(self.app.config.get("font_size", 14))
-        scale = float(self.app.config.get("ui_scale", 1.0))
-        family = self.app.config.get("font_family", "Arial")
-        self.font.configure(size=int(size * scale), family=family)
+        self.font.configure(size=size)
         for btn in self.buttons:
             btn.configure(font=self.font)
         self.search_entry.configure(font=self.font)
         self.recent_menu.configure(font=self.font)
-
-    def refresh_scale(self) -> None:
-        self.refresh_fonts()
 
     def refresh_theme(self) -> None:
         """Update button colors using the current accent color."""
@@ -95,7 +93,6 @@ class Toolbar(BaseComponent):
             width=150,
             font=self.font,
         )
-        self._mark_font_role(self.recent_menu, "normal")
         self.recent_menu.pack(side="right", padx=5)
 
         # Search box
@@ -107,7 +104,6 @@ class Toolbar(BaseComponent):
             width=200,
             font=self.font,
         )
-        self._mark_font_role(self.search_entry, "normal")
         self.search_entry.pack(side="right", padx=5)
         self.search_entry.bind("<Return>", lambda e: self._search())
 
@@ -116,17 +112,28 @@ class Toolbar(BaseComponent):
             side="right", padx=5
         )
 
-    def _create_button(self, parent, icon: str, tooltip: str, command) -> IconButton:
+    def _create_button(self, parent, icon: str, tooltip: str, command) -> ctk.CTkButton:
         """Create a toolbar button and track it for updates."""
-        btn = IconButton(
+        btn = ctk.CTkButton(
             parent,
-            self.app,
-            icon,
+            text=icon,
+            width=40,
+            height=30,
             command=command,
-            tooltip=tooltip,
+            font=self.font,
         )
+        tip = Tooltip(self, tooltip)
+        btn.bind("<Enter>", lambda e, t=tip: self._on_hover(t, e))
+        btn.bind("<Leave>", lambda e, t=tip: t.hide())
+        self._tooltips.append(tip)
         self.buttons.append(btn)
         return btn
+
+    def _on_hover(self, tooltip: Tooltip, event) -> None:
+        """Show tooltip below a toolbar button."""
+        x = event.widget.winfo_rootx() + event.widget.winfo_width() // 2
+        y = event.widget.winfo_rooty() + event.widget.winfo_height() + 10
+        tooltip.show(x, y)
 
     def _open_file(self):
         """Open file dialog"""

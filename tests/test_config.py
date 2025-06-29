@@ -33,8 +33,6 @@ def test_reset_to_defaults(monkeypatch):
     cfg.set("font_size", 99)
     cfg.reset_to_defaults()
     assert cfg.get("font_size") == cfg.defaults["font_size"]
-    assert cfg.get("ui_scale") == cfg.defaults["ui_scale"]
-    assert cfg.get("font_family") == cfg.defaults["font_family"]
 
 
 def test_default_scan_concurrency(monkeypatch):
@@ -68,30 +66,6 @@ def test_menu_default(monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp)
     cfg = Config()
     assert cfg.get("show_menu") is True
-
-
-def test_show_splash_default(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    assert cfg.get("show_splash") is True
-
-
-def test_use_system_accent_default(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    assert cfg.get("use_system_accent") is False
-
-
-def test_use_system_accent_persist(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    cfg.set("use_system_accent", True)
-    cfg.save()
-    cfg2 = Config()
-    assert cfg2.get("use_system_accent") is True
 
 
 def test_force_quit_defaults(monkeypatch):
@@ -190,50 +164,3 @@ def test_force_quit_window_size_persist(monkeypatch):
     cfg.save()
     cfg2 = Config()
     assert cfg2.get("force_quit_width") == 1111
-
-
-def test_ui_scale_persist(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    cfg.set("ui_scale", 1.25)
-    cfg.save()
-    cfg2 = Config()
-    assert cfg2.get("ui_scale") == 1.25
-
-
-def test_font_family_persist(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    cfg.set("font_family", "Courier")
-    cfg.save()
-    cfg2 = Config()
-    assert cfg2.get("font_family") == "Courier"
-
-
-def test_show_splash_persist(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    cfg.set("show_splash", False)
-    cfg.save()
-    cfg2 = Config()
-    assert cfg2.get("show_splash") is False
-
-
-def test_enable_animations_default(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    assert cfg.get("enable_animations") is True
-
-
-def test_enable_animations_persist(monkeypatch):
-    tmp = Path(tempfile.mkdtemp())
-    monkeypatch.setattr(Path, "home", lambda: tmp)
-    cfg = Config()
-    cfg.set("enable_animations", False)
-    cfg.save()
-    cfg2 = Config()
-    assert cfg2.get("enable_animations") is False

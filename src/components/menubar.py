@@ -11,9 +11,7 @@ class MenuBar:
     def __init__(self, window: ctk.CTk, app):
         self.app = app
         size = int(app.config.get("font_size", 14))
-        scale = float(app.config.get("ui_scale", 1.0))
-        family = app.config.get("font_family", "Arial")
-        self.font = ctk.CTkFont(size=int(size * scale), family=family)
+        self.font = ctk.CTkFont(size=size)
         self.menu = tk.Menu(window, font=self.font)
         self._build_menus()
         window.config(menu=self.menu)
@@ -63,7 +61,6 @@ class MenuBar:
         self.menus.append(view_menu)
 
         help_menu = tk.Menu(self.menu, tearoff=0, font=self.font)
-        help_menu.add_command(label="Keyboard Shortcuts", command=self.app.open_shortcuts)
         help_menu.add_command(label="About", command=lambda: self.app.switch_view("about"))
         self.menu.add_cascade(label="Help", menu=help_menu)
         self.menus.append(help_menu)
@@ -130,16 +127,11 @@ class MenuBar:
     def refresh_fonts(self) -> None:
         """Update menu fonts from the current configuration."""
         size = int(self.app.config.get("font_size", 14))
-        scale = float(self.app.config.get("ui_scale", 1.0))
-        family = self.app.config.get("font_family", "Arial")
-        self.font.configure(size=int(size * scale), family=family)
+        self.font.configure(size=size)
         self.menu.configure(font=self.font)
         for menu in self.menus:
             menu.configure(font=self.font)
         self.update_recent_files()
-
-    def refresh_scale(self) -> None:
-        self.refresh_fonts()
 
     def refresh_theme(self) -> None:
         """Refresh menu highlight colors from the current theme."""

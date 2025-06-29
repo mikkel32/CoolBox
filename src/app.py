@@ -21,7 +21,6 @@ from .views.home_view import HomeView
 from .views.tools_view import ToolsView
 from .views.settings_view import SettingsView
 from .views.about_view import AboutView
-from .views.splash_screen import SplashScreen
 from .models.app_state import AppState
 from .utils.theme import ThemeManager
 from .utils.helpers import log
@@ -44,17 +43,10 @@ class CoolBoxApp:
         ctk.set_appearance_mode(self.config.get("appearance_mode", "dark"))
         ctk.set_default_color_theme(self.config.get("color_theme", "blue"))
 
-        self.update_ui_scale()
-
         # Create main window
         self.window = ctk.CTk()
         self.window.title("CoolBox - Modern Desktop App")
-        self.window.geometry(
-            f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 800)}"
-        )
-        if self.config.get("show_splash", True):
-            self.window.withdraw()
-            SplashScreen(self, on_close=self.window.deiconify)
+        self.window.geometry(f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 800)}")
 
         # Set minimum window size
         self.window.minsize(800, 600)
@@ -181,7 +173,6 @@ class CoolBoxApp:
         self.window.bind("<Control-q>", lambda e: self.open_quick_settings())
         self.window.bind("<F11>", lambda e: self.toggle_fullscreen())
         self.window.bind("<Control-Alt-f>", lambda e: self.open_force_quit())
-        self.window.bind("<F1>", lambda e: self.open_shortcuts())
 
     def switch_view(self, view_name: str):
         """Switch to a different view"""
@@ -192,24 +183,12 @@ class CoolBoxApp:
                 )
             return
 
-        # Hide current view with optional animation
-        old_view = self.views.get(self.current_view) if self.current_view else None
-        new_view = self.views[view_name]
-        if self.config.get("enable_animations", True) and old_view is not None:
-            from .utils.animation import slide_widget
+        # Hide current view
+        if self.current_view:
+            self.views[self.current_view].pack_forget()
 
-            old_view.place(in_=self.view_container, relx=0, rely=0, relwidth=1, relheight=1)
-            new_view.place(in_=self.view_container, relx=1, rely=0, relwidth=1, relheight=1)
-            slide_widget(old_view, 0, -1)
-            slide_widget(new_view, 1, 0)
-            old_view.place_forget()
-            new_view.place_forget()
-            old_view.pack_forget()
-            new_view.pack(fill="both", expand=True)
-        else:
-            if old_view is not None:
-                old_view.pack_forget()
-            new_view.pack(fill="both", expand=True)
+        # Show new view
+        self.views[view_name].pack(fill="both", expand=True)
         self.current_view = view_name
         self.state.current_view = view_name
 
@@ -257,17 +236,6 @@ class CoolBoxApp:
             "WM_DELETE_WINDOW", self._on_force_quit_closed
         )
 
-    def open_shortcuts(self) -> None:
-        """Display a dialog listing global keyboard shortcuts."""
-        from .views.shortcut_help_dialog import ShortcutHelpDialog
-
-        if hasattr(self, "shortcut_window") and self.shortcut_window is not None and self.shortcut_window.winfo_exists():
-            self.shortcut_window.focus()
-            return
-
-        self.shortcut_window = ShortcutHelpDialog(self)
-        self.shortcut_window.protocol("WM_DELETE_WINDOW", lambda: setattr(self, "shortcut_window", None))
-
     def register_dialog(self, dialog) -> None:
         """Track an open dialog for global updates."""
         if dialog not in self.dialogs:
@@ -313,27 +281,6 @@ class CoolBoxApp:
         for dlg in list(self.dialogs):
             if dlg.winfo_exists() and hasattr(dlg, "refresh_theme"):
                 dlg.refresh_theme()
-            elif not dlg.winfo_exists():
-                self.dialogs.remove(dlg)
-
-    def update_ui_scale(self) -> None:
-        """Apply global widget and window scaling from config."""
-        scale = float(self.config.get("ui_scale", 1.0))
-        try:
-            ctk.set_widget_scaling(scale)
-            ctk.set_window_scaling(scale)
-        except Exception:
-            pass
-        # propagate scale changes to all views and dialogs
-        for view in self.views.values():
-            if hasattr(view, "refresh_scale"):
-                view.refresh_scale()
-        for comp in (self.sidebar, self.toolbar, self.status_bar, self.menu_bar):
-            if comp is not None and hasattr(comp, "refresh_scale"):
-                comp.refresh_scale()
-        for dlg in list(self.dialogs):
-            if dlg.winfo_exists() and hasattr(dlg, "refresh_scale"):
-                dlg.refresh_scale()
             elif not dlg.winfo_exists():
                 self.dialogs.remove(dlg)
 

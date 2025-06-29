@@ -9,9 +9,6 @@ from .tooltip import Tooltip
 from .charts import LineChart
 from .gauge import Gauge
 from .bar_chart import BarChart
-from .card_frame import CardFrame
-from .icon_button import IconButton
-from .search_entry import SearchEntry
 
 __all__ = [
     "Sidebar",
@@ -23,7 +20,4 @@ __all__ = [
     "LineChart",
     "Gauge",
     "BarChart",
-    "CardFrame",
-    "IconButton",
-    "SearchEntry",
 ]

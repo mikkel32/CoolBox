@@ -16,16 +16,6 @@ class TestQuickSettings(unittest.TestCase):
         self.assertEqual(app.config.get("color_theme"), "green")
         app.destroy()
 
-    def test_accent_preview_reverts(self) -> None:
-        app = CoolBoxApp()
-        orig = app.theme.get_theme().get("accent_color")
-        dialog = QuickSettingsDialog(app)
-        dialog.accent_var.set("#123456")
-        self.assertEqual(app.theme.get_theme().get("accent_color"), "#123456")
-        dialog.destroy()
-        self.assertEqual(app.theme.get_theme().get("accent_color"), orig)
-        app.destroy()
-
 
 if __name__ == "__main__":
     unittest.main()

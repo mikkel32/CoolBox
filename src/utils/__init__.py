@@ -57,7 +57,6 @@ from .network import (
 )
 
 from .ui import center_window
-from .animation import slide_widget
 
 from . import file_manager
 
@@ -114,5 +113,4 @@ __all__ = [
     "ProcessEntry",
     "ProcessWatcher",
     "center_window",
-    "slide_widget",
 ]
