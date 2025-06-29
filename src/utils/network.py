@@ -332,7 +332,14 @@ async def async_get_http_info(host: str, port: int, timeout: float = 2.0) -> HTT
         request = f"GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
         writer.write(request.encode())
         await writer.drain()
-        data = await asyncio.wait_for(reader.read(4096), timeout)
+        data = bytearray()
+        while True:
+            chunk = await asyncio.wait_for(reader.read(4096), timeout)
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) >= 65536:
+                break
         writer.close()
         await writer.wait_closed()
     except Exception:
@@ -340,9 +347,9 @@ async def async_get_http_info(host: str, port: int, timeout: float = 2.0) -> HTT
 
     # split headers and body
     try:
-        header_part, body = data.split(b"\r\n\r\n", 1)
+        header_part, body = bytes(data).split(b"\r\n\r\n", 1)
     except ValueError:
-        header_part, body = data, b""
+        header_part, body = bytes(data), b""
     headers = header_part.decode(errors="ignore").splitlines()
     server = None
     for line in headers:
