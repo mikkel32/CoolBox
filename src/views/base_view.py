@@ -11,3 +11,6 @@ class BaseView(ctk.CTkFrame, UIHelperMixin):
 
     def refresh_theme(self) -> None:  # type: ignore[override]
         UIHelperMixin.refresh_theme(self)
+
+    def refresh_scale(self) -> None:  # type: ignore[override]
+        UIHelperMixin.refresh_scale(self)

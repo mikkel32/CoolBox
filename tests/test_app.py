@@ -129,6 +129,16 @@ class TestCoolBoxApp(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_open_shortcuts_method(self) -> None:
+        app = CoolBoxApp()
+        app.open_shortcuts()
+        dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
+        self.assertTrue(dialogs)
+        for d in dialogs:
+            d.destroy()
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_tools_view_launch_vm_debug_open_code(self) -> None:
         app = CoolBoxApp()
 
@@ -146,6 +156,14 @@ class TestCoolBoxApp(unittest.TestCase):
             app.views["tools"]._launch_vm_debug()
             launch.assert_called_once_with(open_code=True)
 
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_switch_view_no_animation(self) -> None:
+        app = CoolBoxApp()
+        app.config.set("enable_animations", False)
+        app.switch_view("tools")
+        self.assertEqual(app.state.current_view, "tools")
         app.destroy()
 
 

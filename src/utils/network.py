@@ -8,6 +8,7 @@ import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 import ssl
+import re
 from pathlib import Path
 from typing import Callable, List, Dict, Iterable, Any
 import subprocess
@@ -332,7 +333,13 @@ async def async_get_http_info(host: str, port: int, timeout: float = 2.0) -> HTT
         request = f"GET / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
         writer.write(request.encode())
         await writer.drain()
-        data = await asyncio.wait_for(reader.read(4096), timeout)
+        chunks = []
+        while True:
+            chunk = await asyncio.wait_for(reader.read(4096), timeout)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        data = b"".join(chunks)
         writer.close()
         await writer.wait_closed()
     except Exception:
@@ -350,15 +357,9 @@ async def async_get_http_info(host: str, port: int, timeout: float = 2.0) -> HTT
             server = line.split(":", 1)[1].strip()
             break
     title = None
-    if b"<title" in body.lower():
-        try:
-            start = body.lower().index(b"<title")
-            end = body.lower().index(b"</title", start)
-            title_tag = body[start:end]
-            title_start = title_tag.index(b">") + 1
-            title = title_tag[title_start:].decode(errors="ignore").strip()
-        except Exception:
-            title = None
+    match = re.search(rb"<title[^>]*>(.*?)</title>", body, re.IGNORECASE | re.DOTALL)
+    if match:
+        title = match.group(1).decode(errors="ignore").strip()
     return HTTPInfo(server, title)
 
 
