@@ -42,7 +42,16 @@ class ToolsView(BaseView):
         self.add_tooltip(self.search_entry, "Filter tools by name")
         self.app.window.bind("<Control-f>", lambda e: self._focus_search())
         self._tool_items: list[
-            tuple[ctk.CTkFrame, str, str, ctk.CTkLabel, ctk.CTkLabel, callable]
+            tuple[
+                ctk.CTkFrame,
+                str,
+                str,
+                ctk.CTkLabel,
+                ctk.CTkLabel,
+                callable,
+                str,
+                str,
+            ]
         ] = []
 
         # Create tool sections
@@ -66,14 +75,14 @@ class ToolsView(BaseView):
     def get_tools(self) -> list[tuple[str, str, callable]]:
         """Return a list of available tools and their launch callbacks."""
         tools: list[tuple[str, str, callable]] = []
-        for _, _, _, name_lbl, desc_lbl, cmd in self._tool_items:
+        for _, _, _, name_lbl, desc_lbl, cmd, *_ in self._tool_items:
             tools.append((name_lbl.cget("text"), desc_lbl.cget("text"), cmd))
         return tools
 
     def _filter_tools(self) -> None:
         query = self.search_var.get().lower()
         accent = self.app.theme.get_theme().get("accent_color", "#1faaff")
-        for frame, name, desc, name_lbl, desc_lbl, _ in self._tool_items:
+        for frame, name, desc, name_lbl, desc_lbl, _, default_name, default_desc in self._tool_items:
             match = query and (query in name or query in desc)
             if match:
                 if not frame.winfo_viewable():
@@ -81,8 +90,8 @@ class ToolsView(BaseView):
                 name_lbl.configure(text_color=accent)
                 desc_lbl.configure(text_color=accent)
             else:
-                name_lbl.configure(text_color=None)
-                desc_lbl.configure(text_color="gray")
+                name_lbl.configure(text_color=default_name)
+                desc_lbl.configure(text_color=default_desc)
                 if frame.winfo_viewable() and query:
                     frame.pack_forget()
                 elif not frame.winfo_viewable() and not query:
@@ -200,9 +209,11 @@ class ToolsView(BaseView):
             anchor="w",
         )
         name_label.pack(fill="x")
+        default_name_color = name_label.cget("text_color")
 
         desc_label = info_label(info_frame, description, font=self.font)
         desc_label.pack(fill="x")
+        default_desc_color = desc_label.cget("text_color")
 
         button = self.grid_button(
             tool_frame, "Launch", command, 0, column=1, columnspan=1, width=100
@@ -216,6 +227,8 @@ class ToolsView(BaseView):
                 name_label,
                 desc_label,
                 command,
+                default_name_color,
+                default_desc_color,
             )
         )
 
