@@ -143,24 +143,44 @@ class ClickOverlay(tk.Toplevel):
 
     def _query_window(self) -> WindowInfo:
         """Return the window info below the cursor, ignoring this overlay."""
-        info = get_window_at(int(self._cursor_x), int(self._cursor_y))
+
+        x = int(self._cursor_x)
+        y = int(self._cursor_y)
+
+        def probe() -> WindowInfo:
+            return get_window_at(x, y)
+
         if self._clickthrough:
+            info = probe()
             for _ in range(self.probe_attempts):
                 if info.pid not in (self._own_pid, None):
-                    break
-                info = get_window_at(int(self._cursor_x), int(self._cursor_y))
+                    confirm = probe()
+                    if confirm.pid == info.pid:
+                        break
+                    info = confirm
+                else:
+                    info = probe()
         else:
             was_click = make_window_clickthrough(self)
             try:
+                info = probe()
                 for _ in range(self.probe_attempts):
                     if info.pid not in (self._own_pid, None):
-                        break
-                    info = get_window_at(int(self._cursor_x), int(self._cursor_y))
+                        confirm = probe()
+                        if confirm.pid == info.pid:
+                            break
+                        info = confirm
+                    else:
+                        info = probe()
             finally:
                 if was_click:
                     remove_window_clickthrough(self)
-        if info.pid is None:
-            info = get_active_window()
+
+        if info.pid in (self._own_pid, None):
+            if self._last_info is not None:
+                info = self._last_info
+            else:
+                info = get_active_window()
         return info
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
