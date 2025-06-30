@@ -10,6 +10,7 @@ from .about_view import AboutView
 from .quick_settings import QuickSettingsDialog
 from .auto_scan_dialog import AutoNetworkScanDialog
 from .force_quit_dialog import ForceQuitDialog
+from .click_overlay import ClickOverlay
 from .system_info_dialog import SystemInfoDialog
 from .recent_files_dialog import RecentFilesDialog
 
@@ -24,6 +25,7 @@ __all__ = [
     "QuickSettingsDialog",
     "AutoNetworkScanDialog",
     "ForceQuitDialog",
+    "ClickOverlay",
     "SystemInfoDialog",
     "RecentFilesDialog",
 ]

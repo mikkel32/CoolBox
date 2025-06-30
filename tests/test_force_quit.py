@@ -4,6 +4,7 @@ import time
 import unittest
 import shutil
 import re
+import ctypes
 
 import psutil
 import heapq
@@ -33,8 +34,11 @@ class TestForceQuit(unittest.TestCase):
             ),
         ]
         proc = subprocess.Popen(cmd)
-        time.sleep(0.1)
-        children = psutil.Process(proc.pid).children()
+        for _ in range(10):
+            children = psutil.Process(proc.pid).children()
+            if children:
+                break
+            time.sleep(0.1)
         self.assertTrue(children)
         child_pid = children[0].pid
         ForceQuitDialog.terminate_tree(proc.pid)
@@ -1111,6 +1115,74 @@ class TestForceQuit(unittest.TestCase):
             conns=0,
         )
         assert base.changed_basic(spike)
+
+    def test_force_kill_active_window(self) -> None:
+        if ForceQuitDialog._get_active_window_pid() is None:
+            self.skipTest("active window detection unavailable")
+        script = (
+            "import tkinter as tk, time;"
+            "root=tk.Tk();root.title('FKAW');"
+            "root.after(60000, lambda: None);root.mainloop()"
+        )
+        proc = subprocess.Popen([sys.executable, "-c", script])
+        time.sleep(1.0)
+        if sys.platform.startswith("linux"):
+            xdotool = shutil.which("xdotool")
+            if xdotool:
+                subprocess.run([xdotool, "search", "--name", "FKAW", "windowactivate"], check=False)
+                time.sleep(0.5)
+        elif sys.platform.startswith("win"):
+            try:
+                hwnd = ctypes.windll.user32.FindWindowW(None, "FKAW")
+                if hwnd:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.5)
+            except Exception:
+                pass
+        elif sys.platform == "darwin":
+            subprocess.run([
+                "osascript",
+                "-e",
+                'tell application "System Events" to set frontmost of (first process whose name is "Python") to true',
+            ], check=False)
+            time.sleep(0.5)
+        focused = False
+        for _ in range(10):
+            pid = ForceQuitDialog._get_active_window_pid()
+            if pid == proc.pid:
+                focused = True
+                break
+            time.sleep(0.2)
+        if not focused:
+            proc.terminate()
+            self.skipTest("could not focus window")
+        ForceQuitDialog.force_kill_active_window()
+        time.sleep(0.2)
+        self.assertFalse(psutil.pid_exists(proc.pid))
+
+    def test_force_kill_window_under_cursor(self) -> None:
+        if ForceQuitDialog._get_window_under_cursor().pid is None:
+            self.skipTest("cursor window detection unavailable")
+        script = (
+            "import tkinter as tk, time;"
+            "root=tk.Tk();root.title('FKWC');"
+            "root.after(60000, lambda: None);root.update();"
+            "print(root.winfo_rootx(), root.winfo_rooty(), flush=True);"
+            "root.mainloop()"
+        )
+        proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        coords = proc.stdout.readline()
+        x, y = (int(v) + 10 for v in coords.split())
+        if sys.platform.startswith("win"):
+            ctypes.windll.user32.SetCursorPos(x, y)
+        elif sys.platform.startswith("linux"):
+            xdotool = shutil.which("xdotool")
+            if xdotool:
+                subprocess.run([xdotool, "mousemove", str(x), str(y)], check=False)
+        time.sleep(0.5)
+        ForceQuitDialog.force_kill_window_under_cursor()
+        time.sleep(0.2)
+        self.assertFalse(psutil.pid_exists(proc.pid))
 
 
 if __name__ == "__main__":

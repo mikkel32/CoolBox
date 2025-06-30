@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import shutil
+from src.utils.window_utils import (
+    WindowInfo,
+    get_active_window,
+    get_window_under_cursor,
+    has_active_window_support,
+    has_cursor_window_support,
+)
+from src.utils.kill_utils import kill_process, kill_process_tree
 
 import re
 import time
@@ -550,8 +557,12 @@ class ForceQuitDialog(BaseDialog):
             ("Kill by Parent", self._kill_by_parent),
             ("Kill Children", self._kill_children),
             ("Kill by Age", self._kill_by_age),
-            ("Kill Zombies", self._kill_zombies),
         ]
+        if has_active_window_support():
+            actions.append(("Kill Active Window", self._kill_active_window))
+        if has_cursor_window_support():
+            actions.append(("Kill by Click", self._kill_by_click))
+        actions.append(("Kill Zombies", self._kill_zombies))
         for i, (text, cmd) in enumerate(actions):
             btn = ctk.CTkButton(actions_scroll, text=text, command=cmd)
             btn.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="ew")
@@ -825,49 +836,10 @@ class ForceQuitDialog(BaseDialog):
     @staticmethod
     def force_kill(pid: int, *, timeout: float = 3.0) -> bool:
         """Forcefully terminate ``pid`` and return ``True`` if it exited."""
-        try:
-            proc = psutil.Process(pid)
-        except psutil.NoSuchProcess:
-            return False
-
-        try:
-            proc.terminate()
-            proc.wait(timeout=timeout / 2)
+        if kill_process(pid, timeout=timeout):
             return True
-        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
-            pass
-        except (psutil.AccessDenied, PermissionError):
-            pass
-
-        try:
-            proc.kill()
-            proc.wait(timeout=timeout / 2)
-            return True
-        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
-            pass
-        except (psutil.AccessDenied, PermissionError):
-            pass
-
-        if os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], check=False)
-        else:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                return False
-        try:
-            psutil.Process(pid).wait(timeout=timeout)
-            return True
-        except (psutil.NoSuchProcess, psutil.TimeoutExpired):
-            pass
-
-        try:
-            status = psutil.Process(pid).status()
-            return status in {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD}
-        except psutil.NoSuchProcess:
-            return True
-        except Exception:
-            return False
+        # escalate to killing the entire tree if the direct kill failed
+        return kill_process_tree(pid, timeout=timeout)
 
     @classmethod
     def force_kill_multiple(cls, pids: list[int]) -> int:
@@ -959,6 +931,37 @@ class ForceQuitDialog(BaseDialog):
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
         return cls.force_kill_multiple(list(pids))
+
+    @staticmethod
+    def _get_active_window() -> WindowInfo:
+        """Return information about the currently active window."""
+        return get_active_window()
+
+    @staticmethod
+    def _get_active_window_pid() -> int | None:
+        """Return the PID owning the currently active window if available."""
+        return ForceQuitDialog._get_active_window().pid
+
+    @staticmethod
+    def _get_window_under_cursor() -> WindowInfo:
+        """Return information about the window under the mouse cursor."""
+        return get_window_under_cursor()
+
+    @classmethod
+    def force_kill_window_under_cursor(cls) -> bool:
+        """Force kill the process owning the window currently under the cursor."""
+        info = cls._get_window_under_cursor()
+        if info.pid is None:
+            return False
+        return cls.force_kill(info.pid)
+
+    @classmethod
+    def force_kill_active_window(cls) -> bool:
+        """Force terminate the process owning the active window."""
+        pid = cls._get_active_window_pid()
+        if pid is None:
+            return False
+        return cls.force_kill(pid)
 
     @staticmethod
     def terminate_tree(pid: int, timeout: float = 3.0) -> None:
@@ -1902,6 +1905,55 @@ class ForceQuitDialog(BaseDialog):
             f"Terminated {count} process(es) older than {seconds}s",
             parent=self,
         )
+        self._populate()
+
+    def _kill_active_window(self) -> None:
+        info = self._get_active_window()
+        pid = info.pid
+        if pid is None:
+            messagebox.showerror(
+                "Force Quit", "Unable to determine active window", parent=self
+            )
+            return
+        if not messagebox.askyesno(
+            "Force Quit", f"Terminate {info.title or 'window'} (pid {pid})?", parent=self
+        ):
+            return
+        ok = self.force_kill(pid)
+        if ok:
+            messagebox.showinfo(
+                "Force Quit", f"Terminated process {pid}", parent=self
+            )
+        else:
+            messagebox.showerror(
+                "Force Quit", f"Failed to terminate process {pid}", parent=self
+            )
+        self._populate()
+
+    def _kill_by_click(self) -> None:
+        from .click_overlay import ClickOverlay
+
+        overlay = ClickOverlay(self, highlight=self.accent)
+        self.withdraw()
+        pid, title = overlay.choose()
+        self.deiconify()
+
+        if pid is None:
+            messagebox.showerror("Force Quit", "Unable to determine window", parent=self)
+            return
+        if not messagebox.askyesno(
+            "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
+        ):
+            return
+        ok = self.force_kill(pid)
+        if ok:
+            messagebox.showinfo(
+                "Force Quit", f"Terminated process {pid}", parent=self
+            )
+        else:
+            messagebox.showerror(
+                "Force Quit", f"Failed to terminate process {pid}", parent=self
+            )
         self._populate()
 
     def _kill_zombies(self) -> None:
