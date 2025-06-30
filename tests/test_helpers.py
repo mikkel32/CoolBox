@@ -8,6 +8,8 @@ from src.utils import (
     get_system_metrics,
 )
 from src.utils.cache import CacheManager
+from src.utils.helpers import adjust_color, hex_brightness, lighten_color
+from src.utils.helpers import darken_color
 
 
 def test_calc_hash(tmp_path):
@@ -78,3 +80,26 @@ def test_calc_hash_cached_and_bulk(tmp_path):
     digests2 = calc_hashes([str(f) for f in files], cache=cache)
     assert digests2 == digests
     assert cache.stats()["hits"] > hits_before
+
+
+def test_lighten_color() -> None:
+    assert lighten_color("#000000", 0) == "#000000"
+    assert lighten_color("#ffffff", 0) == "#ffffff"
+    assert lighten_color("#000000", 1) == "#ffffff"
+    mid = lighten_color("#000000", 0.5)
+    assert mid.lower() in {"#7f7f7f", "#808080"}
+
+
+def test_darken_color() -> None:
+    assert darken_color("#ffffff", 0) == "#ffffff"
+    assert darken_color("#000000", 0) == "#000000"
+    assert darken_color("#ffffff", 1) == "#000000"
+    mid = darken_color("#ffffff", 0.5)
+    assert mid.lower() in {"#7f7f7f", "#808080"}
+
+
+def test_adjust_color_and_brightness() -> None:
+    assert adjust_color("#000", 0.5).lower() in {"#7f7f7f", "#808080"}
+    assert adjust_color("#fff", -0.5).lower() in {"#7f7f7f", "#808080"}
+    assert hex_brightness("#000") == 0
+    assert hex_brightness("#fff") == 1
