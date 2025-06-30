@@ -2,6 +2,7 @@ import sys
 import subprocess
 import time
 import unittest
+from unittest import mock
 import shutil
 import re
 import ctypes
@@ -1191,14 +1192,14 @@ class TestForceQuit(unittest.TestCase):
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
         dialog.accent = "#f00"
         dialog.paused = False
-        dialog._watcher = unittest.mock.Mock()
-        dialog._populate = unittest.mock.Mock()
-        dialog.withdraw = unittest.mock.Mock()
-        dialog.deiconify = unittest.mock.Mock()
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
 
         with (
-            unittest.mock.patch("src.views.click_overlay.ClickOverlay") as CO,
-            unittest.mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
         ):
             CO.return_value.choose.return_value = (None, None)
             dialog._kill_by_click()
