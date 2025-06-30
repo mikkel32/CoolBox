@@ -10,6 +10,11 @@ fi
 if [ "$SKIP_DEPS" != "1" ]; then
     python -m pip install --quiet debugpy
     python -m pip install --quiet -r requirements.txt
+else
+    if ! python -c 'import debugpy' >/dev/null 2>&1; then
+        echo "debugpy not found; installing..." >&2
+        python -m pip install --quiet debugpy
+    fi
 fi
 
 # Choose debug port
