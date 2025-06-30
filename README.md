@@ -147,6 +147,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   ``FORCE_QUIT_IDLE_DECAY`` sets the fraction of the skip interval retained when
   a process becomes active again. Values below ``1`` slowly reduce skipping
   instead of resetting immediately, smoothing out CPU spikes.
+  ``FORCE_QUIT_IDLE_DECAY_EXP`` raises the CPU excess above the idle threshold
+  to this exponent when adjusting the decay so large spikes shorten the delay
+  more aggressively.
   ``FORCE_QUIT_IDLE_GLOBAL_ALPHA`` controls how quickly a global idle baseline
   adapts to observed CPU usage. New processes use this baseline to determine
   skip thresholds before they accumulate history of their own, improving
@@ -169,6 +172,58 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   ``FORCE_QUIT_IDLE_GRACE`` sets how many initial refresh cycles a new process
   is always sampled before idle skipping can activate, allowing more accurate
   baselines.
+  ``FORCE_QUIT_IDLE_MULT`` controls how quickly skip intervals expand during
+  idle periods. Values above ``2`` double the delay more aggressively.
+  ``FORCE_QUIT_IDLE_DYNAMIC_MULT`` scales the multiplier based on how far CPU
+  usage is below the idle threshold so processes that are deeply idle wait
+  longer before being sampled again.
+  ``FORCE_QUIT_IDLE_DYNAMIC_MEM`` extends this behaviour to memory usage so
+  processes consuming far less memory than their idle baseline wait longer
+  between samples.
+  ``FORCE_QUIT_IDLE_DYNAMIC_IO`` does the same for I/O activity, combining all
+  enabled metrics to determine how aggressively skip intervals grow.
+  ``FORCE_QUIT_IDLE_DYNAMIC_MODE`` chooses how deficits are combined when
+  dynamic scaling is active. Set to ``mean`` for a simple average or ``rms`` to
+  emphasize larger gaps.
+  ``FORCE_QUIT_IDLE_DYNAMIC_EXP`` raises the combined deficit to this exponent
+  when calculating the multiplier so deeply idle processes can skip
+  exponentially longer.
+  ``FORCE_QUIT_IDLE_CPU_WEIGHT`` ``FORCE_QUIT_IDLE_MEM_WEIGHT`` and
+  ``FORCE_QUIT_IDLE_IO_WEIGHT`` apply relative weights to CPU, memory and I/O
+  deficits when computing the multiplier.
+  ``FORCE_QUIT_IDLE_RESET_RATIO`` resets the skip interval when CPU usage
+  exceeds this multiple of the idle threshold so spikes are measured
+  immediately.
+  ``FORCE_QUIT_IDLE_CHECK_INTERVAL`` forces a lightweight CPU check after this
+  many seconds even when skipping to detect spikes sooner.
+  ``FORCE_QUIT_IDLE_ACTIVE_SAMPLES`` sets how many active cycles are measured
+  after a spike before idle skipping resumes.
+  ``FORCE_QUIT_IDLE_MEM_DELTA`` breaks skipping when memory usage rises by more
+  than this number of megabytes since the last sample, ensuring that idle
+  processes consuming RAM are checked promptly.
+  ``FORCE_QUIT_IDLE_IO_DELTA`` breaks skipping when I/O throughput increases by
+  more than this many megabytes per second between samples.
+  ``FORCE_QUIT_IDLE_MEM_RATIO`` breaks skipping when memory usage exceeds this
+  multiple of the idle baseline, allowing gradual leaks to be detected sooner.
+  ``FORCE_QUIT_IDLE_MEM_RESET_RATIO`` resets the skip interval when memory
+  usage rises above this multiple of the baseline so spikes are sampled
+  immediately, even if the process isn't currently being skipped.
+  ``FORCE_QUIT_IDLE_IO_RATIO`` breaks skipping when I/O activity exceeds this
+  multiple of the idle baseline throughput.
+  ``FORCE_QUIT_IDLE_IO_RESET_RATIO`` resets the skip interval when I/O activity
+  jumps above this multiple of the baseline and breaks idle state to resume
+  active sampling.
+  ``FORCE_QUIT_IDLE_MEM_GLOBAL_ALPHA`` controls how quickly global memory
+  baselines adapt to observed usage so new processes inherit realistic
+  thresholds.
+  ``FORCE_QUIT_IDLE_IO_GLOBAL_ALPHA`` sets the adaptation speed of the global
+  I/O baseline used for new processes.
+  ``FORCE_QUIT_IDLE_TREND_RESET`` resets skip intervals whenever the previous
+  sample detected a CPU, memory or I/O trend so rapidly growing processes are
+  sampled without delay.
+  ``FORCE_QUIT_IDLE_TREND_SAMPLES`` controls how many active cycles are
+  captured after a trending event before idle skipping resumes, ensuring the
+  monitor tracks fast-growing processes closely.
   ``FORCE_QUIT_BULK_CPU`` sets how many sampled processes trigger a bulk
   ``/proc`` scan for CPU times. When the number of active processes exceeds this
   threshold, the monitor reads all CPU times in one pass to further reduce

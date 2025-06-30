@@ -14,6 +14,7 @@ from typing import ClassVar
 from collections import deque
 import heapq
 import random
+import math
 import psutil
 
 
@@ -80,6 +81,7 @@ MAX_SKIP = int(os.getenv("FORCE_QUIT_MAX_SKIP", "5"))
 IDLE_BASELINE_ALPHA = float(os.getenv("FORCE_QUIT_IDLE_BASELINE", "0.3"))
 IDLE_BASELINE_RATIO = float(os.getenv("FORCE_QUIT_IDLE_RATIO", "0.2"))
 IDLE_DECAY = float(os.getenv("FORCE_QUIT_IDLE_DECAY", "0.5"))
+IDLE_DECAY_EXP = float(os.getenv("FORCE_QUIT_IDLE_DECAY_EXP", "1.0"))
 
 # Global idle baseline
 IDLE_GLOBAL_ALPHA = float(os.getenv("FORCE_QUIT_IDLE_GLOBAL_ALPHA", "0.3"))
@@ -97,6 +99,61 @@ IDLE_REFRESH = float(os.getenv("FORCE_QUIT_IDLE_REFRESH", "30"))
 IDLE_SKIP_ALPHA = float(os.getenv("FORCE_QUIT_IDLE_SKIP_ALPHA", "0.3"))
 # Number of initial cycles a new process is always sampled before idle skipping
 IDLE_GRACE = int(os.getenv("FORCE_QUIT_IDLE_GRACE", "1"))
+# Factor used to extend skip intervals during idle periods
+IDLE_MULT = float(os.getenv("FORCE_QUIT_IDLE_MULT", "2.0"))
+# Enable dynamic skip interval scaling based on how far CPU usage is below the
+# idle threshold. When ``False`` the multiplier is applied directly.
+IDLE_DYNAMIC_MULT = os.getenv("FORCE_QUIT_IDLE_DYNAMIC_MULT", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+# Scale idle multiplier using memory deficits
+IDLE_DYNAMIC_MEM = os.getenv("FORCE_QUIT_IDLE_DYNAMIC_MEM", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+# Scale idle multiplier using I/O deficits
+IDLE_DYNAMIC_IO = os.getenv("FORCE_QUIT_IDLE_DYNAMIC_IO", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+# Combination mode for dynamic scaling: ``mean`` or ``rms``
+IDLE_DYNAMIC_MODE = os.getenv("FORCE_QUIT_IDLE_DYNAMIC_MODE", "mean").lower()
+# Exponent applied to the combined deficit when scaling skip intervals
+IDLE_DYNAMIC_EXP = float(os.getenv("FORCE_QUIT_IDLE_DYNAMIC_EXP", "1.0"))
+# Weights applied to CPU, memory and I/O deficits when computing the multiplier
+IDLE_CPU_WEIGHT = float(os.getenv("FORCE_QUIT_IDLE_CPU_WEIGHT", "1.0"))
+IDLE_MEM_WEIGHT = float(os.getenv("FORCE_QUIT_IDLE_MEM_WEIGHT", "1.0"))
+IDLE_IO_WEIGHT = float(os.getenv("FORCE_QUIT_IDLE_IO_WEIGHT", "1.0"))
+# Skip interval reset multiplier
+IDLE_RESET_RATIO = float(os.getenv("FORCE_QUIT_IDLE_RESET_RATIO", "2.0"))
+# Interval in seconds to check for CPU spikes while skipping
+IDLE_CHECK_INTERVAL = float(os.getenv("FORCE_QUIT_IDLE_CHECK_INTERVAL", "5"))
+# Number of samples gathered after activity resumes before skipping can occur
+IDLE_ACTIVE_SAMPLES = int(os.getenv("FORCE_QUIT_IDLE_ACTIVE_SAMPLES", "3"))
+# Memory delta in MB that triggers sampling during idle skipping
+IDLE_MEM_DELTA = float(os.getenv("FORCE_QUIT_IDLE_MEM_DELTA", "50.0"))
+# I/O delta in MB/s that triggers sampling during idle skipping
+IDLE_IO_DELTA = float(os.getenv("FORCE_QUIT_IDLE_IO_DELTA", "5.0"))
+# Memory usage multiplier that triggers sampling during idle skipping
+IDLE_MEM_RATIO = float(os.getenv("FORCE_QUIT_IDLE_MEM_RATIO", "2.0"))
+# Reset skip interval when memory usage exceeds this multiple of the baseline
+IDLE_MEM_RESET_RATIO = float(os.getenv("FORCE_QUIT_IDLE_MEM_RESET_RATIO", "2.0"))
+# I/O throughput multiplier that triggers sampling during idle skipping
+IDLE_IO_RATIO = float(os.getenv("FORCE_QUIT_IDLE_IO_RATIO", "2.0"))
+# Reset skip interval when I/O usage exceeds this multiple of the baseline
+IDLE_IO_RESET_RATIO = float(os.getenv("FORCE_QUIT_IDLE_IO_RESET_RATIO", "2.0"))
+# Global memory baseline adaptation factor
+IDLE_MEM_GLOBAL_ALPHA = float(os.getenv("FORCE_QUIT_IDLE_MEM_GLOBAL_ALPHA", "0.3"))
+# Global I/O baseline adaptation factor
+IDLE_IO_GLOBAL_ALPHA = float(os.getenv("FORCE_QUIT_IDLE_IO_GLOBAL_ALPHA", "0.3"))
+# Reset skip interval when a process is trending upwards
+IDLE_TREND_RESET = os.getenv("FORCE_QUIT_IDLE_TREND_RESET", "true").lower() in {"1", "true", "yes"}
+# Number of active cycles recorded after a trending process breaks skipping
+IDLE_TREND_SAMPLES = int(os.getenv("FORCE_QUIT_IDLE_TREND_SAMPLES", "3"))
 
 # Bulk CPU time scanning
 BULK_CPU_THRESHOLD = int(os.getenv("FORCE_QUIT_BULK_CPU", "20"))
@@ -498,6 +555,7 @@ class ProcessWatcher(threading.Thread):
         idle_baseline: float = IDLE_BASELINE_ALPHA,
         idle_ratio: float = IDLE_BASELINE_RATIO,
         idle_decay: float = IDLE_DECAY,
+        idle_decay_exp: float = IDLE_DECAY_EXP,
         idle_global_alpha: float = IDLE_GLOBAL_ALPHA,
         idle_jitter: float = IDLE_JITTER,
         idle_window: int = IDLE_HISTORY,
@@ -505,6 +563,28 @@ class ProcessWatcher(threading.Thread):
         idle_refresh: float = IDLE_REFRESH,
         idle_skip_alpha: float = IDLE_SKIP_ALPHA,
         idle_grace: int = IDLE_GRACE,
+        idle_mult: float = IDLE_MULT,
+        idle_reset_ratio: float = IDLE_RESET_RATIO,
+        idle_check_interval: float = IDLE_CHECK_INTERVAL,
+        idle_active_samples: int = IDLE_ACTIVE_SAMPLES,
+        idle_trend_samples: int = IDLE_TREND_SAMPLES,
+        idle_mem_delta: float = IDLE_MEM_DELTA,
+        idle_io_delta: float = IDLE_IO_DELTA,
+        idle_mem_ratio: float = IDLE_MEM_RATIO,
+        idle_io_ratio: float = IDLE_IO_RATIO,
+        idle_mem_reset_ratio: float = IDLE_MEM_RESET_RATIO,
+        idle_io_reset_ratio: float = IDLE_IO_RESET_RATIO,
+        idle_mem_global_alpha: float = IDLE_MEM_GLOBAL_ALPHA,
+        idle_io_global_alpha: float = IDLE_IO_GLOBAL_ALPHA,
+        idle_trend_reset: bool = IDLE_TREND_RESET,
+        idle_dynamic_mult: bool = IDLE_DYNAMIC_MULT,
+        idle_dynamic_mem: bool = IDLE_DYNAMIC_MEM,
+        idle_dynamic_io: bool = IDLE_DYNAMIC_IO,
+        idle_dynamic_mode: str = IDLE_DYNAMIC_MODE,
+        idle_dynamic_exp: float = IDLE_DYNAMIC_EXP,
+        idle_cpu_weight: float = IDLE_CPU_WEIGHT,
+        idle_mem_weight: float = IDLE_MEM_WEIGHT,
+        idle_io_weight: float = IDLE_IO_WEIGHT,
         bulk_cpu_threshold: int = BULK_CPU_THRESHOLD,
         bulk_cpu_workers: int = BULK_CPU_WORKERS,
         load_threshold: float = LOAD_THRESHOLD,
@@ -605,6 +685,7 @@ class ProcessWatcher(threading.Thread):
         self.idle_baseline_alpha = float(idle_baseline)
         self.idle_ratio = float(idle_ratio)
         self.idle_decay = float(idle_decay)
+        self.idle_decay_exp = max(0.1, float(idle_decay_exp))
         self.idle_global_alpha = float(idle_global_alpha)
         self.idle_jitter = max(1.0, float(idle_jitter))
         self.idle_window = max(1, int(idle_window))
@@ -612,11 +693,42 @@ class ProcessWatcher(threading.Thread):
         self.idle_refresh = max(0.0, float(idle_refresh))
         self.idle_skip_alpha = max(0.0, min(1.0, float(idle_skip_alpha)))
         self.idle_grace = max(0, int(idle_grace))
+        self.idle_mult = max(1.0, float(idle_mult))
+        self.idle_dynamic_mult = bool(idle_dynamic_mult)
+        self.idle_dynamic_mem = bool(idle_dynamic_mem)
+        self.idle_dynamic_io = bool(idle_dynamic_io)
+        self.idle_dynamic_mode = str(idle_dynamic_mode).lower()
+        self.idle_dynamic_exp = max(0.1, float(idle_dynamic_exp))
+        self.idle_cpu_weight = max(0.0, float(idle_cpu_weight))
+        self.idle_mem_weight = max(0.0, float(idle_mem_weight))
+        self.idle_io_weight = max(0.0, float(idle_io_weight))
+        self.idle_reset_ratio = max(1.0, float(idle_reset_ratio))
+        self.idle_check_interval = max(0.0, float(idle_check_interval))
+        self.idle_active_samples = max(0, int(idle_active_samples))
+        self.idle_trend_samples = max(0, int(idle_trend_samples))
+        self.idle_mem_delta = max(0.0, float(idle_mem_delta))
+        self.idle_io_delta = max(0.0, float(idle_io_delta))
+        self.idle_mem_ratio = max(1.0, float(idle_mem_ratio))
+        self.idle_io_ratio = max(1.0, float(idle_io_ratio))
+        self.idle_mem_reset_ratio = max(1.0, float(idle_mem_reset_ratio))
+        self.idle_io_reset_ratio = max(1.0, float(idle_io_reset_ratio))
+        self.idle_mem_global_alpha = float(idle_mem_global_alpha)
+        self.idle_io_global_alpha = float(idle_io_global_alpha)
+        self.idle_trend_reset = bool(idle_trend_reset)
         self._global_idle_baseline = 0.0
         self._grace_counts: dict[int, int] = {}
         self._idle_history: dict[int, MovingAverage] = {}
         self._global_idle_history = MovingAverage(self.idle_window)
         self._idle_state: dict[int, bool] = {}
+        self._active_counts: dict[int, int] = {}
+        self._idle_mem_baseline: dict[int, float] = {}
+        self._idle_io_baseline: dict[int, float] = {}
+        self._idle_mem_history: dict[int, MovingAverage] = {}
+        self._idle_io_history: dict[int, MovingAverage] = {}
+        self._global_mem_baseline = 0.0
+        self._global_io_baseline = 0.0
+        self._global_mem_history = MovingAverage(self.idle_window)
+        self._global_io_history = MovingAverage(self.idle_window)
         self.bulk_cpu_threshold = max(1, int(bulk_cpu_threshold))
         self.bulk_cpu_workers = max(1, int(bulk_cpu_workers))
         self.load_threshold = float(load_threshold)
@@ -641,8 +753,8 @@ class ProcessWatcher(threading.Thread):
         self._last_change_ratio = 0.0
         self._last_trend_ratio = 0.0
 
-    def _update_idle_state(self, pid: int, cpu: float) -> None:
-        """Update idle counters and skip interval for *pid* based on ``cpu``."""
+    def _update_idle_state(self, pid: int, cpu: float, mem: float, io_rate: float) -> None:
+        """Update idle counters and skip interval for *pid* based on usage."""
 
         hist = self._idle_history.setdefault(pid, MovingAverage(self.idle_window))
         avg = hist.add(cpu)
@@ -653,6 +765,28 @@ class ProcessWatcher(threading.Thread):
         self._global_idle_baseline = (
             self._global_idle_baseline * (1 - self.idle_global_alpha)
             + gavg * self.idle_global_alpha
+        )
+
+        mhist = self._idle_mem_history.setdefault(pid, MovingAverage(self.idle_window))
+        mavg = mhist.add(mem)
+        mbaseline = self._idle_mem_baseline.get(pid, mavg)
+        mbaseline = mbaseline * (1 - self.idle_baseline_alpha) + mavg * self.idle_baseline_alpha
+        self._idle_mem_baseline[pid] = mbaseline
+        mgavg = self._global_mem_history.add(mem)
+        self._global_mem_baseline = (
+            self._global_mem_baseline * (1 - self.idle_mem_global_alpha)
+            + mgavg * self.idle_mem_global_alpha
+        )
+
+        ihist = self._idle_io_history.setdefault(pid, MovingAverage(self.idle_window))
+        iavg = ihist.add(io_rate)
+        ibaseline = self._idle_io_baseline.get(pid, iavg)
+        ibaseline = ibaseline * (1 - self.idle_baseline_alpha) + iavg * self.idle_baseline_alpha
+        self._idle_io_baseline[pid] = ibaseline
+        igavg = self._global_io_history.add(io_rate)
+        self._global_io_baseline = (
+            self._global_io_baseline * (1 - self.idle_io_global_alpha)
+            + igavg * self.idle_io_global_alpha
         )
 
         grace = self._grace_counts.get(pid, self.idle_grace)
@@ -667,9 +801,39 @@ class ProcessWatcher(threading.Thread):
         lower = thr * (1 - self.idle_hysteresis)
         state = self._idle_state.get(pid, False)
 
+        if cpu > thr * self.idle_reset_ratio:
+            state = False
+            self._cpu_skip_intervals[pid] = 1
+            prev_idle = self._idle_counts.get(pid, 0)
+            self._idle_counts[pid] = 0
+            self._idle_state[pid] = state
+            if self._active_counts.get(pid, 0) == 0 and prev_idle > 0:
+                self._active_counts[pid] = self.idle_active_samples
+            return
+
+        if mem > mbaseline * self.idle_mem_reset_ratio:
+            self._cpu_skip_intervals[pid] = 1
+            prev_idle = self._idle_counts.get(pid, 0)
+            self._idle_counts[pid] = 0
+            self._idle_state[pid] = False
+            if self._active_counts.get(pid, 0) == 0 and prev_idle > 0:
+                self._active_counts[pid] = self.idle_active_samples
+            return
+
+        if io_rate > ibaseline * self.idle_io_reset_ratio:
+            self._cpu_skip_intervals[pid] = 1
+            prev_idle = self._idle_counts.get(pid, 0)
+            self._idle_counts[pid] = 0
+            self._idle_state[pid] = False
+            if self._active_counts.get(pid, 0) == 0 and prev_idle > 0:
+                self._active_counts[pid] = self.idle_active_samples
+            return
+
         if state:
             if cpu > upper:
                 state = False
+                if self._active_counts.get(pid, 0) == 0 and self._idle_counts.get(pid, 0) > 0:
+                    self._active_counts[pid] = self.idle_active_samples
         else:
             if cpu < lower:
                 state = True
@@ -683,15 +847,47 @@ class ProcessWatcher(threading.Thread):
                 jitter = 1.0
                 if self.idle_jitter > 1.0:
                     jitter = random.uniform(1.0, self.idle_jitter)
+                factor = self.idle_mult
+                deficits: list[float] = []
+                weights: list[float] = []
+                if self.idle_dynamic_mult:
+                    diff = max(0.0, min(thr, thr - cpu))
+                    deficits.append(diff / max(thr, 0.001))
+                    weights.append(self.idle_cpu_weight)
+                if self.idle_dynamic_mem:
+                    base_mem = self._idle_mem_baseline.get(pid, mem)
+                    if base_mem > 0:
+                        deficits.append(max(0.0, base_mem - mem) / base_mem)
+                        weights.append(self.idle_mem_weight)
+                if self.idle_dynamic_io:
+                    base_io = self._idle_io_baseline.get(pid, io_rate)
+                    if base_io > 0:
+                        deficits.append(max(0.0, base_io - io_rate) / base_io)
+                        weights.append(self.idle_io_weight)
+                if deficits:
+                    if self.idle_dynamic_mode == "rms":
+                        scaled = math.sqrt(
+                            sum((d * w) ** 2 for d, w in zip(deficits, weights))
+                            / len(deficits)
+                        )
+                    else:
+                        scaled = sum(d * w for d, w in zip(deficits, weights)) / len(deficits)
+                    scaled = min(1.0, max(0.0, scaled))
+                    scaled = scaled ** self.idle_dynamic_exp
+                    factor = 1 + (self.idle_mult - 1) * scaled
                 self._cpu_skip_intervals[pid] = min(
-                    int(prev_int * 2 * jitter),
+                    int(prev_int * factor * jitter),
                     self.max_skip,
                 )
         else:
             self._idle_counts[pid] = 0
             prev_int = self._cpu_skip_intervals.get(pid, 1)
+            decay = self.idle_decay
+            if self.idle_dynamic_mult and cpu > thr:
+                diff = (cpu - thr) / max(thr, 0.001)
+                decay = decay ** (1 + diff ** self.idle_decay_exp)
             self._cpu_skip_intervals[pid] = max(
-                1, int(prev_int * self.idle_decay)
+                1, int(prev_int * decay)
             )
 
     def _reset_idle_state(self, pid: int) -> None:
@@ -705,9 +901,14 @@ class ProcessWatcher(threading.Thread):
         self._cpu_ts.pop(pid, None)
         self._idle_state.pop(pid, None)
         self._grace_counts.pop(pid, None)
+        self._active_counts.pop(pid, None)
+        self._idle_mem_baseline.pop(pid, None)
+        self._idle_io_baseline.pop(pid, None)
+        self._idle_mem_history.pop(pid, None)
+        self._idle_io_history.pop(pid, None)
 
-    def _record_idle_sample(self, pid: int, cpu: float) -> None:
-        """Update baseline and history when sampling is skipped."""
+    def _record_idle_sample(self, pid: int, cpu: float, mem: float, io_rate: float) -> None:
+        """Update baselines when sampling is skipped."""
 
         hist = self._idle_history.setdefault(pid, MovingAverage(self.idle_window))
         avg = hist.add(cpu)
@@ -719,10 +920,61 @@ class ProcessWatcher(threading.Thread):
             self._global_idle_baseline * (1 - self.idle_global_alpha)
             + gavg * self.idle_global_alpha
         )
+        mhist = self._idle_mem_history.setdefault(pid, MovingAverage(self.idle_window))
+        mavg = mhist.add(mem)
+        mbaseline = self._idle_mem_baseline.get(pid, mavg)
+        self._idle_mem_baseline[pid] = mbaseline * (1 - alpha) + mavg * alpha
+        mgavg = self._global_mem_history.add(mem)
+        self._global_mem_baseline = (
+            self._global_mem_baseline * (1 - self.idle_mem_global_alpha)
+            + mgavg * self.idle_mem_global_alpha
+        )
+        ihist = self._idle_io_history.setdefault(pid, MovingAverage(self.idle_window))
+        iavg = ihist.add(io_rate)
+        ibaseline = self._idle_io_baseline.get(pid, iavg)
+        self._idle_io_baseline[pid] = ibaseline * (1 - alpha) + iavg * alpha
+        igavg = self._global_io_history.add(io_rate)
+        self._global_io_baseline = (
+            self._global_io_baseline * (1 - self.idle_io_global_alpha)
+            + igavg * self.idle_io_global_alpha
+        )
 
-    def _should_skip_cpu(self, pid: int, prev: ProcessEntry | None, ts: float) -> bool:
-        """Return ``True`` if CPU sampling should be skipped for ``pid``."""
+    def _should_skip_cpu(
+        self,
+        pid: int,
+        proc: psutil.Process,
+        prev: ProcessEntry | None,
+        ts: float,
+        bulk: dict[int, float] | None = None,
+    ) -> bool:
+        """Return ``True`` if CPU sampling should be skipped for ``pid``.
 
+        When the time since the last sample exceeds ``idle_check_interval`` a
+        lightweight CPU time check is performed. If usage exceeds
+        ``idle_reset_ratio`` times the idle threshold, the skip interval is
+        reset so spikes are detected quickly.
+        """
+
+        active = self._active_counts.get(pid, 0)
+        if active > 0:
+            self._active_counts[pid] = active - 1
+            return False
+        if (
+            self.idle_trend_reset
+            and prev is not None
+            and (
+                prev.trending_cpu
+                or prev.trending_mem
+                or prev.trending_io
+            )
+        ):
+            self._cpu_skip_intervals[pid] = 1
+            self._idle_counts[pid] = 0
+            self._idle_state[pid] = False
+            self._active_counts[pid] = max(
+                self._active_counts.get(pid, 0), self.idle_trend_samples
+            )
+            return False
         if prev is None:
             self._grace_counts[pid] = 1
             return False
@@ -735,6 +987,61 @@ class ProcessWatcher(threading.Thread):
         if skip_int > 1 and skip_count < skip_int:
             last = self._cpu_ts.get(pid, ts)
             if ts - last < self.idle_refresh:
+                if ts - last >= self.idle_check_interval:
+                    try:
+                        mem = proc.memory_info().rss / (1024 * 1024)
+                    except Exception:
+                        mem = prev.mem
+                    base_mem = self._idle_mem_baseline.get(pid, prev.mem)
+                    if (
+                        mem - prev.mem > self.idle_mem_delta
+                        or mem > base_mem * self.idle_mem_ratio
+                    ):
+                        self._cpu_skip_intervals[pid] = 1
+                        prev_idle = self._idle_counts.get(pid, 0)
+                        self._idle_counts[pid] = 0
+                        self._idle_state[pid] = False
+                        if self._active_counts.get(pid, 0) == 0 and prev_idle > 0:
+                            self._active_counts[pid] = self.idle_active_samples
+                        return False
+                    if mem > base_mem * self.idle_mem_reset_ratio:
+                        self._active_counts[pid] = self.idle_active_samples
+                        return False
+                    try:
+                        io = proc.io_counters()
+                        io_rate = (
+                            io.read_bytes
+                            - prev.read_bytes
+                            + io.write_bytes
+                            - prev.write_bytes
+                        ) / max(ts - last, 0.001) / (1024 * 1024)
+                    except Exception:
+                        io_rate = 0.0
+                    base_io = self._idle_io_baseline.get(pid, prev.io_rate)
+                    if (
+                        io_rate > self.idle_io_delta
+                        or io_rate > base_io * self.idle_io_ratio
+                    ):
+                        self._cpu_skip_intervals[pid] = 1
+                        prev_idle = self._idle_counts.get(pid, 0)
+                        self._idle_counts[pid] = 0
+                        self._idle_state[pid] = False
+                        if self._active_counts.get(pid, 0) == 0 and prev_idle > 0:
+                            self._active_counts[pid] = self.idle_active_samples
+                        return False
+                    if io_rate > base_io * self.idle_io_reset_ratio:
+                        self._active_counts[pid] = self.idle_active_samples
+                        return False
+
+                    cpu_time = self._proc_cpu_time(pid, proc, bulk)
+                    cpu = (cpu_time - prev.cpu_time) / self._system_time_delta * 100
+                    thr = max(
+                        self.idle_cpu,
+                        self._idle_baseline.get(pid, self.idle_cpu) * self.idle_ratio,
+                    )
+                    if cpu > thr * self.idle_reset_ratio:
+                        self._active_counts[pid] = self.idle_active_samples
+                        return False
                 return True
         return False
 
@@ -848,6 +1155,7 @@ class ProcessWatcher(threading.Thread):
         proc: psutil.Process,
         prev: ProcessEntry | None,
         ts: float,
+        mem: float,
         read_bytes: int,
         write_bytes: int,
         bulk: dict[int, float] | None = None,
@@ -855,7 +1163,7 @@ class ProcessWatcher(threading.Thread):
         """Return ``(cpu_time, cpu, io_rate)`` with idle skip logic."""
 
         pid = proc.pid
-        skip = self._should_skip_cpu(pid, prev, ts)
+        skip = self._should_skip_cpu(pid, proc, prev, ts, bulk)
 
         if skip:
             self._cpu_skip_counts[pid] = self._cpu_skip_counts.get(pid, 0) + 1
@@ -865,7 +1173,7 @@ class ProcessWatcher(threading.Thread):
             cpu = prev.cpu if prev else 0.0
             io_rate = prev.io_rate if prev else 0.0
             if prev is not None:
-                self._record_idle_sample(pid, prev.cpu)
+                self._record_idle_sample(pid, prev.cpu, prev.mem, prev.io_rate)
             return cpu_time, cpu, io_rate
 
         cpu_time = self._proc_cpu_time(pid, proc, bulk)
@@ -880,7 +1188,7 @@ class ProcessWatcher(threading.Thread):
                 / (1024 * 1024)
             )
             self._cpu_skip_counts[pid] = 0
-            self._update_idle_state(pid, cpu)
+            self._update_idle_state(pid, cpu, mem, io_rate)
         else:
             cpu = 0.0
             io_rate = 0.0
@@ -888,6 +1196,20 @@ class ProcessWatcher(threading.Thread):
             self._cpu_skip_intervals.pop(pid, None)
             self._cpu_skip_counts.pop(pid, None)
             self._idle_baseline[pid] = self._global_idle_baseline
+            self._idle_mem_baseline[pid] = self._global_mem_baseline
+            self._idle_io_baseline[pid] = self._global_io_baseline
+            self._global_mem_baseline = (
+                self._global_mem_baseline * (1 - self.idle_mem_global_alpha)
+                + mem * self.idle_mem_global_alpha
+            )
+            self._global_io_baseline = (
+                self._global_io_baseline * (1 - self.idle_io_global_alpha)
+                + io_rate * self.idle_io_global_alpha
+            )
+            self._global_mem_history.add(mem)
+            self._global_io_history.add(io_rate)
+            self._idle_mem_history[pid] = MovingAverage(self.idle_window)
+            self._idle_io_history[pid] = MovingAverage(self.idle_window)
             ma = MovingAverage(self.idle_window)
             ma.add(0.0)
             self._idle_history[pid] = ma
@@ -1012,7 +1334,7 @@ class ProcessWatcher(threading.Thread):
                     continue
 
                 prev = self._snapshot.get(pid)
-                if not self._should_skip_cpu(pid, prev, now):
+                if not self._should_skip_cpu(pid, proc, prev, now):
                     sample_pids.add(pid)
                 proc_data[pid] = (
                     proc,
@@ -1065,6 +1387,7 @@ class ProcessWatcher(threading.Thread):
                         proc,
                         prev,
                         now,
+                        mem,
                         read_bytes,
                         write_bytes,
                         cpu_map,
