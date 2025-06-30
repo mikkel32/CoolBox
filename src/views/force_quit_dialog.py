@@ -1933,10 +1933,23 @@ class ForceQuitDialog(BaseDialog):
     def _kill_by_click(self) -> None:
         from .click_overlay import ClickOverlay
 
+        paused = self.paused
+        if not paused:
+            try:
+                self._watcher.pause()
+            except Exception:
+                pass
         overlay = ClickOverlay(self, highlight=self.accent)
         self.withdraw()
-        pid, title = overlay.choose()
-        self.deiconify()
+        try:
+            pid, title = overlay.choose()
+        finally:
+            self.deiconify()
+            if not paused:
+                try:
+                    self._watcher.resume()
+                except Exception:
+                    pass
 
         if pid is None:
             messagebox.showerror("Force Quit", "Unable to determine window", parent=self)

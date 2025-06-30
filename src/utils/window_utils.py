@@ -9,6 +9,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from ctypes import wintypes
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -40,9 +41,7 @@ def has_cursor_window_support() -> bool:
             return False
         return True
     return bool(
-        shutil.which("xdotool")
-        and shutil.which("xprop")
-        and shutil.which("xwininfo")
+        shutil.which("xdotool") and shutil.which("xprop") and shutil.which("xwininfo")
     )
 
 
@@ -102,7 +101,9 @@ def get_active_window() -> WindowInfo:
         return WindowInfo(None)
     try:
         win = subprocess.check_output([xdotool, "getwindowfocus"], text=True).strip()
-        pid_line = subprocess.check_output([xprop, "-id", win, "_NET_WM_PID"], text=True)
+        pid_line = subprocess.check_output(
+            [xprop, "-id", win, "_NET_WM_PID"], text=True
+        )
         match = re.search(r"= (\d+)", pid_line)
         pid = int(match.group(1)) if match else None
         geom = None
@@ -185,12 +186,16 @@ def get_window_under_cursor() -> WindowInfo:
     if not xdotool or not xprop or not xwininfo:
         return WindowInfo(None)
     try:
-        info = subprocess.check_output([xdotool, "getmouselocation", "--shell"], text=True)
+        info = subprocess.check_output(
+            [xdotool, "getmouselocation", "--shell"], text=True
+        )
         data = dict(line.split("=") for line in info.splitlines() if "=" in line)
         win = data.get("WINDOW")
         if not win:
             return WindowInfo(None)
-        pid_line = subprocess.check_output([xprop, "-id", win, "_NET_WM_PID"], text=True)
+        pid_line = subprocess.check_output(
+            [xprop, "-id", win, "_NET_WM_PID"], text=True
+        )
         match = re.search(r"= (\d+)", pid_line)
         pid = int(match.group(1)) if match else None
         geom = None
@@ -214,3 +219,142 @@ def get_window_under_cursor() -> WindowInfo:
         return WindowInfo(pid, geom, title)
     except Exception:
         return WindowInfo(None)
+
+
+def get_window_at(x: int, y: int) -> WindowInfo:
+    """Return information about the window at ``(x, y)`` in screen coordinates."""
+
+    if sys.platform.startswith("win"):
+        pt = wintypes.POINT(x, y)
+        hwnd = ctypes.windll.user32.WindowFromPoint(pt)
+        if not hwnd:
+            return WindowInfo(None)
+        rect = wintypes.RECT()
+        geom = None
+        if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            geom = (
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+            )
+        pid = wintypes.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        title_buf = ctypes.create_unicode_buffer(1024)
+        length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
+        title = title_buf.value if length else None
+        return WindowInfo(int(pid.value) if pid.value else None, geom, title)
+
+    if sys.platform == "darwin":
+        try:
+            import Quartz
+
+            windows = Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly,
+                Quartz.kCGNullWindowID,
+            )
+            for win in windows:
+                bounds = win.get("kCGWindowBounds")
+                if not bounds:
+                    continue
+                wx = int(bounds.get("X", 0))
+                wy = int(bounds.get("Y", 0))
+                ww = int(bounds.get("Width", 0))
+                wh = int(bounds.get("Height", 0))
+                if wx <= x <= wx + ww and wy <= y <= wy + wh:
+                    pid = int(win.get("kCGWindowOwnerPID", 0))
+                    title = win.get("kCGWindowName")
+                    return WindowInfo(pid, (wx, wy, ww, wh), title)
+        except Exception:
+            return WindowInfo(None)
+
+    # X11 fallback - coordinates ignored
+    return get_window_under_cursor()
+
+
+def make_window_clickthrough(win: Any) -> bool:
+    """Attempt to make ``win`` ignore mouse events.
+
+    Parameters
+    ----------
+    win:
+        The tkinter window or any object with ``winfo_id`` and ``attributes``
+        methods. Returns ``True`` if the platform supports click-through
+        windows and the call succeeded.
+    """
+
+    try:
+        if sys.platform.startswith("win"):
+            hwnd = wintypes.HWND(int(win.winfo_id()))
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x80000
+            WS_EX_TRANSPARENT = 0x20
+            WS_EX_NOACTIVATE = 0x08000000
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            style |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x2)
+            return True
+
+        if sys.platform == "darwin":
+            try:
+                import objc
+                from Cocoa import NSWindow
+
+                ns_win = objc.objc_object(c_void_p=win.winfo_id())
+                NSWindow(ns_win).setIgnoresMouseEvents_(True)
+                return True
+            except Exception:
+                return False
+
+        # X11: fall back to making the background fully transparent
+        win.attributes("-transparentcolor", win.cget("bg"))
+        win.update_idletasks()
+        return True
+    except Exception:
+        return False
+
+
+def remove_window_clickthrough(win: Any) -> bool:
+    """Attempt to restore normal mouse interaction for ``win``.
+
+    Parameters
+    ----------
+    win:
+        The tkinter window or any object with ``winfo_id`` and ``attributes``
+        methods.
+
+    Returns
+    -------
+    bool
+        ``True`` if the window was restored or no special handling was needed.
+    """
+
+    try:
+        if sys.platform.startswith("win"):
+            hwnd = wintypes.HWND(int(win.winfo_id()))
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x80000
+            WS_EX_TRANSPARENT = 0x20
+            WS_EX_NOACTIVATE = 0x08000000
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            style &= ~(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            return True
+
+        if sys.platform == "darwin":
+            try:
+                import objc
+                from Cocoa import NSWindow
+
+                ns_win = objc.objc_object(c_void_p=win.winfo_id())
+                NSWindow(ns_win).setIgnoresMouseEvents_(False)
+                return True
+            except Exception:
+                return False
+
+        win.attributes("-transparentcolor", "")
+        win.update_idletasks()
+        return True
+    except Exception:
+        return False

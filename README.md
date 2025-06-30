@@ -41,7 +41,16 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   process status, runtime and live I/O rate for quick troubleshooting.
   **New:** a *Kill Active Window* action instantly terminates the focused application
   and a *Kill by Click* option displays a crosshair overlay that follows your cursor,
-  highlighting the window beneath it and showing the title as you hover. Click to
+  highlighting the window beneath it and showing the title as you hover.
+  When global mouse hooks are available the overlay becomes completely
+  click-through, updating on each movement without polling. If hooks fail to
+  start or aren't available it falls back to normal bindings and briefly ignores
+  mouse events while polling the window under the cursor at ``KILL_BY_CLICK_INTERVAL``
+  and tracks pointer coordinates from hook callbacks or motion events to keep
+  updates smooth without flicker. The window's normal interaction state is
+  restored automatically when the overlay closes.
+  so the overlay remains usable without extra dependencies. Process monitoring pauses while
+  selecting so the overlay stays smooth. Click to
   immediately terminate that window's process. The confirmation dialog now includes the
   window title so you know
   exactly which application is about to close. Termination now employs a layered
@@ -270,6 +279,10 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - Python 3.8+
 - CustomTkinter
 - See `requirements.txt` for full dependencies
+- The optional `pynput` package enables the Kill by Click overlay to remain
+  fully click-through using global mouse hooks. If the hooks fail to start the
+  overlay automatically falls back to event bindings that poll the cursor at
+  ``KILL_BY_CLICK_INTERVAL``.
 
 ## 🛠️ Installation
 
