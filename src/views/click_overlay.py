@@ -96,6 +96,7 @@ class ClickOverlay(tk.Toplevel):
         self._using_hooks = False
         self.pid: int | None = None
         self.title_text: str | None = None
+        self._last_info: WindowInfo | None = None
         self._own_pid = os.getpid()
         try:
             self._cursor_x = self.winfo_pointerx()
@@ -170,6 +171,8 @@ class ClickOverlay(tk.Toplevel):
             self._raised = True
         self.pid = info.pid
         self.title_text = info.title
+        if info.pid not in (self._own_pid, None):
+            self._last_info = info
 
         px = int(self._cursor_x)
         py = int(self._cursor_y)
@@ -201,6 +204,13 @@ class ClickOverlay(tk.Toplevel):
 
     def _on_click(self) -> None:
         info: WindowInfo = self._query_window()
+        if info.pid in (self._own_pid, None):
+            if self._last_info is not None:
+                info = self._last_info
+            else:
+                info = get_active_window()
+        else:
+            self._last_info = info
         self.pid = info.pid
         self.title_text = info.title
         self.close()
