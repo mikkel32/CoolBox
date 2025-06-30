@@ -1184,6 +1184,26 @@ class TestForceQuit(unittest.TestCase):
         time.sleep(0.2)
         self.assertFalse(psutil.pid_exists(proc.pid))
 
+    def test_kill_by_click_pauses_watcher(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = False
+        dialog._watcher = unittest.mock.Mock()
+        dialog._populate = unittest.mock.Mock()
+        dialog.withdraw = unittest.mock.Mock()
+        dialog.deiconify = unittest.mock.Mock()
+
+        with (
+            unittest.mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            unittest.mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (None, None)
+            dialog._kill_by_click()
+            dialog._watcher.pause.assert_called_once()
+            dialog._watcher.resume.assert_called_once()
+            CO.assert_called_once_with(dialog, highlight=dialog.accent)
+            MB.showerror.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
