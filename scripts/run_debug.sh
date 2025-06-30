@@ -11,7 +11,7 @@ fi
 # works.
 if [ "$SKIP_DEPS" = "1" ]; then
     python - <<'EOF'
-import importlib, sys
+import importlib.util, sys
 sys.exit(0 if importlib.util.find_spec("debugpy") else 1)
 EOF
     if [ $? -ne 0 ]; then
