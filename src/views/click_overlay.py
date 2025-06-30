@@ -57,15 +57,22 @@ class ClickOverlay(tk.Toplevel):
         self.attributes("-fullscreen", True)
         self.overrideredirect(True)
         self.configure(cursor="crosshair")
+
+        # use a unique background color that can be made transparent. this is
+        # applied before enabling click-through so the color key matches the
+        # actual background when ``make_window_clickthrough`` is called.
+        bg_color = (
+            parent.cget("bg") if isinstance(parent, tk.Widget) else "#000001"
+        )
+        self.configure(bg=bg_color)
+
         self._clickthrough = False
         if is_supported():
             self._clickthrough = make_window_clickthrough(self)
+
         # Using an empty string for the canvas background causes a TclError on
-        # some platforms. Use the parent's background color to keep the canvas
-        # visually unobtrusive while avoiding invalid color values.
-        bg_color = (
-            parent.cget("bg") if isinstance(parent, tk.Widget) else self.cget("bg")
-        )
+        # some platforms. Use the chosen background color so the canvas itself
+        # becomes transparent via the color key.
         self.canvas = tk.Canvas(self, bg=bg_color, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.rect = self.canvas.create_rectangle(0, 0, 1, 1, outline=highlight, width=2)

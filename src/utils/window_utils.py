@@ -293,7 +293,18 @@ def make_window_clickthrough(win: Any) -> bool:
             style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             style |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE
             ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
-            ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, 255, 0x2)
+
+            # make the window visually transparent using a color key so drawn
+            # elements like the crosshair remain visible while the background
+            # is invisible. fall back to opaque if color parsing fails.
+            try:
+                r, g, b = (c >> 8 for c in win.winfo_rgb(win.cget("bg")))
+            except Exception:  # pragma: no cover - defensive
+                r, g, b = 0, 0, 0
+            colorref = b << 16 | g << 8 | r
+            ctypes.windll.user32.SetLayeredWindowAttributes(
+                hwnd, colorref, 255, 0x1
+            )
             return True
 
         if sys.platform == "darwin":
