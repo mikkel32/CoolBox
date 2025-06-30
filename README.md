@@ -36,11 +36,22 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   The table shows the total number of processes and how many are currently selected.
   Automatic refresh can be paused when investigating specific entries and columns
   support toggling ascending/descending sort by clicking their headers.
-  It allows filtering by user, name or PID and can be opened quickly with
-  `Ctrl+Alt+F`. Zombie processes can be terminated with a single click and the
-  list includes each process status, runtime and live I/O rate for quick
-  troubleshooting. Process data is gathered concurrently using a small thread
-  pool so updates remain fast even with hundreds of processes. Expensive metrics
+  It allows filtering by user, name or PID and can be opened quickly with `Ctrl+Alt+F`.
+  Zombie processes can be terminated with a single click and the list includes each
+  process status, runtime and live I/O rate for quick troubleshooting.
+  **New:** a *Kill Active Window* action instantly terminates the focused application
+  and a *Kill by Click* option displays a crosshair overlay that follows your cursor,
+  highlighting the window beneath it and showing the title as you hover. Click to
+  immediately terminate that window's process. The confirmation dialog now includes the
+  window title so you know
+  exactly which application is about to close. Termination now employs a layered
+  strategy that escalates from polite requests to root-level ``kill -9`` or
+  ``taskkill`` commands so stubborn processes can't escape. macOS support uses ``pyobjc`` to
+  query windows under the pointer while
+  Linux relies on ``xdotool`` and ``xwininfo``. Process data is gathered concurrently using a small thread pool so updates
+  remain fast even with hundreds of processes. Both actions only appear when these
+  dependencies are detected so unsupported systems won't see them.
+  Expensive metrics
   like open files and network connections are refreshed only every few cycles to
   further reduce overhead without losing accuracy.
   The dialog now skips UI updates when nothing has changed and supports several

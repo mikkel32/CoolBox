@@ -72,6 +72,7 @@ from .network import (
 )
 
 from .ui import center_window
+from .kill_utils import kill_process, kill_process_tree
 
 from . import file_manager
 
@@ -143,4 +144,6 @@ __all__ = [
     "ProcessEntry",
     "ProcessWatcher",
     "center_window",
+    "kill_process",
+    "kill_process_tree",
 ]

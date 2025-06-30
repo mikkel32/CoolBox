@@ -6,8 +6,19 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# Ensure debugpy and runtime deps are installed unless SKIP_DEPS=1
-if [ "$SKIP_DEPS" != "1" ]; then
+# Ensure debugpy is available. When SKIP_DEPS=1 we do a lightweight check and
+# only install it if missing so running the script without dependencies still
+# works.
+if [ "$SKIP_DEPS" = "1" ]; then
+    python - <<'EOF'
+import importlib, sys
+sys.exit(0 if importlib.util.find_spec("debugpy") else 1)
+EOF
+    if [ $? -ne 0 ]; then
+        echo "debugpy missing; installing because SKIP_DEPS=1" >&2
+        python -m pip install --quiet debugpy
+    fi
+else
     python -m pip install --quiet debugpy
     python -m pip install --quiet -r requirements.txt
 else
