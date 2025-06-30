@@ -13,9 +13,11 @@ class ClickOverlay(tk.Toplevel):
 
     def __init__(self, parent: tk.Misc, highlight: str = "red") -> None:
         super().__init__(parent)
-        self.overrideredirect(True)
+        # Configure fullscreen before enabling override-redirect to avoid
+        # "can't set fullscreen attribute" errors on some platforms.
         self.attributes("-topmost", True)
         self.attributes("-fullscreen", True)
+        self.overrideredirect(True)
         self.configure(cursor="crosshair")
         self.canvas = tk.Canvas(self, bg="", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
