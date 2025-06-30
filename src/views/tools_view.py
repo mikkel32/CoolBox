@@ -149,6 +149,11 @@ class ToolsView(BaseView):
                 "Run CoolBox in a VM and wait for debugger",
                 self._launch_vm_debug,
             ),
+            (
+                "Security Center",
+                "Toggle Firewall and Defender",
+                self._security_center,
+            ),
         ]
 
         for name, desc, func in tools:
@@ -666,6 +671,12 @@ class ToolsView(BaseView):
                     self.app.window.after(0, self.app.status_bar.hide_progress)
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _security_center(self) -> None:
+        """Open the Security Center dialog."""
+        from .security_dialog import SecurityDialog
+
+        SecurityDialog(self.app)
 
     def _text_editor(self):
         """Open a simple text editor window."""
