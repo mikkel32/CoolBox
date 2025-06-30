@@ -17,6 +17,31 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_click_falls_back_to_last_info(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        target = WindowInfo(1, (0, 0, 10, 10), "Target")
+        info_self = WindowInfo(overlay._own_pid, (5, 5, 10, 10), "Self")
+
+        with (
+            patch("src.views.click_overlay.get_window_under_cursor") as gwuc,
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+        ):
+            gwuc.side_effect = [target, info_self]
+            overlay._update_rect()
+
+            overlay.close = lambda _e=None: None
+            overlay._on_click()
+
+        self.assertEqual(overlay.pid, 1)
+        self.assertEqual(overlay.title_text, "Target")
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_click_refreshes_window_info(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
