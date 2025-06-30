@@ -312,6 +312,8 @@ and supports a few useful options:
 * ``--vendor`` adds vendor names for MAC prefixes
 * ``--connections`` lists active local connection counts
 * ``--http`` collects basic HTTP server information
+* ``--http-concurrency`` sets how many HTTP requests run concurrently
+* ``--host-concurrency`` limits how many hosts are scanned in parallel
 * ``--device`` guesses the device type
 * ``--risk`` shows a simple risk score
 * ``--top`` scans the top N most common ports instead of ``PORTS``
@@ -320,11 +322,34 @@ and supports a few useful options:
 * ``--no-host-cache`` disables caching of detected hosts
 * ``--clear-cache`` clears cached scan, host and DNS data before scanning
 * ``--json`` writes scan results to a JSON file or stdout
+* ``--stream`` streams JSON results as each host completes
 
 The ``PORTS`` argument accepts service names (``ssh``), ranges with optional
 steps (``20-30:2``), comma separated lists (``22,80``) and ``topN`` shortcuts.
 Hosts may be specified individually or using CIDR notation, ranges and ``*``
 wildcards like ``192.168.1.*``.
+
+Environment variables can tune default behavior:
+
+- ``NET_SCAN_WORKERS`` sets concurrent port/ping workers.
+- ``PING_WORKERS`` limits how many ping checks run concurrently.
+- ``PING_CACHE_TTL`` sets how long ping results are cached.
+- ``HOST_SCAN_WORKERS`` limits how many hosts are scanned at once.
+- ``META_WORKERS`` controls concurrency when fetching hostnames and MAC addresses.
+- ``NET_SCAN_TIMEOUT`` defines the connection timeout.
+- ``HTTP_CONCURRENCY`` configures concurrent HTTP requests.
+- ``NETWORK_CACHE_FILE`` changes where scan results are cached.
+- ``HTTP_CACHE_FILE`` and ``HTTP_CACHE_TTL`` control HTTP metadata caching.
+- ``DNS_CACHE_FILE`` and ``DNS_CACHE_TTL`` tune DNS caching.
+- ``LOCAL_HOST_CACHE_TTL`` sets how long detected hosts are cached.
+- ``LOCAL_HOST_CACHE_FILE`` changes where detected hosts are cached.
+- ``OUI_FILE`` specifies a vendor prefix list for MAC lookups.
+- ``ARP_CACHE_TTL`` controls how often the ARP table is refreshed for MAC lookups.
+- ``ARP_CACHE_FILE`` sets where the parsed ARP table is cached on disk.
+- When ``arp`` is unavailable on Linux, the scanner automatically falls back to
+  ``ip neighbor`` to gather MAC addresses.
+- Auto network scans merge hosts listed in the ARP table to avoid unnecessary pings.
+- ``HOST_CACHE_TTL`` defines how long DNS lookups are cached.
 
 ### Process Monitor CLI
 
@@ -340,7 +365,7 @@ python scripts/process_monitor_cli.py --interval 1.5 --limit 10 \
 
 ### Auto Network Scan
 
-From the **Tools** view choose *Auto Network Scan* to open a modern dialog with scanning options on the left and a results table on the right. CoolBox automatically detects local subnets using `psutil` and pings each address to find active hosts before scanning the specified ports. A progress bar tracks detection and scanning with results displayed in a scrollable list when complete. Recent updates add HTTP metadata collection, vendor and device type guessing, ping latency and TTL measurements, and a risk score computed from open ports. Results can be filtered and exported to CSV.
+From the **Tools** view choose *Auto Network Scan* to open a modern dialog with scanning options on the left and a results table on the right. CoolBox automatically detects local subnets using `psutil` and pings each address to find active hosts before scanning the specified ports. A progress bar tracks detection and scanning with results displayed in a scrollable list when complete. Recent updates add HTTP metadata collection, vendor and device type guessing, ping latency and TTL measurements, and a risk score computed from open ports. Results can be filtered and exported to CSV. Link-local addresses are skipped so only reachable hosts are scanned. Hosts already listed in the local ARP table are merged into the results, avoiding unnecessary pings. Asynchronous MAC lookups keep scans responsive even with many hosts.
 
 ### Debugging in a Dev Container
 

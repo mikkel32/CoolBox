@@ -9,6 +9,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+import src.utils.network as network  # noqa: E402
+
 from src.utils import (  # noqa: E402
     TOP_PORTS,
     AutoScanInfo,
@@ -18,6 +20,8 @@ from src.utils import (  # noqa: E402
     clear_host_cache,
     clear_dns_cache,
     clear_local_host_cache,
+    clear_http_cache,
+    clear_ping_cache,
     ports_as_range,
     parse_ports,
     parse_hosts,
@@ -122,6 +126,18 @@ async def main() -> None:
         help="Collect basic HTTP info for web ports",
     )
     parser.add_argument(
+        "--http-concurrency",
+        type=int,
+        default=network._DEFAULT_HTTP_CONCURRENCY,
+        help="Number of concurrent HTTP requests",
+    )
+    parser.add_argument(
+        "--host-concurrency",
+        type=int,
+        default=network._DEFAULT_HOST_CONCURRENCY,
+        help="Number of hosts scanned concurrently",
+    )
+    parser.add_argument(
         "--device",
         action="store_true",
         dest="device_type",
@@ -146,7 +162,7 @@ async def main() -> None:
     parser.add_argument(
         "--ping-concurrency",
         type=int,
-        default=100,
+        default=network._DEFAULT_PING_CONCURRENCY,
         help="Number of concurrent ping checks",
     )
     parser.add_argument(
@@ -180,6 +196,8 @@ async def main() -> None:
         clear_host_cache()
         clear_dns_cache()
         clear_local_host_cache()
+        clear_http_cache()
+        clear_ping_cache()
 
     if args.top is not None:
         port_list = TOP_PORTS[: max(1, min(args.top, len(TOP_PORTS)))]
@@ -244,34 +262,74 @@ async def main() -> None:
             ports_param = port_list
 
         if args.stream and args.json is not None:
-            from src.utils import auto_scan_info_to_dict, async_auto_scan_iter
+            from src.utils import (
+                auto_scan_info_to_dict,
+                async_auto_scan_iter,
+                async_scan_hosts_iter,
+            )
             import json
 
-            async for host, info in async_auto_scan_iter(
-                start,
-                end,
-                update,
-                concurrency=args.concurrency,
-                ports=ports_param,
-                cache_ttl=args.ttl,
-                family=fam,
-                timeout=args.timeout,
-                ping_concurrency=args.ping_concurrency,
-                ping_timeout=args.ping_timeout,
-                with_services=args.services,
-                with_banner=args.banner,
-                with_latency=args.latency,
-                with_hostname=args.hostname,
-                with_mac=args.mac,
-                with_connections=args.connections,
-                with_vendor=args.vendor,
-                with_http_info=args.http,
-                with_device_type=args.device_type,
-                with_risk_score=args.risk,
-                with_os=args.os,
-                with_ttl=args.ping_ttl,
-                with_ping_latency=args.ping_latency,
-            ):
+            scan_iter = (
+                async_auto_scan_iter(
+                    start,
+                    end,
+                    update,
+                    concurrency=args.concurrency,
+                    ports=ports_param,
+                    cache_ttl=args.ttl,
+                    family=fam,
+                    timeout=args.timeout,
+                    ping_concurrency=args.ping_concurrency,
+                    ping_timeout=args.ping_timeout,
+                    with_services=args.services,
+                    with_banner=args.banner,
+                    with_latency=args.latency,
+                    with_hostname=args.hostname,
+                    with_mac=args.mac,
+                    with_connections=args.connections,
+                    with_vendor=args.vendor,
+                    with_http_info=args.http,
+                    host_concurrency=args.host_concurrency,
+                    http_concurrency=args.http_concurrency,
+                    with_device_type=args.device_type,
+                    with_risk_score=args.risk,
+                    with_os=args.os,
+                    with_ttl=args.ping_ttl,
+                    with_ping_latency=args.ping_latency,
+                )
+                if args.auto
+                else async_scan_hosts_iter(
+                    hosts,
+                    start,
+                    end,
+                    update,
+                    concurrency=args.concurrency,
+                    ports=ports_param,
+                    cache_ttl=args.ttl,
+                    family=fam,
+                    timeout=args.timeout,
+                    ping=args.ping,
+                    ping_concurrency=args.ping_concurrency,
+                    ping_timeout=args.ping_timeout,
+                    with_services=args.services,
+                    with_banner=args.banner,
+                    with_latency=args.latency,
+                    with_hostname=args.hostname,
+                    with_mac=args.mac,
+                    with_connections=args.connections,
+                    with_vendor=args.vendor,
+                    with_http_info=args.http,
+                    host_concurrency=args.host_concurrency,
+                    http_concurrency=args.http_concurrency,
+                    with_device_type=args.device_type,
+                    with_risk_score=args.risk,
+                    with_os=args.os,
+                    with_ttl=args.ping_ttl,
+                    with_ping_latency=args.ping_latency,
+                )
+            )
+
+            async for host, info in scan_iter:
                 data = {host: auto_scan_info_to_dict(info) if isinstance(info, AutoScanInfo) else info}
                 if args.json == "-":
                     print(json.dumps(data))
@@ -301,6 +359,8 @@ async def main() -> None:
                 with_connections=args.connections,
                 with_vendor=args.vendor,
                 with_http_info=args.http,
+                host_concurrency=args.host_concurrency,
+                http_concurrency=args.http_concurrency,
                 with_device_type=args.device_type,
                 with_risk_score=args.risk,
                 with_os=args.os,

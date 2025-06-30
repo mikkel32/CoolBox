@@ -1,0 +1,8 @@
+00:1a:2b Cisco
+00:0c:29 VMware
+00:1c:42 Parallels
+b8:27:eb Raspberry Pi Foundation
+3c:5a:b4 Google
+dc:a6:32 Apple
+fc:fb:fb Amazon
+60:38:e0 Dell
