@@ -13,6 +13,7 @@ from .force_quit_dialog import ForceQuitDialog
 from .click_overlay import ClickOverlay
 from .system_info_dialog import SystemInfoDialog
 from .recent_files_dialog import RecentFilesDialog
+from .security_dialog import SecurityDialog
 
 __all__ = [
     "BaseView",
@@ -28,4 +29,5 @@ __all__ = [
     "ClickOverlay",
     "SystemInfoDialog",
     "RecentFilesDialog",
+    "SecurityDialog",
 ]

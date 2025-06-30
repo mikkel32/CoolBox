@@ -16,6 +16,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   so fonts and accent colors update instantly when settings change.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
+- **Security Center**: Toggle the Windows Firewall and Defender real-time protection directly from the app.
 - **Dynamic Gauges**: Resource gauges automatically change color from green to yellow to red as usage increases for quick visual feedback.
   It also includes an advanced Force Quit utility with a searchable process
   list, automatic refresh, sort options, and multi-select termination. It can

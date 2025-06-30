@@ -77,6 +77,12 @@ from .network import (
 
 from .ui import center_window
 from .kill_utils import kill_process, kill_process_tree
+from .security import (
+    is_firewall_enabled,
+    set_firewall_enabled,
+    is_defender_enabled,
+    set_defender_enabled,
+)
 
 from . import file_manager
 
@@ -154,4 +160,8 @@ __all__ = [
     "center_window",
     "kill_process",
     "kill_process_tree",
+    "is_firewall_enabled",
+    "set_firewall_enabled",
+    "is_defender_enabled",
+    "set_defender_enabled",
 ]
