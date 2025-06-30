@@ -27,6 +27,11 @@ import customtkinter as ctk
 import psutil
 from src.utils.process_monitor import ProcessEntry, ProcessWatcher
 from .base_dialog import BaseDialog
+from src.utils.helpers import (
+    hex_brightness,
+    lighten_color,
+    darken_color,
+)
 
 
 class ForceQuitDialog(BaseDialog):
@@ -773,9 +778,24 @@ class ForceQuitDialog(BaseDialog):
         self.tree.tag_configure("stable", background="#f5f5f5")
         self.tree.tag_configure("warning", background="#fff5cc")
         self.tree.tag_configure("critical", background="#ffcccc")
+        bright = hex_brightness(self.accent)
+        if bright < 0.3:
+            factor = 0.6
+        elif bright < 0.6:
+            factor = 0.4
+        else:
+            factor = 0.2
+        if bright < 0.5:
+            self.hover_color = lighten_color(self.accent, factor)
+        else:
+            self.hover_color = darken_color(self.accent, factor)
+        self.tree.tag_configure("hover", background=self.hover_color)
+        self._hover_iid: str | None = None
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
         self.tree.bind("<<TreeviewSelect>>", self._on_selection)
+        self.tree.bind("<Motion>", self._on_hover)
+        self.tree.bind("<Leave>", lambda e: self._set_hover_row(None))
 
         self.details_frame = ctk.CTkFrame(monitor_tab)
         self.details_frame.pack(fill="both", padx=10, pady=(5, 0))
@@ -1438,6 +1458,7 @@ class ForceQuitDialog(BaseDialog):
                     pass
 
         self.after_idle(update_tree)
+        self.after_idle(self._update_hover)
         self._update_status(len(processes))
         if processes:
             if self.empty_label.winfo_ismapped():
@@ -1605,6 +1626,41 @@ class ForceQuitDialog(BaseDialog):
         self.details_text.delete("1.0", "end")
         self.details_text.insert("1.0", info)
         self.details_text.configure(state="disabled")
+
+    def _apply_hover_tag(self) -> None:
+        if self._hover_iid and self.tree.exists(self._hover_iid):
+            tags = set(self.tree.item(self._hover_iid, "tags"))
+            tags.add("hover")
+            self.tree.item(self._hover_iid, tags=tuple(tags))
+
+    def _remove_hover_tag(self) -> None:
+        if self._hover_iid and self.tree.exists(self._hover_iid):
+            tags = set(self.tree.item(self._hover_iid, "tags"))
+            tags.discard("hover")
+            self.tree.item(self._hover_iid, tags=tuple(tags))
+
+    def _set_hover_row(self, iid: str | None) -> None:
+        if iid == self._hover_iid:
+            if iid is not None and not self.tree.exists(iid):
+                self._hover_iid = None
+            return
+        self._remove_hover_tag()
+        if iid is not None and not self.tree.exists(iid):
+            iid = None
+        self._hover_iid = iid
+        self._apply_hover_tag()
+
+    def _on_hover(self, event) -> None:
+        self._set_hover_row(self.tree.identify_row(event.y))
+
+    def _update_hover(self) -> None:
+        x, y = self.winfo_pointerxy()
+        widget = self.winfo_containing(x, y)
+        if widget is self.tree or widget in self.tree.winfo_children():
+            iid = self.tree.identify_row(y - self.tree.winfo_rooty())
+        else:
+            iid = None
+        self._set_hover_row(iid)
 
     def _toggle_details(self) -> None:
         if self.show_details_var.get():

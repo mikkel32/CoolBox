@@ -5,6 +5,9 @@ import unittest
 import shutil
 import re
 import ctypes
+import os
+import tkinter as tk
+from tkinter import ttk
 
 import psutil
 import heapq
@@ -1203,6 +1206,62 @@ class TestForceQuit(unittest.TestCase):
             dialog._watcher.resume.assert_called_once()
             CO.assert_called_once_with(dialog, highlight=dialog.accent)
             MB.showerror.assert_called_once()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_hover_highlights_row(self) -> None:
+        root = tk.Tk()
+        tree = ttk.Treeview(root)
+        tree.insert("", "end", iid="1", values=("foo",))
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.tree = tree
+        dialog._hover_iid = None
+        dialog.hover_color = "#eee"
+        tree.tag_configure("hover", background=dialog.hover_color)
+        event = tk.Event()
+        event.y = tree.bbox("1")[1] + 1
+        dialog._on_hover(event)
+        self.assertIn("hover", tree.item("1", "tags"))
+        dialog._set_hover_row(None)
+        self.assertNotIn("hover", tree.item("1", "tags"))
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_update_hover_picks_row(self) -> None:
+        root = tk.Tk()
+        tree = ttk.Treeview(root)
+        tree.insert("", "end", iid="1", values=("foo",))
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.tree = tree
+        dialog._hover_iid = None
+        dialog.hover_color = "#eee"
+        tree.tag_configure("hover", background=dialog.hover_color)
+        bbox = tree.bbox("1")
+        root.update_idletasks()
+        dialog.winfo_pointerxy = lambda: (
+            tree.winfo_rootx() + bbox[0] + 2,
+            tree.winfo_rooty() + bbox[1] + 2,
+        )
+        dialog.winfo_containing = root.winfo_containing
+        dialog._update_hover()
+        self.assertIn("hover", tree.item("1", "tags"))
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_set_hover_row_handles_missing(self) -> None:
+        root = tk.Tk()
+        tree = ttk.Treeview(root)
+        tree.insert("", "end", iid="1", values=("foo",))
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.tree = tree
+        dialog._hover_iid = None
+        dialog.hover_color = "#eee"
+        tree.tag_configure("hover", background=dialog.hover_color)
+        dialog._set_hover_row("1")
+        self.assertIn("hover", tree.item("1", "tags"))
+        tree.delete("1")
+        dialog._set_hover_row("1")
+        self.assertIsNone(dialog._hover_iid)
+        root.destroy()
 
 
 if __name__ == "__main__":

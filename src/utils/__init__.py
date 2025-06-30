@@ -9,6 +9,10 @@ from .helpers import (
     calc_hashes,
     get_system_info,
     get_system_metrics,
+    lighten_color,
+    darken_color,
+    adjust_color,
+    hex_brightness,
 )
 from .vm import launch_vm_debug
 from .file_manager import (
@@ -95,6 +99,10 @@ __all__ = [
     "calc_hashes",
     "get_system_info",
     "get_system_metrics",
+    "lighten_color",
+    "darken_color",
+    "adjust_color",
+    "hex_brightness",
     "launch_vm_debug",
     "scan_ports",
     "async_scan_ports",
