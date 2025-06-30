@@ -58,8 +58,9 @@ def launch_vm_debug(
             print("warning: 'code' command not found; cannot open Visual Studio Code")
 
     backend = prefer or os.environ.get("PREFER_VM", "auto").lower()
+    detected = available_backends()
     for name in _pick_backend(backend):
-        if shutil.which(name):
+        if name in detected:
             print(f"Launching CoolBox in {name} for debugging...")
             env = os.environ.copy()
             env["DEBUG_PORT"] = str(port)
@@ -72,10 +73,10 @@ def launch_vm_debug(
                 script = root / "scripts" / "run_vagrant.sh"
                 subprocess.check_call([str(script)], env=env)
             return
-    else:
-        print("No VM backend available; launching locally under debugpy...")
-        env = os.environ.copy()
-        env["DEBUG_PORT"] = str(port)
-        if skip_deps:
-            env["SKIP_DEPS"] = "1"
-        subprocess.check_call([str(root / "scripts" / "run_debug.sh")], env=env)
+
+    print("No VM backend available; detected none. Launching locally under debugpy.")
+    env = os.environ.copy()
+    env["DEBUG_PORT"] = str(port)
+    if skip_deps:
+        env["SKIP_DEPS"] = "1"
+    subprocess.check_call([str(root / "scripts" / "run_debug.sh")], env=env)

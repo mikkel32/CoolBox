@@ -19,7 +19,11 @@ class ClickOverlay(tk.Toplevel):
         self.attributes("-fullscreen", True)
         self.overrideredirect(True)
         self.configure(cursor="crosshair")
-        self.canvas = tk.Canvas(self, bg="", highlightthickness=0)
+        # Using an empty string for the canvas background causes a TclError on
+        # some platforms. Use the parent's background color to keep the canvas
+        # visually unobtrusive while avoiding invalid color values.
+        bg_color = parent.cget("bg") if isinstance(parent, tk.Widget) else self.cget("bg")
+        self.canvas = tk.Canvas(self, bg=bg_color, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.rect = self.canvas.create_rectangle(
             0, 0, 1, 1, outline=highlight, width=2
