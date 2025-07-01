@@ -24,6 +24,17 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_env_sets_default_highlight(self) -> None:
+        with patch.dict(os.environ, {"KILL_BY_CLICK_HIGHLIGHT": "green"}):
+            root = tk.Tk()
+            with patch("src.views.click_overlay.is_supported", return_value=False):
+                overlay = ClickOverlay(root)
+            color = overlay.canvas.itemcget(overlay.rect, "outline")
+            self.assertEqual(color, "green")
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_click_falls_back_to_last_info(self) -> None:
         root = tk.Tk()
         with (
@@ -421,8 +432,8 @@ class TestClickOverlay(unittest.TestCase):
         samples = [WindowInfo(2), WindowInfo(1)]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 1.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 1.0),
             patch("src.views.click_overlay.ACTIVE_BONUS", 5.0),
         ):
             choice = overlay._weighted_choice(samples)
@@ -459,8 +470,8 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch("src.views.click_overlay.get_window_at") as gwa,
-            patch("src.views.click_overlay.CONFIDENCE_RATIO", 2.0),
-            patch("src.views.click_overlay.EXTRA_ATTEMPTS", 2),
+            patch("src.utils.scoring_engine.tuning.confidence_ratio", 2.0),
+            patch("src.utils.scoring_engine.tuning.extra_attempts", 2),
         ):
             gwa.side_effect = [info1, info2, info2, info2]
             result = overlay._query_window_at(0, 0)
@@ -483,9 +494,9 @@ class TestClickOverlay(unittest.TestCase):
         with (
             patch("src.views.click_overlay.get_window_at") as gwa,
             patch.object(overlay, "_weighted_confidence") as wc,
-            patch("src.views.click_overlay.CONFIDENCE_RATIO", 1.0),
-            patch("src.views.click_overlay.DOMINANCE", 0.9),
-            patch("src.views.click_overlay.EXTRA_ATTEMPTS", 2),
+            patch("src.utils.scoring_engine.tuning.confidence_ratio", 1.0),
+            patch("src.utils.scoring_engine.tuning.dominance", 0.9),
+            patch("src.utils.scoring_engine.tuning.extra_attempts", 2),
         ):
             gwa.side_effect = [info1, info2, info2]
             wc.side_effect = [
@@ -513,9 +524,9 @@ class TestClickOverlay(unittest.TestCase):
         samples = [WindowInfo(1)]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 1.0),
-            patch("src.views.click_overlay.VELOCITY_SCALE", 1.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.velocity_scale", 1.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -536,9 +547,9 @@ class TestClickOverlay(unittest.TestCase):
         samples = [WindowInfo(1)]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 1.0),
-            patch("src.views.click_overlay.STABILITY_WEIGHT", 2.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.stability_weight", 2.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -556,7 +567,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._info_history.extend([WindowInfo(1), WindowInfo(1), WindowInfo(1)])
         overlay._pid_stability[1] = 3
 
-        with patch("src.views.click_overlay.STABILITY_THRESHOLD", 2):
+        with patch("src.utils.scoring_engine.tuning.stability_threshold", 2):
             info = overlay._stable_info()
 
         self.assertIsNotNone(info)
@@ -579,9 +590,9 @@ class TestClickOverlay(unittest.TestCase):
         ]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
-            patch("src.views.click_overlay.CENTER_WEIGHT", 5.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 0.0),
+            patch("src.utils.scoring_engine.tuning.center_weight", 5.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -604,10 +615,10 @@ class TestClickOverlay(unittest.TestCase):
         ]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
-            patch("src.views.click_overlay.EDGE_PENALTY", 0.9),
-            patch("src.views.click_overlay.EDGE_BUFFER", 2),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 0.0),
+            patch("src.utils.scoring_engine.tuning.edge_penalty", 0.9),
+            patch("src.utils.scoring_engine.tuning.edge_buffer", 2),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -627,8 +638,8 @@ class TestClickOverlay(unittest.TestCase):
         overlay._velocity = 2.0
 
         with (
-            patch("src.views.click_overlay.STABILITY_THRESHOLD", 2),
-            patch("src.views.click_overlay.VEL_STAB_SCALE", 2.0),
+            patch("src.utils.scoring_engine.tuning.stability_threshold", 2),
+            patch("src.utils.scoring_engine.tuning.vel_stab_scale", 2.0),
         ):
             info = overlay._stable_info()
 
@@ -652,9 +663,9 @@ class TestClickOverlay(unittest.TestCase):
         ]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
-            patch("src.views.click_overlay.PATH_WEIGHT", 3.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 0.0),
+            patch("src.utils.scoring_engine.tuning.path_weight", 3.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -676,9 +687,9 @@ class TestClickOverlay(unittest.TestCase):
         ]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
-            patch("src.views.click_overlay.HEATMAP_WEIGHT", 2.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 0.0),
+            patch("src.utils.scoring_engine.tuning.heatmap_weight", 2.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -698,9 +709,9 @@ class TestClickOverlay(unittest.TestCase):
         samples = [WindowInfo(1), WindowInfo(2)]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
-            patch("src.views.click_overlay.STREAK_WEIGHT", 2.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 1.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 0.0),
+            patch("src.utils.scoring_engine.tuning.streak_weight", 2.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -720,7 +731,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._tracker.durations = {1: 0.5, 2: 0.5}
         samples = [WindowInfo(1), WindowInfo(2)]
 
-        with patch("src.views.click_overlay.RECENCY_WEIGHT", 5.0):
+        with patch("src.utils.scoring_engine.tuning.recency_weight", 5.0):
             choice = overlay._weighted_choice(samples)
 
         self.assertEqual(choice.pid, 2)
@@ -739,7 +750,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._tracker.durations = {1: 2.0, 2: 0.5}
         samples = [WindowInfo(1), WindowInfo(2)]
 
-        with patch("src.views.click_overlay.DURATION_WEIGHT", 3.0):
+        with patch("src.utils.scoring_engine.tuning.duration_weight", 3.0):
             choice = overlay._weighted_choice(samples)
 
         self.assertEqual(choice.pid, 1)
@@ -757,7 +768,7 @@ class TestClickOverlay(unittest.TestCase):
         samples = [WindowInfo(1), WindowInfo(2)]
 
         with (
-            patch("src.views.click_overlay.ACTIVE_HISTORY_WEIGHT", 2.0),
+            patch("src.utils.scoring_engine.tuning.active_history_weight", 2.0),
             patch("src.views.click_overlay.ACTIVE_HISTORY_DECAY", 1.0),
         ):
             choice = overlay._weighted_choice(samples)
@@ -804,9 +815,9 @@ class TestClickOverlay(unittest.TestCase):
         stack = [WindowInfo(2), WindowInfo(1)]
 
         with (
-            patch("src.views.click_overlay.SAMPLE_WEIGHT", 0.0),
-            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
-            patch("src.views.click_overlay.ZORDER_WEIGHT", 5.0),
+            patch("src.utils.scoring_engine.tuning.sample_weight", 0.0),
+            patch("src.utils.scoring_engine.tuning.history_weight", 0.0),
+            patch("src.utils.scoring_engine.tuning.zorder_weight", 5.0),
             patch("src.views.click_overlay.list_windows_at", return_value=stack),
         ):
             choice = overlay._weighted_choice(samples)
@@ -829,7 +840,7 @@ class TestClickOverlay(unittest.TestCase):
             patch.object(overlay, "_query_window_at", return_value=WindowInfo(None)),
             patch.object(overlay, "_stable_info", return_value=None),
             patch.object(overlay._tracker, "best_with_confidence", return_value=(WindowInfo(8), 3.0)),
-            patch("src.views.click_overlay.TRACKER_RATIO", 2.0),
+            patch("src.utils.scoring_engine.tuning.tracker_ratio", 2.0),
         ):
             overlay.close = lambda _e=None: None
             overlay._on_click()
@@ -851,7 +862,7 @@ class TestClickOverlay(unittest.TestCase):
         with (
             patch.object(overlay, "_query_window_at", return_value=WindowInfo(1, (0, 0, 10, 10), "one")),
             patch.object(overlay, "_confirm_window", return_value=WindowInfo(2, (5, 5, 10, 10), "two")),
-            patch("src.views.click_overlay.CONFIRM_WEIGHT", 5.0),
+            patch("src.utils.scoring_engine.tuning.confirm_weight", 5.0),
         ):
             overlay.close = lambda _e=None: None
             overlay._on_click()
@@ -891,10 +902,108 @@ class TestClickOverlay(unittest.TestCase):
         overlay._gaze_duration = {1: 0.1, 2: 2.0}
         samples = [WindowInfo(1), WindowInfo(2)]
 
-        with patch("src.views.click_overlay.GAZE_WEIGHT", 5.0):
+        with patch("src.utils.scoring_engine.tuning.gaze_weight", 5.0):
             choice = overlay._weighted_choice(samples)
 
         self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_stack_fallback_when_self(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        self_info = WindowInfo(overlay._own_pid)
+        stack = [WindowInfo(2, (0, 0, 10, 10), "target"), self_info]
+
+        with (
+            patch("src.views.click_overlay.get_window_at", return_value=self_info),
+            patch("src.views.click_overlay.list_windows_at", return_value=stack),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch.object(overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)),
+        ):
+            result = overlay._query_window_at(0, 0)
+
+        self.assertEqual(result.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_refreshes_missing_geometry(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        info = WindowInfo(5, None, "target")
+        with (
+            patch("src.views.click_overlay.get_window_at", return_value=info),
+            patch("src.views.click_overlay.list_windows_at", return_value=[WindowInfo(5, (1, 1, 10, 10), "target")]),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch.object(overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)),
+        ):
+            result = overlay._query_window_at(1, 1)
+
+        self.assertEqual(result.rect, (1, 1, 10, 10))
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_nearby_pixel_fallback(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        target = WindowInfo(6, (1, 0, 10, 10), "target")
+
+        def fake_get_window_at(px: int, py: int) -> WindowInfo:
+            return WindowInfo(None) if (px, py) == (0, 0) else target
+
+        with (
+            patch("src.views.click_overlay.get_window_at", side_effect=fake_get_window_at),
+            patch("src.views.click_overlay.list_windows_at", return_value=[target]),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch.object(overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)),
+        ):
+            overlay.NEAR_RADIUS = 1
+            result = overlay._query_window_at(0, 0)
+
+        self.assertEqual(result.pid, 6)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_update_rect_rehighlights_on_pid_change(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.after = lambda _delay, func: func()
+        overlay.after_cancel = lambda _id: None
+        overlay.winfo_screenwidth = lambda: 100
+        overlay.winfo_screenheight = lambda: 100
+        overlay.canvas.coords = unittest.mock.Mock()
+        overlay.canvas.itemconfigure = unittest.mock.Mock()
+
+        overlay._cursor_x = 5
+        overlay._cursor_y = 5
+        overlay._update_rect(WindowInfo(1, (0, 0, 10, 10), "one"))
+        overlay.canvas.coords.reset_mock()
+
+        overlay._update_rect(WindowInfo(1, (0, 0, 10, 10), "one"))
+        same_calls = [c for c in overlay.canvas.coords.call_args_list if c.args[0] == overlay.rect]
+        overlay.canvas.coords.reset_mock()
+
+        overlay._update_rect(WindowInfo(2, (0, 0, 10, 10), "two"))
+        changed_calls = [c for c in overlay.canvas.coords.call_args_list if c.args[0] == overlay.rect]
+
+        self.assertEqual(len(same_calls), 0)
+        self.assertEqual(len(changed_calls), 1)
 
         overlay.destroy()
         root.destroy()

@@ -1996,6 +1996,7 @@ class ForceQuitDialog(BaseDialog):
             except Exception:
                 pass
         color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
+        color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
         overlay = ClickOverlay(self, highlight=color)
         self.withdraw()
         try:

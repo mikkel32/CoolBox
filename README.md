@@ -17,6 +17,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Security Center**: Toggle the Windows Firewall and Defender real-time protection directly from the app.
+- **Kill by Click CLI**: `scripts/kill_by_click.py` opens the crosshair overlay
+  from the terminal so you can quickly select any window.
 - **Dynamic Gauges**: Resource gauges automatically change color from green to yellow to red as usage increases for quick visual feedback.
 - **Stylish Setup**: Dependency installation is wrapped in a pulsing neon border
   with a dynamic spinner and live output for extra flair, even when triggered
@@ -53,6 +55,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   and tracks pointer coordinates from hook callbacks or motion events to keep
   updates smooth without flicker. The window's normal interaction state is
   restored automatically when the overlay closes. The overlay samples the window
+  The highlight color defaults to ``red`` but can be customized by setting
+  ``KILL_BY_CLICK_HIGHLIGHT`` in the environment. The ``scripts/kill_by_click.py``
+  helper launches the overlay directly from the command line. The overlay samples the window
   repeatedly and mixes those results with a short hover history to choose the
   most stable PID even when windows overlap. ``KILL_BY_CLICK_HISTORY`` sets how
   many hover entries are kept while ``KILL_BY_CLICK_SAMPLE_DECAY`` and

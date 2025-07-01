@@ -80,6 +80,7 @@ from .network import (
 
 from .ui import center_window
 from .kill_utils import kill_process, kill_process_tree
+from .scoring_engine import ScoringEngine, Tuning, tuning
 from .security import (
     is_firewall_enabled,
     set_firewall_enabled,
@@ -171,4 +172,7 @@ __all__ = [
     "set_firewall_enabled",
     "is_defender_enabled",
     "set_defender_enabled",
+    "ScoringEngine",
+    "Tuning",
+    "tuning",
 ]
