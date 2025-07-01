@@ -11,9 +11,10 @@ except ImportError:  # pragma: no cover - runtime dependency check
     ctk = ensure_customtkinter()
 from typing import Dict, Optional, TYPE_CHECKING
 from pathlib import Path
-import tkinter as tk
 from PIL import Image, ImageTk
 import sys
+import tempfile
+import ctypes
 
 from .config import Config
 from .components.sidebar import Sidebar
@@ -85,8 +86,23 @@ class CoolBoxApp:
             image = Image.open(icon_path)
             self._icon_photo = ImageTk.PhotoImage(image)
             self.window.iconphoto(True, self._icon_photo)
+
+            if sys.platform.startswith("win"):
+                try:
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ico")
+                    image.save(tmp, format="ICO")
+                    tmp.close()
+                    self.window.iconbitmap(tmp.name)
+                    try:
+                        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CoolBox")
+                    except Exception:  # pragma: no cover - best effort
+                        pass
+                    self._temp_icon = tmp.name
+                except Exception as exc:  # pragma: no cover - optional feature
+                    log(f"Failed to set taskbar icon: {exc}")
         except Exception as exc:  # pragma: no cover - best effort
             log(f"Failed to set window icon: {exc}")
+
         if sys.platform == "darwin":
             try:
                 from AppKit import NSApplication, NSImage
@@ -95,6 +111,10 @@ class CoolBoxApp:
                 NSApplication.sharedApplication().setApplicationIconImage_(ns_image)
             except Exception as exc:  # pragma: no cover - optional feature
                 log(f"Failed to set dock icon: {exc}")
+
+    def get_icon_photo(self):
+        """Return the cached application icon if available."""
+        return getattr(self, "_icon_photo", None)
 
     def _setup_ui(self):
         """Setup the main UI layout"""
@@ -327,6 +347,12 @@ class CoolBoxApp:
         self.config.save()
 
         log("Application closing")
+
+        if hasattr(self, "_temp_icon"):
+            try:
+                Path(self._temp_icon).unlink(missing_ok=True)
+            except Exception:
+                pass
 
         # Destroy window
         self.window.destroy()
