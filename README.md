@@ -17,7 +17,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Custom Icon**: Displays the CoolBox logo in the window title, taskbar and dock
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
-- **Security Center**: Manage the system firewall on Windows or Linux and toggle Windows Defender. The dialog automatically requests administrator rights when launched so changes can be applied securely.
+- **Security Center**: Enhanced firewall controls now support macOS and the dialog lists all listening ports with the owning process for quick audits. Listeners refresh automatically and you can filter them by port or name. Terminate one process or its entire tree with a single click or kill whole port ranges at once. Windows Defender toggling and automatic elevation remain built in so settings always apply successfully.
 - **Kill by Click CLI**: `scripts/kill_by_click.py` opens the crosshair overlay
   from the terminal so you can quickly select any window. Pass `--skip-confirm`
   to close the overlay immediately without rechecking the click location. Use
