@@ -24,6 +24,14 @@ class TestWindowUtils(unittest.TestCase):
         self.assertIsInstance(has_active_window_support(), bool)
         self.assertIsInstance(has_cursor_window_support(), bool)
 
+    def test_list_windows_at(self):
+        from src.utils.window_utils import list_windows_at
+
+        wins = list_windows_at(0, 0)
+        self.assertIsInstance(wins, list)
+        for info in wins:
+            self.assertIsInstance(info, WindowInfo)
+
 
 if __name__ == "__main__":
     unittest.main()

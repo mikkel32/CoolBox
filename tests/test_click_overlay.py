@@ -1,4 +1,5 @@
 import os
+import time
 import unittest
 import tkinter as tk
 from unittest.mock import patch
@@ -10,7 +11,13 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_creation(self) -> None:
         root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
+        ):
             overlay = ClickOverlay(root)
         self.assertIsInstance(overlay, tk.Toplevel)
         overlay.destroy()
@@ -19,7 +26,13 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_click_falls_back_to_last_info(self) -> None:
         root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
+        ):
             overlay = ClickOverlay(root)
 
         target = WindowInfo(1, (0, 0, 10, 10), "Target")
@@ -27,7 +40,9 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch("src.views.click_overlay.get_window_under_cursor") as gwuc,
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough", return_value=False
+            ),
         ):
             gwuc.side_effect = [target, info_self]
             overlay._update_rect()
@@ -44,7 +59,13 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_click_refreshes_window_info(self) -> None:
         root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
+        ):
             overlay = ClickOverlay(root)
 
         info1 = WindowInfo(1, (0, 0, 10, 10), "One")
@@ -80,7 +101,9 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch("src.views.click_overlay.get_window_at") as gwa,
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough", return_value=False
+            ),
         ):
             gwa.return_value = WindowInfo(7, (0, 0, 5, 5), "clicked")
             overlay.close = lambda _e=None: None
@@ -187,7 +210,13 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_choose_sets_timeout(self) -> None:
         root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=True):
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=True),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
+        ):
             overlay = ClickOverlay(root, timeout=1.5)
 
         calls: list[int | str] = []
@@ -243,7 +272,13 @@ class TestClickOverlay(unittest.TestCase):
         root = tk.Tk()
         with (
             patch("src.views.click_overlay.is_supported", return_value=True),
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=True),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough", return_value=True
+            ),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
         ):
             overlay = ClickOverlay(root)
 
@@ -269,7 +304,13 @@ class TestClickOverlay(unittest.TestCase):
         root = tk.Tk()
         with (
             patch("src.views.click_overlay.is_supported", return_value=True),
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=True),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough", return_value=True
+            ),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
         ):
             overlay = ClickOverlay(root)
 
@@ -329,6 +370,31 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_queue_update_tracks_motion(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.after_idle = lambda cb: cb()
+        overlay._process_update = unittest.mock.Mock()
+        overlay._heatmap.update = unittest.mock.Mock()
+        overlay._last_move_pos = (0, 0)
+        overlay._last_move_time = time.time() - 0.1
+
+        event = tk.Event()
+        event.x_root = 20
+        event.y_root = 10
+        overlay._queue_update(event)
+
+        self.assertEqual(overlay._path_history[-1], (20, 10))
+        self.assertGreater(overlay._velocity, 0)
+        overlay._heatmap.update.assert_called_once_with(20, 10)
+        overlay._process_update.assert_called_once()
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_move_schedules_update(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
@@ -339,6 +405,496 @@ class TestClickOverlay(unittest.TestCase):
 
         self.assertEqual((overlay._cursor_x, overlay._cursor_y), (55, 66))
         overlay._queue_update.assert_called_once()
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_weighted_choice_prefers_active_pid(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._pid_history.extend([2, 2])
+        overlay._info_history.extend([WindowInfo(2)])
+        overlay._initial_active_pid = 1
+        samples = [WindowInfo(2), WindowInfo(1)]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 1.0),
+            patch("src.views.click_overlay.ACTIVE_BONUS", 5.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_weighted_confidence_returns_probability(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        samples = [WindowInfo(3), WindowInfo(3), WindowInfo(3)]
+
+        info, ratio, prob = overlay._weighted_confidence(samples)
+
+        self.assertEqual(info.pid, 3)
+        self.assertGreaterEqual(prob, 0.99)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_window_uses_extra_attempts(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, probe_attempts=1)
+
+        info1 = WindowInfo(1, (0, 0, 5, 5), "one")
+        info2 = WindowInfo(2, (0, 0, 5, 5), "two")
+
+        with (
+            patch("src.views.click_overlay.get_window_at") as gwa,
+            patch("src.views.click_overlay.CONFIDENCE_RATIO", 2.0),
+            patch("src.views.click_overlay.EXTRA_ATTEMPTS", 2),
+        ):
+            gwa.side_effect = [info1, info2, info2, info2]
+            result = overlay._query_window_at(0, 0)
+
+        self.assertEqual(result.pid, 2)
+        self.assertEqual(gwa.call_count, 4)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_window_uses_dominance_threshold(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, probe_attempts=1)
+
+        info1 = WindowInfo(1, (0, 0, 5, 5), "one")
+        info2 = WindowInfo(2, (0, 0, 5, 5), "two")
+
+        with (
+            patch("src.views.click_overlay.get_window_at") as gwa,
+            patch.object(overlay, "_weighted_confidence") as wc,
+            patch("src.views.click_overlay.CONFIDENCE_RATIO", 1.0),
+            patch("src.views.click_overlay.DOMINANCE", 0.9),
+            patch("src.views.click_overlay.EXTRA_ATTEMPTS", 2),
+        ):
+            gwa.side_effect = [info1, info2, info2]
+            wc.side_effect = [
+                (info1, 1.5, 0.4),
+                (info2, 1.5, 0.95),
+            ]
+            result = overlay._query_window_at(0, 0)
+
+        self.assertEqual(result.pid, 2)
+        self.assertEqual(wc.call_count, 2)
+        self.assertEqual(gwa.call_count, 3)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_velocity_weight_reduces_sample_influence(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._pid_history.extend([2])
+        overlay._info_history.extend([WindowInfo(2)])
+        overlay._velocity = 100.0
+        samples = [WindowInfo(1)]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 1.0),
+            patch("src.views.click_overlay.VELOCITY_SCALE", 1.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_stability_weight_influences_choice(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._pid_history.extend([2])
+        overlay._info_history.extend([WindowInfo(2)])
+        overlay._pid_stability[2] = 3
+        samples = [WindowInfo(1)]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 1.0),
+            patch("src.views.click_overlay.STABILITY_WEIGHT", 2.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_stable_info_requires_threshold(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._info_history.extend([WindowInfo(1), WindowInfo(1), WindowInfo(1)])
+        overlay._pid_stability[1] = 3
+
+        with patch("src.views.click_overlay.STABILITY_THRESHOLD", 2):
+            info = overlay._stable_info()
+
+        self.assertIsNotNone(info)
+        self.assertEqual(info.pid, 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_center_weight_biases_selection(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._cursor_x = 5
+        overlay._cursor_y = 5
+        samples = [
+            WindowInfo(1, (0, 0, 10, 10), "one"),
+            WindowInfo(2, (20, 20, 10, 10), "two"),
+        ]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
+            patch("src.views.click_overlay.CENTER_WEIGHT", 5.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_edge_penalty_discourages_borders(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._cursor_x = 0
+        overlay._cursor_y = 5
+        samples = [
+            WindowInfo(1, (0, 0, 10, 10), "one"),
+            WindowInfo(2, (20, 0, 10, 10), "two"),
+        ]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
+            patch("src.views.click_overlay.EDGE_PENALTY", 0.9),
+            patch("src.views.click_overlay.EDGE_BUFFER", 2),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_velocity_scaled_stability(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._info_history.extend([WindowInfo(1)])
+        overlay._pid_stability[1] = 3
+        overlay._velocity = 2.0
+
+        with (
+            patch("src.views.click_overlay.STABILITY_THRESHOLD", 2),
+            patch("src.views.click_overlay.VEL_STAB_SCALE", 2.0),
+        ):
+            info = overlay._stable_info()
+
+        self.assertIsNone(info)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_path_weight_favors_hovered_window(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._cursor_x = 5
+        overlay._cursor_y = 5
+        overlay._path_history.extend([(5, 5), (6, 6), (7, 7)])
+        samples = [
+            WindowInfo(1, (0, 0, 10, 10), "one"),
+            WindowInfo(2, (20, 20, 10, 10), "two"),
+        ]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
+            patch("src.views.click_overlay.PATH_WEIGHT", 3.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_heatmap_weight_biases_selection(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._heatmap.region_score = lambda r: 5.0 if r and r[0] == 0 else 0.1
+        samples = [
+            WindowInfo(1, (0, 0, 10, 10), "one"),
+            WindowInfo(2, (20, 20, 10, 10), "two"),
+        ]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
+            patch("src.views.click_overlay.HEATMAP_WEIGHT", 2.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_streak_weight_amplifies_current_pid(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._current_pid = 2
+        overlay._current_streak = 3
+        samples = [WindowInfo(1), WindowInfo(2)]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 1.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
+            patch("src.views.click_overlay.STREAK_WEIGHT", 2.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_recency_weight_biases_recent_pid(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        now = time.time()
+        overlay._tracker.last_seen = {1: now - 1, 2: now - 0.1}
+        overlay._tracker.durations = {1: 0.5, 2: 0.5}
+        samples = [WindowInfo(1), WindowInfo(2)]
+
+        with patch("src.views.click_overlay.RECENCY_WEIGHT", 5.0):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_duration_weight_biases_longest_pid(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        now = time.time()
+        overlay._tracker.last_seen = {1: now, 2: now}
+        overlay._tracker.durations = {1: 2.0, 2: 0.5}
+        samples = [WindowInfo(1), WindowInfo(2)]
+
+        with patch("src.views.click_overlay.DURATION_WEIGHT", 3.0):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_active_history_biases_recent_focus(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._active_history.extend([(1, 0.0), (2, 0.1)])
+        samples = [WindowInfo(1), WindowInfo(2)]
+
+        with (
+            patch("src.views.click_overlay.ACTIVE_HISTORY_WEIGHT", 2.0),
+            patch("src.views.click_overlay.ACTIVE_HISTORY_DECAY", 1.0),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_velocity_smoothing_applied(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._last_move_pos = (0, 0)
+        overlay._last_move_time = 0.0
+
+        with (
+            patch("src.views.click_overlay.time.time", side_effect=[0.1, 0.2]),
+            patch("src.views.click_overlay.VELOCITY_SMOOTH", 0.5),
+        ):
+            overlay._on_move(10, 0)
+            first = overlay._velocity
+            overlay._on_move(20, 0)
+            second = overlay._velocity
+
+        self.assertGreater(first, 0)
+        self.assertGreater(second, first)
+        self.assertLess(second, first * 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_zorder_weight_biases_front_window(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._cursor_x = 10
+        overlay._cursor_y = 10
+        samples = [WindowInfo(1, (0, 0, 20, 20)), WindowInfo(2, (0, 0, 20, 20))]
+        stack = [WindowInfo(2), WindowInfo(1)]
+
+        with (
+            patch("src.views.click_overlay.SAMPLE_WEIGHT", 0.0),
+            patch("src.views.click_overlay.HISTORY_WEIGHT", 0.0),
+            patch("src.views.click_overlay.ZORDER_WEIGHT", 5.0),
+            patch("src.views.click_overlay.list_windows_at", return_value=stack),
+        ):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_tracker_ratio_used_when_query_fails(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._click_x = 0
+        overlay._click_y = 0
+
+        with (
+            patch.object(overlay, "_query_window_at", return_value=WindowInfo(None)),
+            patch.object(overlay, "_stable_info", return_value=None),
+            patch.object(overlay._tracker, "best_with_confidence", return_value=(WindowInfo(8), 3.0)),
+            patch("src.views.click_overlay.TRACKER_RATIO", 2.0),
+        ):
+            overlay.close = lambda _e=None: None
+            overlay._on_click()
+
+        self.assertEqual(overlay.pid, 8)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_confirm_weight_updates_pid(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._click_x = 5
+        overlay._click_y = 5
+
+        with (
+            patch.object(overlay, "_query_window_at", return_value=WindowInfo(1, (0, 0, 10, 10), "one")),
+            patch.object(overlay, "_confirm_window", return_value=WindowInfo(2, (5, 5, 10, 10), "two")),
+            patch("src.views.click_overlay.CONFIRM_WEIGHT", 5.0),
+        ):
+            overlay.close = lambda _e=None: None
+            overlay._on_click()
+
+        self.assertEqual(overlay.pid, 2)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_gaze_duration_tracks_hover(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        seq = iter([0.0, 0.5, 1.0])
+
+        def fake_monotonic() -> float:
+            return next(seq)
+
+        with patch("src.views.click_overlay.time.monotonic", side_effect=fake_monotonic):
+            overlay._update_rect(WindowInfo(1))
+            overlay._update_rect(WindowInfo(1))
+            overlay._update_rect(WindowInfo(2))
+
+        self.assertGreaterEqual(overlay._gaze_duration.get(1, 0.0), 0.5)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_gaze_weight_biases_selection(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._gaze_duration = {1: 0.1, 2: 2.0}
+        samples = [WindowInfo(1), WindowInfo(2)]
+
+        with patch("src.views.click_overlay.GAZE_WEIGHT", 5.0):
+            choice = overlay._weighted_choice(samples)
+
+        self.assertEqual(choice.pid, 2)
 
         overlay.destroy()
         root.destroy()
