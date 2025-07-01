@@ -1,7 +1,5 @@
 import subprocess
 import platform
-import subprocess
-import platform
 from types import SimpleNamespace
 
 from src.utils.security import (
@@ -14,6 +12,7 @@ from src.utils.security import (
 
 def test_is_firewall_enabled_true(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
+
     def fake_output(cmd, text=True, stderr=None):
         return "State ON"
     monkeypatch.setattr(subprocess, "check_output", fake_output)
@@ -22,6 +21,7 @@ def test_is_firewall_enabled_true(monkeypatch):
 
 def test_is_firewall_enabled_false(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
+
     def fake_output(cmd, text=True, stderr=None):
         return "State OFF"
     monkeypatch.setattr(subprocess, "check_output", fake_output)
@@ -31,6 +31,7 @@ def test_is_firewall_enabled_false(monkeypatch):
 def test_set_firewall_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     called = {}
+
     def fake_run(cmd, check=True, stdout=None, stderr=None):
         called["cmd"] = cmd
         return SimpleNamespace(returncode=0)
@@ -41,6 +42,7 @@ def test_set_firewall_enabled(monkeypatch):
 
 def test_is_defender_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
+
     def fake_output(cmd, text=True, stderr=None):
         return "False"
     monkeypatch.setattr(subprocess, "check_output", fake_output)
@@ -50,6 +52,7 @@ def test_is_defender_enabled(monkeypatch):
 def test_set_defender_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     called = {}
+
     def fake_run(cmd, check=True, stdout=None, stderr=None):
         called["cmd"] = cmd
         return SimpleNamespace(returncode=0)
@@ -60,4 +63,3 @@ def test_set_defender_enabled(monkeypatch):
         "-Command",
         "Set-MpPreference -DisableRealtimeMonitoring $true",
     ]
-

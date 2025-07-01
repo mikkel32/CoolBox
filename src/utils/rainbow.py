@@ -3,15 +3,60 @@ from __future__ import annotations
 import shutil
 import threading
 import time
+from typing import Iterable, Tuple
+
 from rich.console import Console, Control
 from rich.text import Text
 
-class RainbowBorder:
-    """Animate a rainbow frame around the terminal without disrupting output."""
+THEMES: dict[str, list[str]] = {
+    "classic": ["red", "yellow", "green", "cyan", "blue", "magenta"],
+    "awau": [
+        "#ff75c3",
+        "#ffa647",
+        "#ffe654",
+        "#8efc94",
+        "#74eaf7",
+        "#d6a4ff",
+    ],
+}
 
-    def __init__(self, speed: float = 0.05, console: Console | None = None) -> None:
+BORDER_STYLES: dict[str, Tuple[str, str, str, str, str, str]] = {
+    "single": ("┏", "┓", "┗", "┛", "━", "┃"),
+    "double": ("╔", "╗", "╚", "╝", "═", "║"),
+    "rounded": ("╭", "╮", "╰", "╯", "─", "│"),
+}
+
+
+class RainbowBorder:
+    """Animate a colorful frame around the terminal without disrupting output.
+
+    Parameters
+    ----------
+    speed:
+        Delay in seconds between animation frames.
+    theme:
+        Named color palette to use from :data:`THEMES`.
+    colors:
+        Explicit color sequence overriding the theme.
+    style:
+        Border style key from :data:`BORDER_STYLES`.
+    console:
+        Optional :class:`rich.console.Console` instance.
+    """
+
+    def __init__(
+        self,
+        speed: float = 0.05,
+        *,
+        theme: str = "classic",
+        colors: Iterable[str] | None = None,
+        style: str = "single",
+        console: Console | None = None,
+    ) -> None:
         self.speed = speed
         self.console = console or Console()
+        self.colors = list(colors) if colors is not None else THEMES.get(theme, THEMES["classic"])
+        self.border = BORDER_STYLES.get(style, BORDER_STYLES["single"])
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -46,29 +91,30 @@ class RainbowBorder:
 
     def _draw(self, offset: int) -> None:
         width, height = shutil.get_terminal_size(fallback=(80, 24))
-        colors = ["red", "yellow", "green", "cyan", "blue", "magenta"]
+        colors = self.colors
         c = len(colors)
         self.console.file.write("\x1b7")  # save cursor
 
-        top = Text("─" * width)
+        tl, tr, bl, br, h, v = self.border
+        top = Text(tl + h * (width - 2) + tr)
         for i in range(width):
             top.stylize(colors[(offset + i) % c], i, i + 1)
         self.console.control(Control.home())
         self.console.print(top, end="")
 
-        bottom = Text("─" * width)
+        bottom = Text(bl + h * (width - 2) + br)
         for i in range(width):
             bottom.stylize(colors[(offset + height + i) % c], i, i + 1)
         self.console.control(Control.move_to(0, height - 1))
         self.console.print(bottom, end="")
 
-        for row in range(2, height):
+        for row in range(1, height - 1):
             left_style = colors[(offset + width + row) % c]
             right_style = colors[(offset + width + height + row) % c]
-            self.console.control(Control.move_to(0, row - 1))
-            self.console.print(Text("│", style=left_style), end="")
-            self.console.control(Control.move_to(width - 1, row - 1))
-            self.console.print(Text("│", style=right_style), end="")
+            self.console.control(Control.move_to(0, row))
+            self.console.print(Text(v, style=left_style), end="")
+            self.console.control(Control.move_to(width - 1, row))
+            self.console.print(Text(v, style=right_style), end="")
 
         self.console.file.write("\x1b8")  # restore cursor
         self.console.file.flush()
@@ -79,10 +125,10 @@ class RainbowBorder:
         self.console.file.write("\x1b7")
         self.console.control(Control.home())
         self.console.print(blank, end="")
-        for row in range(2, height):
-            self.console.control(Control.move_to(0, row - 1))
+        for row in range(1, height - 1):
+            self.console.control(Control.move_to(0, row))
             self.console.print(" ", end="")
-            self.console.control(Control.move_to(width - 1, row - 1))
+            self.console.control(Control.move_to(width - 1, row))
             self.console.print(" ", end="")
         self.console.control(Control.move_to(0, height - 1))
         self.console.print(blank, end="")

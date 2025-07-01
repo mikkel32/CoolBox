@@ -31,6 +31,7 @@ def is_firewall_enabled() -> Optional[bool]:
                 return False
     return None
 
+
 def set_firewall_enabled(enabled: bool) -> bool:
     """Enable or disable the Windows firewall."""
     if platform.system() != "Windows":
@@ -75,6 +76,7 @@ def is_defender_enabled() -> Optional[bool]:
         return True
     return None
 
+
 def set_defender_enabled(enabled: bool) -> bool:
     """Enable or disable Windows Defender real-time protection."""
     if platform.system() != "Windows":
@@ -94,4 +96,3 @@ def set_defender_enabled(enabled: bool) -> bool:
         return True
     except Exception:
         return False
-

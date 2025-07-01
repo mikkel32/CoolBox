@@ -73,4 +73,3 @@ class SecurityDialog(BaseDialog):
             messagebox.showwarning(
                 "Security Center", "Failed to apply some settings"
             )
-
