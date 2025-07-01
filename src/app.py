@@ -10,6 +10,9 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     ctk = ensure_customtkinter()
 from typing import Dict, Optional, TYPE_CHECKING
+from pathlib import Path
+import tkinter as tk
+from PIL import Image, ImageTk
 import sys
 
 from .config import Config
@@ -48,6 +51,9 @@ class CoolBoxApp:
         self.window.title("CoolBox - Modern Desktop App")
         self.window.geometry(f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 800)}")
 
+        # Set application icon
+        self._set_app_icon()
+
         # Set minimum window size
         self.window.minsize(800, 600)
 
@@ -71,6 +77,24 @@ class CoolBoxApp:
 
         # Load initial view
         self.switch_view("home")
+
+    def _set_app_icon(self) -> None:
+        """Set the window and dock icon to the CoolBox logo."""
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "Coolbox_logo.png"
+        try:
+            image = Image.open(icon_path)
+            self._icon_photo = ImageTk.PhotoImage(image)
+            self.window.iconphoto(True, self._icon_photo)
+        except Exception as exc:  # pragma: no cover - best effort
+            log(f"Failed to set window icon: {exc}")
+        if sys.platform == "darwin":
+            try:
+                from AppKit import NSApplication, NSImage
+
+                ns_image = NSImage.alloc().initByReferencingFile_(str(icon_path))
+                NSApplication.sharedApplication().setApplicationIconImage_(ns_image)
+            except Exception as exc:  # pragma: no cover - optional feature
+                log(f"Failed to set dock icon: {exc}")
 
     def _setup_ui(self):
         """Setup the main UI layout"""
