@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
 import platform
 import subprocess
@@ -13,13 +12,20 @@ from pathlib import Path
 from .cache import CacheManager
 import psutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from rich.console import Console
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
-logging.basicConfig(level=logging.INFO)
+console = Console()
 
 
 def log(message: str) -> None:
-    """Log a message using ``logging``."""
-    logging.info(message)
+    """Log a message with rich formatting."""
+    console.log(message)
 
 
 def open_path(path: str) -> None:
@@ -30,6 +36,31 @@ def open_path(path: str) -> None:
         subprocess.Popen(["open", path])
     else:
         subprocess.Popen(["xdg-open", path])
+
+
+def run_with_spinner(cmd: Iterable[str], *, message: str = "Working") -> None:
+    """Run *cmd* while displaying an animated spinner and streaming output."""
+    proc = subprocess.Popen(
+        list(cmd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    with Progress(
+        SpinnerColumn(style="bold blue"),
+        TextColumn("{task.description}"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task(message, start=True)
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            progress.console.print(line.rstrip())
+        code = proc.wait()
+        if code:
+            raise subprocess.CalledProcessError(code, list(cmd))
 
 
 def slugify(text: str) -> str:

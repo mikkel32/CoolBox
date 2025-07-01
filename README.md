@@ -18,7 +18,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Security Center**: Toggle the Windows Firewall and Defender real-time protection directly from the app.
 - **Dynamic Gauges**: Resource gauges automatically change color from green to yellow to red as usage increases for quick visual feedback.
-- **Stylish Setup**: Dependency installation is wrapped in a swirling blue glow animation for extra flair.
+- **Stylish Setup**: Dependency installation is wrapped in a pulsing neon border
+  with a dynamic spinner and live output for extra flair, even when triggered
+  automatically on first launch.
   It also includes an advanced Force Quit utility with a searchable process
   list, automatic refresh, sort options, and multi-select termination. It can
   kill processes by name, command line pattern, port, host, open file, executable path
@@ -368,7 +370,8 @@ For a development environment with additional tools, use:
 python setup.py --dev
 ```
 This script installs all packages from `requirements.txt` and optional
-development extras like `debugpy` and `flake8`.
+development extras like `debugpy` and `flake8` while displaying a
+pulsing neon border and real-time progress.
 
 For a development environment with debugging tools, run:
 ```bash
@@ -393,7 +396,8 @@ python main.py
 By default, ``main.py`` computes a digest of ``requirements.txt``, ``setup.py``
 and your Python executable. It also verifies that all listed packages are
 installed. When either the digest has changed or any dependency is missing it
-silently runs ``setup.py install --skip-update`` before launching. Set
+automatically runs the setup routine with the same neon border and spinner
+for a seamless experience. Set
 ``SKIP_SETUP=1`` to bypass this check if you have already handled installation
 yourself.
 

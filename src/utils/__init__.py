@@ -13,8 +13,10 @@ from .helpers import (
     darken_color,
     adjust_color,
     hex_brightness,
+    run_with_spinner,
+    console,
 )
-from .rainbow import RainbowBorder, BlueGlowBorder
+from .rainbow import RainbowBorder, NeonPulseBorder
 from .vm import launch_vm_debug
 from .file_manager import (
     read_text,
@@ -110,8 +112,10 @@ __all__ = [
     "darken_color",
     "adjust_color",
     "hex_brightness",
+    "run_with_spinner",
+    "console",
     "RainbowBorder",
-    "BlueGlowBorder",
+    "NeonPulseBorder",
     "launch_vm_debug",
     "scan_ports",
     "async_scan_ports",

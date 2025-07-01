@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from argparse import ArgumentParser
 import hashlib
+import importlib.util
 
 from src.utils import launch_vm_debug
 
@@ -54,12 +55,12 @@ def _requirements_satisfied(req_path: Path) -> bool:
         return False
 
 
-def _run_setup_if_needed() -> None:
+def _run_setup_if_needed(root: Path | None = None) -> None:
     """Run ``setup.py`` when requirements changed or packages missing."""
     if os.environ.get("SKIP_SETUP") == "1":
         return
 
-    root = Path(__file__).resolve().parent
+    root = root or Path(__file__).resolve().parent
     sentinel = root / ".setup_done"
     current = _compute_setup_state(root)
     requirements = root / "requirements.txt"
@@ -77,12 +78,13 @@ def _run_setup_if_needed() -> None:
         return
 
     try:
-        subprocess.run(
-            [sys.executable, str(setup_script), "install", "--skip-update"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-        )
+        spec = importlib.util.spec_from_file_location("coolbox_setup", setup_script)
+        if spec and spec.loader:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            module.show_setup_banner()
+            module.check_python_version()
+            module.install(skip_update=True)
         if requirements.is_file():
             sentinel.write_text(current)
     except Exception as exc:  # pragma: no cover - best effort setup
