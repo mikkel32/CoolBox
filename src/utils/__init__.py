@@ -86,6 +86,9 @@ from .security import (
     set_firewall_enabled,
     is_defender_enabled,
     set_defender_enabled,
+    is_admin,
+    ensure_admin,
+    require_admin,
 )
 
 from . import file_manager
@@ -172,6 +175,9 @@ __all__ = [
     "set_firewall_enabled",
     "is_defender_enabled",
     "set_defender_enabled",
+    "is_admin",
+    "ensure_admin",
+    "require_admin",
     "ScoringEngine",
     "Tuning",
     "tuning",

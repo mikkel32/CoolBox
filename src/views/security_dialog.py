@@ -12,6 +12,8 @@ from ..utils.security import (
     set_firewall_enabled,
     is_defender_enabled,
     set_defender_enabled,
+    is_admin,
+    ensure_admin,
 )
 
 
@@ -21,6 +23,11 @@ class SecurityDialog(BaseDialog):
     def __init__(self, app):
         super().__init__(app, title="Security Center", geometry="320x200")
         container = self.create_container()
+        self.is_admin = is_admin()
+        if platform.system() == "Windows" and not self.is_admin:
+            messagebox.showwarning(
+                "Security Center", "Administrator privileges are required to change settings."
+            )
         self.add_title(container, "Security Center", use_pack=False).grid(
             row=0, column=0, columnspan=2, pady=(0, self.pady)
         )
@@ -52,7 +59,7 @@ class SecurityDialog(BaseDialog):
         self.refresh_theme()
 
     def _refresh(self) -> None:
-        if platform.system() != "Windows":
+        if platform.system() != "Windows" or not self.is_admin:
             self.firewall_sw.configure(state="disabled")
             self.defender_sw.configure(state="disabled")
             return
@@ -64,6 +71,8 @@ class SecurityDialog(BaseDialog):
             messagebox.showinfo(
                 "Security Center", "Firewall and Defender control is Windows only."
             )
+            return
+        if not ensure_admin():
             return
         ok_fw = set_firewall_enabled(self.firewall_var.get())
         ok_def = set_defender_enabled(self.defender_var.get())
