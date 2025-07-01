@@ -15,4 +15,3 @@ def test_single_color_when_no_highlight():
     b = NeonPulseBorder(base_color="#123456", highlight_color="#123456")
     colors = b._generate_colors(8, 4)
     assert len(set(colors)) == 1
-
