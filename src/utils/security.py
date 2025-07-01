@@ -6,6 +6,8 @@ from __future__ import annotations
 import platform
 import subprocess
 from typing import Optional
+from pathlib import Path
+import sys
 import psutil
 from .kill_utils import kill_process, kill_process_tree
 
@@ -290,3 +292,39 @@ def kill_port_range(start: int, end: int, *, tree: bool = False) -> dict[int, bo
             killed = killed or ok
         results[port] = killed
     return results
+
+
+def launch_security_center() -> bool:
+    """Launch the standalone security_center script with admin rights if needed."""
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "security_center.py"
+    if not script.is_file():
+        return False
+
+    python = sys.executable
+
+    if is_admin():
+        try:
+            subprocess.Popen([python, str(script)])
+            return True
+        except Exception:
+            return False
+
+    system = platform.system()
+
+    if system == "Windows":
+        try:
+            import ctypes  # lazy import
+            params = f'"{script}"'
+            rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", python, params, None, 1)
+            return rc > 32
+        except Exception:
+            return False
+    elif system in {"Linux", "Darwin"}:
+        try:
+            subprocess.Popen(["sudo", python, str(script)])
+            return True
+        except Exception:
+            return False
+
+    return False

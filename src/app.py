@@ -32,6 +32,7 @@ from .utils.helpers import log
 if TYPE_CHECKING:  # pragma: no cover - used for type hints only
     from .views.quick_settings import QuickSettingsDialog
     from .views.force_quit_dialog import ForceQuitDialog
+    from .views.security_dialog import SecurityDialog
 
 
 class CoolBoxApp:
@@ -68,6 +69,7 @@ class CoolBoxApp:
         self.current_view: Optional[str] = None
         self.quick_settings_window: "QuickSettingsDialog | None" = None
         self.force_quit_window: "ForceQuitDialog | None" = None
+        self.security_center_window: "SecurityDialog | None" = None
         self.dialogs: list[object] = []
 
         # Setup UI
@@ -280,6 +282,31 @@ class CoolBoxApp:
             "WM_DELETE_WINDOW", self._on_force_quit_closed
         )
 
+    def open_security_center(self) -> None:
+        """Launch the Security Center dialog with elevation when needed."""
+        from .views.security_dialog import SecurityDialog
+        from .utils.security import is_admin, launch_security_center
+        from tkinter import messagebox
+
+        if not is_admin():
+            if not launch_security_center():
+                messagebox.showerror(
+                    "Security Center", "Failed to relaunch with admin rights"
+                )
+            return
+
+        if (
+            self.security_center_window is not None
+            and self.security_center_window.winfo_exists()
+        ):
+            self.security_center_window.focus()
+            return
+
+        self.security_center_window = SecurityDialog(self)
+        self.security_center_window.protocol(
+            "WM_DELETE_WINDOW", self._on_security_center_closed
+        )
+
     def register_dialog(self, dialog) -> None:
         """Track an open dialog for global updates."""
         if dialog not in self.dialogs:
@@ -337,6 +364,11 @@ class CoolBoxApp:
         if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():
             self.quick_settings_window.destroy()
         self.quick_settings_window = None
+
+    def _on_security_center_closed(self) -> None:
+        if self.security_center_window is not None and self.security_center_window.winfo_exists():
+            self.security_center_window.destroy()
+        self.security_center_window = None
 
     def _on_closing(self):
         """Handle window closing event"""

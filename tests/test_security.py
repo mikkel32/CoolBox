@@ -1,6 +1,7 @@
 import subprocess
 import platform
 import os
+import sys
 from types import SimpleNamespace
 import psutil
 import socket
@@ -200,3 +201,27 @@ def test_kill_port_range(monkeypatch):
 
     monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": [])
     assert kill_port_range(80, 81) == {80: False, 81: False}
+
+
+def test_launch_security_center_missing(monkeypatch):
+    monkeypatch.setattr(security.Path, "is_file", lambda self: False, raising=False)
+    assert security.launch_security_center() is False
+
+
+def test_launch_security_center_admin(monkeypatch):
+    monkeypatch.setattr(security.Path, "is_file", lambda self: True, raising=False)
+    monkeypatch.setattr(security, "is_admin", lambda: True)
+    called = {}
+    monkeypatch.setattr(subprocess, "Popen", lambda args: called.setdefault("args", args))
+    assert security.launch_security_center() is True
+    assert called.get("args", [])[0] == sys.executable
+
+
+def test_launch_security_center_sudo(monkeypatch):
+    monkeypatch.setattr(security.Path, "is_file", lambda self: True, raising=False)
+    monkeypatch.setattr(security, "is_admin", lambda: False)
+    monkeypatch.setattr(security.platform, "system", lambda: "Linux")
+    called = {}
+    monkeypatch.setattr(subprocess, "Popen", lambda args: called.setdefault("args", args))
+    assert security.launch_security_center() is True
+    assert called.get("args", [])[0] == "sudo"
