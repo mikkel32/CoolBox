@@ -21,8 +21,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Kill by Click CLI**: `scripts/kill_by_click.py` opens the crosshair overlay
   from the terminal so you can quickly select any window. Pass `--skip-confirm`
   to close the overlay immediately without rechecking the click location. Use
-  `--interval 0.1` to override the refresh rate without setting
-  `KILL_BY_CLICK_INTERVAL`.
+  `--interval` to set the base refresh rate and `--min-interval`,
+  `--max-interval` and `--delay-scale` to fine‑tune the dynamic update logic
+  (or set the matching `KILL_BY_CLICK_*` environment variables).
 - **Dynamic Gauges**: Resource gauges automatically change color from green to yellow to red as usage increases for quick visual feedback.
 - **Stylish Setup**: Dependency installation is wrapped in a pulsing neon border
   with a dynamic spinner and live output for extra flair, even when triggered
@@ -58,9 +59,13 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   mouse events while polling the window under the cursor at ``KILL_BY_CLICK_INTERVAL``
   and tracks pointer coordinates from hook callbacks or motion events to keep
   updates smooth without flicker. Set ``KILL_BY_CLICK_INTERVAL`` to control the
-  refresh rate (defaults to ``0.05`` seconds) or pass ``--interval`` when using
-  ``scripts/kill_by_click.py``. The window's normal interaction state is
-  restored automatically when the overlay closes. The overlay samples the window
+  base refresh rate (defaults to ``0.1`` seconds) or pass ``--interval`` when using
+  ``scripts/kill_by_click.py``. The refresh interval expands and contracts
+  between ``KILL_BY_CLICK_MIN_INTERVAL`` (``0.025`` seconds) and
+  ``KILL_BY_CLICK_MAX_INTERVAL`` (``0.2`` seconds) using an exponential curve
+  tied to pointer velocity. ``KILL_BY_CLICK_DELAY_SCALE`` controls how strongly
+  speed influences this interval. Fast motion shortens the delay for responsive
+  tracking while slower movement stretches it to conserve CPU. The window's normal interaction state is restored automatically when the overlay closes. The Force Quit dialog uses this overlay when you choose *Kill by Click* and falls back to the window under the cursor if no PID is detected. Set ``FORCE_QUIT_CLICK_SKIP_CONFIRM=1`` to skip the termination prompt. The overlay samples the window
   The highlight color defaults to ``red`` but can be customized by setting
   ``KILL_BY_CLICK_HIGHLIGHT`` in the environment. The ``scripts/kill_by_click.py``
   helper launches the overlay directly from the command line. Use `--skip-confirm` to close it instantly without the final check. The overlay samples the window

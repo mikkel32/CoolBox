@@ -1223,9 +1223,11 @@ class TestForceQuit(unittest.TestCase):
             dialog._kill_by_click()
             dialog._watcher.pause.assert_called_once()
             dialog._watcher.resume.assert_called_once()
-            CO.assert_called_once_with(
-                dialog, highlight=dialog.accent, on_hover=dialog._highlight_pid
-            )
+            CO.assert_called_once()
+            args, kwargs = CO.call_args
+            assert args[0] is dialog
+            assert kwargs.get("highlight") == dialog.accent
+            assert kwargs.get("on_hover") == dialog._highlight_pid
             MB.showerror.assert_called_once()
             dialog.after_idle.assert_called_with(dialog._update_hover)
 
