@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import shutil
 import threading
 import time
@@ -7,6 +9,8 @@ from typing import Iterable, Tuple
 
 from rich.console import Console, Control
 from rich.text import Text
+
+from .helpers import adjust_color
 
 THEMES: dict[str, list[str]] = {
     "classic": ["red", "yellow", "green", "cyan", "blue", "magenta"],
@@ -134,3 +138,42 @@ class RainbowBorder:
         self.console.print(blank, end="")
         self.console.file.write("\x1b8")
         self.console.file.flush()
+
+
+class BlueGlowBorder(RainbowBorder):
+    """Animate a swirling blue glow around the terminal."""
+
+    def __init__(
+        self,
+        speed: float = 0.05,
+        *,
+        base_color: str = "#2196f3",
+        amplitude: float = 0.5,
+        style: str = "rounded",
+        console: Console | None = None,
+    ) -> None:
+        super().__init__(speed, colors=[base_color], style=style, console=console)
+        self.base_color = base_color
+        self.amplitude = max(0.0, min(1.0, amplitude))
+        self._phase = 0.0
+
+    def _generate_colors(self, width: int, height: int) -> list[str]:
+        """Return a list of colors for the current phase."""
+        perimeter = 2 * width + 2 * height - 4
+        colors = []
+        for i in range(perimeter):
+            phase = self._phase + (i / perimeter) * (2 * math.pi)
+            brightness = (math.sin(phase) + 1.0) / 2.0
+            factor = (brightness * 2.0 - 1.0) * self.amplitude
+            colors.append(adjust_color(self.base_color, factor))
+        return colors
+
+    def _run(self) -> None:
+        offset = 0
+        while not self._stop.is_set():
+            width, height = shutil.get_terminal_size(fallback=(80, 24))
+            self.colors = self._generate_colors(width, height)
+            self._draw(offset)
+            time.sleep(self.speed)
+            self._phase += 0.1
+            offset += 1

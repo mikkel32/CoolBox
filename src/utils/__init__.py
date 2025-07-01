@@ -14,6 +14,7 @@ from .helpers import (
     adjust_color,
     hex_brightness,
 )
+from .rainbow import RainbowBorder, BlueGlowBorder
 from .vm import launch_vm_debug
 from .file_manager import (
     read_text,
@@ -109,6 +110,8 @@ __all__ = [
     "darken_color",
     "adjust_color",
     "hex_brightness",
+    "RainbowBorder",
+    "BlueGlowBorder",
     "launch_vm_debug",
     "scan_ports",
     "async_scan_ports",

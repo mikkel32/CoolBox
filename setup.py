@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterable
 
 from src.utils.helpers import log, get_system_info
-from src.utils.rainbow import RainbowBorder
+from src.utils.rainbow import BlueGlowBorder
 
 
 MIN_PYTHON = (3, 10)
@@ -124,11 +124,11 @@ def _pip(args: Iterable[str], python: Path | None = None, *, upgrade_pip: bool =
     """Run ``pip`` using *python* with *args*, logging the command."""
     py = python or ensure_venv()
     if upgrade_pip:
-        with RainbowBorder(theme="awau", style="rounded"):
+        with BlueGlowBorder():
             subprocess.check_call([str(py), "-m", "pip", "install", "--upgrade", "pip"])
     cmd = [str(py), "-m", "pip", *args]
     log("Running: " + " ".join(cmd))
-    with RainbowBorder(theme="awau", style="rounded"):
+    with BlueGlowBorder():
         subprocess.check_call(cmd)
 
 
