@@ -9,6 +9,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from ctypes import wintypes
+from typing import List
 from typing import Any
 
 
@@ -270,6 +271,97 @@ def get_window_at(x: int, y: int) -> WindowInfo:
 
     # X11 fallback - coordinates ignored
     return get_window_under_cursor()
+
+
+def list_windows_at(x: int, y: int) -> List[WindowInfo]:
+    """Return windows at ``(x, y)`` ordered from front to back."""
+
+    if sys.platform.startswith("win"):
+        windows: List[WindowInfo] = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        def enum_proc(hwnd: wintypes.HWND, _lparam: wintypes.LPARAM) -> bool:
+            if not ctypes.windll.user32.IsWindowVisible(hwnd):
+                return True
+            rect = wintypes.RECT()
+            if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                return True
+            if not (rect.left <= x <= rect.right and rect.top <= y <= rect.bottom):
+                return True
+            pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            title_buf = ctypes.create_unicode_buffer(1024)
+            length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
+            title = title_buf.value if length else None
+            windows.append(
+                WindowInfo(
+                    int(pid.value) if pid.value else None,
+                    (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top),
+                    title,
+                )
+            )
+            return True
+
+        ctypes.windll.user32.EnumWindows(enum_proc, 0)
+        return windows
+
+    if sys.platform == "darwin":
+        try:
+            import Quartz
+
+            opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+            win_list = Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID)
+            results: List[WindowInfo] = []
+            for win in win_list:
+                bounds = win.get("kCGWindowBounds")
+                if not bounds:
+                    continue
+                wx = int(bounds.get("X", 0))
+                wy = int(bounds.get("Y", 0))
+                ww = int(bounds.get("Width", 0))
+                wh = int(bounds.get("Height", 0))
+                if wx <= x <= wx + ww and wy <= y <= wy + wh:
+                    pid = int(win.get("kCGWindowOwnerPID", 0))
+                    title = win.get("kCGWindowName")
+                    results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+            return results
+        except Exception:
+            return [get_window_at(x, y)]
+
+    # X11: attempt to use _NET_CLIENT_LIST_STACKING for z-order information
+    try:
+        stacking = subprocess.check_output(
+            ["xprop", "-root", "_NET_CLIENT_LIST_STACKING"], text=True
+        )
+        ids = [w.strip() for w in stacking.split("#", 1)[1].split()] if "#" in stacking else []
+        results: List[WindowInfo] = []
+        for wid in ids:
+            geom_out = subprocess.check_output(["xwininfo", "-id", wid], text=True)
+            gx = re.search(r"Absolute upper-left X:\s+(\d+)", geom_out)
+            gy = re.search(r"Absolute upper-left Y:\s+(\d+)", geom_out)
+            gw = re.search(r"Width:\s+(\d+)", geom_out)
+            gh = re.search(r"Height:\s+(\d+)", geom_out)
+            if not (gx and gy and gw and gh):
+                continue
+            wx = int(gx.group(1))
+            wy = int(gy.group(1))
+            ww = int(gw.group(1))
+            wh = int(gh.group(1))
+            if not (wx <= x <= wx + ww and wy <= y <= wy + wh):
+                continue
+            pid_line = subprocess.check_output(["xprop", "-id", wid, "_NET_WM_PID"], text=True)
+            match = re.search(r"= (\d+)", pid_line)
+            pid = int(match.group(1)) if match else None
+            title_out = subprocess.check_output(["xprop", "-id", wid, "WM_NAME"], text=True)
+            title_match = re.search(r'"(.*)"', title_out)
+            title = title_match.group(1) if title_match else None
+            results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+        return results
+    except Exception:
+        pass
+
+    info = get_window_at(x, y)
+    return [info] if info.pid is not None else []
 
 
 def make_window_clickthrough(win: Any) -> bool:

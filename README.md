@@ -49,7 +49,67 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   mouse events while polling the window under the cursor at ``KILL_BY_CLICK_INTERVAL``
   and tracks pointer coordinates from hook callbacks or motion events to keep
   updates smooth without flicker. The window's normal interaction state is
-  restored automatically when the overlay closes.
+  restored automatically when the overlay closes. The overlay samples the window
+  repeatedly and mixes those results with a short hover history to choose the
+  most stable PID even when windows overlap. ``KILL_BY_CLICK_HISTORY`` sets how
+  many hover entries are kept while ``KILL_BY_CLICK_SAMPLE_DECAY`` and
+  ``KILL_BY_CLICK_HISTORY_DECAY`` control their relative weighting. ``KILL_BY_CLICK_SAMPLE_WEIGHT`` and
+  ``KILL_BY_CLICK_HISTORY_WEIGHT`` tune the base influence of new samples versus
+  hover history while ``KILL_BY_CLICK_ACTIVE_BONUS`` biases selection toward the
+  previously active window. ``KILL_BY_CLICK_AREA_WEIGHT`` rewards smaller
+  windows by adding an inverse-area score. ``KILL_BY_CLICK_CONFIDENCE`` controls
+  how much larger the winning weight must be compared to the runner-up before a
+  PID is accepted and ``KILL_BY_CLICK_EXTRA_ATTEMPTS`` sets how many additional
+  samples are gathered when that confidence isn't reached. ``KILL_BY_CLICK_SCORE_DECAY``
+  tunes how quickly long-running scores fade while ``KILL_BY_CLICK_SCORE_MIN``
+  prunes rarely seen PIDs from consideration.
+  ``KILL_BY_CLICK_SOFTMAX_TEMP`` adjusts the softmax temperature when converting
+  weights into probabilities and ``KILL_BY_CLICK_DOMINANCE`` specifies the
+  minimum probability required for a PID to be considered dominant. If neither
+  the confidence ratio nor dominance threshold is met the overlay gathers extra
+  samples until one is satisfied or ``KILL_BY_CLICK_EXTRA_ATTEMPTS`` is
+  exhausted. ``KILL_BY_CLICK_STABILITY`` sets how many consecutive hover samples
+  must agree before a PID is trusted while ``KILL_BY_CLICK_VELOCITY_SCALE``
+  decreases sample weight at high mouse speeds so rapid motions don't overpower
+  steady hovering. ``KILL_BY_CLICK_STABILITY_WEIGHT`` adds extra weight for
+  PIDs that remain under the cursor across multiple samples, helping the overlay
+  favour the window you're hovering rather than one that flashes beneath it.
+  ``KILL_BY_CLICK_CENTER_WEIGHT`` rewards windows whose centers are close to the
+  cursor while ``KILL_BY_CLICK_EDGE_PENALTY`` reduces scores when the pointer is
+  near a window border. ``KILL_BY_CLICK_EDGE_BUFFER`` controls how close to an
+  edge this penalty applies. ``KILL_BY_CLICK_VEL_STAB_SCALE`` increases the
+  required stability count based on cursor speed so fast movements demand more
+  agreement before a PID is trusted. ``KILL_BY_CLICK_PATH_HISTORY`` determines
+  how many recent cursor positions are remembered while
+  ``KILL_BY_CLICK_PATH_WEIGHT`` boosts windows that contain most of those
+  coordinates so slow, deliberate motion is favoured over quick sweeps.
+  ``KILL_BY_CLICK_HEATMAP_RES`` sets the resolution of a decaying heatmap that
+  records cursor dwell time across the screen. ``KILL_BY_CLICK_HEATMAP_DECAY``
+  controls how quickly old heat fades while ``KILL_BY_CLICK_HEATMAP_WEIGHT``
+  biases selection toward windows covering the hottest regions. When the same
+  PID remains under the cursor across consecutive samples the overlay adds a
+  ``KILL_BY_CLICK_STREAK_WEIGHT`` multiplier to reward consistent hovering,
+  ensuring foreground windows dominate momentary background flashes.
+  ``KILL_BY_CLICK_TRACKER_RATIO`` sets the confidence ratio required for the
+  overlay to trust its long-term window tracker when a direct query fails,
+  letting it pick the PID that consistently appeared under the cursor even if
+  the final sample was ambiguous. ``KILL_BY_CLICK_RECENCY_WEIGHT`` biases
+  selection toward windows seen most recently while
+``KILL_BY_CLICK_DURATION_WEIGHT`` favours windows that remained under the
+cursor the longest. ``KILL_BY_CLICK_CONFIRM_DELAY`` waits this many seconds
+after the overlay closes before checking the click position again while
+``KILL_BY_CLICK_CONFIRM_WEIGHT`` boosts that final check when combining all
+samples. ``KILL_BY_CLICK_ZORDER_WEIGHT`` favours windows that appear above
+others at the click location so background windows are less likely to be
+  chosen. ``KILL_BY_CLICK_GAZE_WEIGHT`` rewards windows that stay under the
+  cursor for an extended time while ``KILL_BY_CLICK_GAZE_DECAY`` controls how
+  quickly that effect fades.
+  ``KILL_BY_CLICK_ACTIVE_HISTORY`` sets how many previously focused windows
+  influence selection. Their impact decays by ``KILL_BY_CLICK_ACTIVE_DECAY`` and
+  is scaled by ``KILL_BY_CLICK_ACTIVE_WEIGHT`` so recently active apps are more
+  likely to be chosen. ``KILL_BY_CLICK_VEL_SMOOTH`` smooths cursor velocity
+  updates before applying motion-based weighting, reducing noise from small
+  jitters.
   so the overlay remains usable without extra dependencies. Process monitoring pauses while
   selecting so the overlay stays smooth. Click to
   immediately terminate that window's process. The confirmation dialog now includes the
@@ -342,7 +402,9 @@ To start the app and wait for a debugger to attach, use:
 ```
 This script will automatically start the application under ``xvfb`` if no
 display is available, making it convenient to debug in headless
-environments such as CI or containers. The ``-Xfrozen_modules=off`` option
+environments such as CI or containers. Make sure the ``xvfb`` package is
+installed so the ``xvfb-run`` command exists (``sudo apt-get install xvfb`` on
+Debian/Ubuntu). The ``-Xfrozen_modules=off`` option
 is passed to Python to silence warnings when using debugpy with frozen
 modules.
 
@@ -471,7 +533,8 @@ You can also start the container manually:
 This requires Docker or Podman to be installed on your system. Like
 ``run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
-Docker environments.  You may also use ``./scripts/run_vm_debug.sh`` or
+Docker environments. Install the ``xvfb`` package to ensure the
+``xvfb-run`` helper is available. You may also use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
 ``run_debug.sh`` so you can still debug locally.
