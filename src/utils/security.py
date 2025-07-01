@@ -6,6 +6,8 @@ from __future__ import annotations
 import platform
 import subprocess
 from typing import Optional
+from dataclasses import dataclass
+import socket
 import psutil
 from .kill_utils import kill_process, kill_process_tree
 
@@ -209,10 +211,6 @@ def require_admin(prompt: str = "Administrator access is required.") -> None:
 
     if not ensure_admin(prompt):
         raise PermissionError("Administrator privileges are required")
-
-
-from dataclasses import dataclass
-import socket
 
 
 @dataclass(slots=True)

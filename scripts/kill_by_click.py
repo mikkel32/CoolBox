@@ -2,9 +2,8 @@
 """Select a window by clicking it and print the PID and title."""
 
 import argparse
-import os
 import tkinter as tk
-from src.views.click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
+from src.views.click_overlay import ClickOverlay
 
 
 def main(argv: list[str] | None = None) -> None:
