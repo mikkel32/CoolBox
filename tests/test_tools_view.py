@@ -27,23 +27,17 @@ class TestToolsView(unittest.TestCase):
         self.assertEqual(desc_lbl.cget("text_color"), default_desc)
         app.destroy()
 
-    def test_security_center_requires_admin(self) -> None:
-        called = {"admin": False, "dialog": False}
+    def test_security_center_delegates_to_app(self) -> None:
+        called = {"open": False}
 
-        def fake_require_admin() -> None:
-            called["admin"] = True
+        class DummyApp:
+            def open_security_center(self) -> None:
+                called["open"] = True
 
-        class FakeDialog:
-            def __init__(self, app) -> None:
-                called["dialog"] = True
+        dummy = type("Dummy", (), {"app": DummyApp()})()
+        ToolsView._security_center(dummy)
 
-        with mock.patch("src.utils.security.require_admin", fake_require_admin), \
-                mock.patch("src.views.security_dialog.SecurityDialog", FakeDialog):
-            dummy = type("Dummy", (), {"app": object()})()
-            ToolsView._security_center(dummy)
-
-        self.assertTrue(called["admin"])
-        self.assertTrue(called["dialog"])
+        self.assertTrue(called["open"])
 
 
 if __name__ == "__main__":

@@ -674,11 +674,7 @@ class ToolsView(BaseView):
 
     def _security_center(self) -> None:
         """Open the Security Center dialog."""
-        from .security_dialog import SecurityDialog
-        from ..utils.security import require_admin
-
-        require_admin()
-        SecurityDialog(self.app)
+        self.app.open_security_center()
 
     def _text_editor(self):
         """Open a simple text editor window."""

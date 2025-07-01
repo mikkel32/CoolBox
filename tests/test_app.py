@@ -129,6 +129,49 @@ class TestCoolBoxApp(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_open_security_center_method(self) -> None:
+        app = CoolBoxApp()
+        patches = [
+            patch("src.views.security_dialog.list_open_ports", lambda: {}),
+            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
+            patch("src.views.security_dialog.is_defender_enabled", lambda: True),
+            patch("src.views.security_dialog.SecurityDialog._schedule_refresh", lambda self: None),
+            patch("src.utils.security.is_admin", lambda: True),
+        ]
+        for p in patches:
+            p.start()
+        app.open_security_center()
+        dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
+        self.assertTrue(dialogs)
+        for d in dialogs:
+            d.destroy()
+        for p in patches:
+            p.stop()
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_security_center_singleton(self) -> None:
+        app = CoolBoxApp()
+        patches = [
+            patch("src.views.security_dialog.list_open_ports", lambda: {}),
+            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
+            patch("src.views.security_dialog.is_defender_enabled", lambda: True),
+            patch("src.views.security_dialog.SecurityDialog._schedule_refresh", lambda self: None),
+            patch("src.utils.security.is_admin", lambda: True),
+        ]
+        for p in patches:
+            p.start()
+        app.open_security_center()
+        first = app.security_center_window
+        app.open_security_center()
+        second = app.security_center_window
+        self.assertIs(first, second)
+        second.destroy()
+        for p in patches:
+            p.stop()
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_tools_view_launch_vm_debug_open_code(self) -> None:
         app = CoolBoxApp()
 
