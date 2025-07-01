@@ -65,8 +65,6 @@ def _check_single(req: str) -> str | None:
             return req
     r = Requirement(req)
     try:
-        from importlib import metadata as importlib_metadata
-
         version = importlib_metadata.version(r.name)
     except importlib_metadata.PackageNotFoundError:
         return req

@@ -2,7 +2,6 @@
 """Select a window by clicking it and print the PID and title."""
 
 import argparse
-import os
 import tkinter as tk
 from src.views.click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
@@ -17,6 +16,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--interval",
         type=float,
+        default=KILL_BY_CLICK_INTERVAL,
         help=(
             "Refresh rate in seconds for the overlay. Overrides "
             "KILL_BY_CLICK_INTERVAL if provided."
@@ -41,9 +41,7 @@ def main(argv: list[str] | None = None) -> None:
 
     root = tk.Tk()
     root.withdraw()
-    kwargs = {"skip_confirm": args.skip_confirm}
-    if args.interval is not None:
-        kwargs["interval"] = args.interval
+    kwargs = {"skip_confirm": args.skip_confirm, "interval": args.interval}
     if args.min_interval is not None:
         kwargs["min_interval"] = args.min_interval
     if args.max_interval is not None:

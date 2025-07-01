@@ -185,7 +185,7 @@ __all__ = [
     "hide_terminal",
     "silence_stdio",
     "hidden_creation_flags",
-    "is_firewall_enabled", 
+    "is_firewall_enabled",
     "set_firewall_enabled",
     "is_defender_enabled",
     "set_defender_enabled",
