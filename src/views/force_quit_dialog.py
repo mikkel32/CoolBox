@@ -68,6 +68,9 @@ class ForceQuitDialog(BaseDialog):
         self._changed_tags: dict[int, int] = {}
         self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue(maxsize=1)
         self.paused = False
+        self._details_cache: dict[int, tuple[float, str]] = {}
+        self._hover_job: str | None = None
+        self._details_job: str | None = None
         if reverse_env is not None:
             self.sort_reverse = reverse_env.lower() in {"1", "true", "yes"}
         else:
@@ -821,6 +824,7 @@ class ForceQuitDialog(BaseDialog):
                 self.hover_color = darken_color(self.accent, factor)
         self.tree.tag_configure("hover", background=self.hover_color)
         self._hover_iid: str | None = None
+        self._hover_pid: int | None = None
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
         self.tree.bind("<<TreeviewSelect>>", self._on_selection)
@@ -1272,6 +1276,7 @@ class ForceQuitDialog(BaseDialog):
         return entry.normal
 
     def _apply_filter_sort(self) -> None:
+        self._details_cache.clear()
         query = self.search_var.get().lower()
         sort_key = self.sort_var.get()
         filter_by = self.filter_var.get()
@@ -1711,6 +1716,19 @@ class ForceQuitDialog(BaseDialog):
         """Highlight ``pid`` in the process list while the overlay is active."""
         if not hasattr(self, "tree"):
             return
+        if self._hover_job is not None:
+            try:
+                self.after_cancel(self._hover_job)
+            except Exception:
+                pass
+        self._hover_job = self.after(50, lambda p=pid: self._apply_highlight(p))
+
+    def _apply_highlight(self, pid: int | None) -> None:
+        self._hover_job = None
+        last = getattr(self, "_hover_pid", None)
+        if pid == last:
+            return
+        self._hover_pid = pid
         if pid is None or not self.tree.exists(str(pid)):
             self.tree.selection_remove(self.tree.selection())
             self._set_hover_row(None)
@@ -1719,7 +1737,21 @@ class ForceQuitDialog(BaseDialog):
         self.tree.see(iid)
         self.tree.selection_set(iid)
         self._set_hover_row(iid)
-        self._show_details()
+        if self._details_job is not None:
+            try:
+                self.after_cancel(self._details_job)
+            except Exception:
+                pass
+        self._details_job = self.after(
+            150, lambda p=pid: self._show_hover_details(p)
+        )
+
+    def _show_hover_details(self, pid: int | None) -> None:
+        self._details_job = None
+        if pid is None or pid != getattr(self, "_hover_pid", None):
+            return
+        if self.show_details_var.get():
+            self._show_details()
 
     def _toggle_details(self) -> None:
         if self.show_details_var.get():
@@ -1728,7 +1760,13 @@ class ForceQuitDialog(BaseDialog):
         else:
             self.details_frame.pack_forget()
 
+    DETAIL_CACHE_TTL = float(os.getenv("FORCE_QUIT_DETAIL_CACHE_TTL", "3"))
+
     def _get_process_details(self, pid: int) -> str:
+        now = time.time()
+        cached = self._details_cache.get(pid)
+        if cached and now - cached[0] < self.DETAIL_CACHE_TTL:
+            return cached[1]
         try:
             proc = psutil.Process(pid)
             with proc.oneshot():
@@ -1742,27 +1780,30 @@ class ForceQuitDialog(BaseDialog):
                 )
                 status = proc.status()
                 mem = proc.memory_info().rss / (1024 * 1024)
-                cpu = proc.cpu_percent(interval=0.1)
+                cpu = proc.cpu_percent(interval=None)
                 threads = proc.num_threads()
                 files = len(proc.open_files())
                 conns = len(proc.connections(kind="inet"))
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
-            return str(exc)
-        return (
-            f"PID: {pid}\n"
-            f"Name: {name}\n"
-            f"User: {user}\n"
-            f"Status: {status}\n"
-            f"Started: {start}\n"
-            f"CPU: {cpu:.1f}%\n"
-            f"Memory: {mem:.1f} MB\n"
-            f"Threads: {threads}\n"
-            f"Open Files: {files}\n"
-            f"Connections: {conns}\n"
-            f"CWD: {cwd}\n"
-            f"Executable: {exe}\n"
-            f"Cmdline: {cmdline}"
-        )
+            info = str(exc)
+        else:
+            info = (
+                f"PID: {pid}\n"
+                f"Name: {name}\n"
+                f"User: {user}\n"
+                f"Status: {status}\n"
+                f"Started: {start}\n"
+                f"CPU: {cpu:.1f}%\n"
+                f"Memory: {mem:.1f} MB\n"
+                f"Threads: {threads}\n"
+                f"Open Files: {files}\n"
+                f"Connections: {conns}\n"
+                f"CWD: {cwd}\n"
+                f"Executable: {exe}\n"
+                f"Cmdline: {cmdline}"
+            )
+        self._details_cache[pid] = (now, info)
+        return info
 
     def _confirm_kill(self, pid: int) -> None:
         if messagebox.askyesno("Force Quit", f"Terminate PID {pid}?", parent=self):

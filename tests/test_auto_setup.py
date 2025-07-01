@@ -1,7 +1,5 @@
 import importlib
 import os
-import sys
-from types import ModuleType
 from importlib import metadata
 
 import main
