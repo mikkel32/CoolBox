@@ -14,6 +14,8 @@ import math
 import tkinter as tk
 from collections import deque
 from typing import Optional, Callable
+import threading
+import queue
 from enum import Enum, auto
 
 from src.utils.window_utils import (
@@ -28,6 +30,52 @@ from src.utils.mouse_listener import capture_mouse, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
+
+# Default number of background worker threads for window queries. The
+# value can be overridden by ``KILL_BY_CLICK_WORKERS`` or the ``workers``
+# argument when creating :class:`ClickOverlay`.
+DEFAULT_WORKERS = 1
+
+# Enable background window detection by default so cursor tracking remains
+# responsive even when system commands are slow. Set this to "0" or "false"
+# to restore synchronous behaviour which simplifies testing.
+BACKGROUND_QUERY = os.getenv("KILL_BY_CLICK_BACKGROUND", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+
+# Trigger an immediate window query whenever the cursor moves. This keeps
+# detection snappy even with long polling intervals. Disable with
+# ``KILL_BY_CLICK_IMMEDIATE=0`` if the additional wakeups cause issues.
+IMMEDIATE_QUERY = os.getenv("KILL_BY_CLICK_IMMEDIATE", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+
+# Cache the window information while the cursor remains inside the
+# last queried rectangle. This significantly reduces expensive window
+# lookups during slow motion or brief pauses. The cache expires after
+# ``DEFAULT_CACHE_TIMEOUT`` seconds so newly opened windows are still
+# detected promptly. Set ``KILL_BY_CLICK_CACHE=0`` to disable caching or
+# adjust ``KILL_BY_CLICK_CACHE_TIMEOUT`` to change the expiration.
+DEFAULT_CACHE_TIMEOUT = 0.1
+CACHE_RESULTS = os.getenv("KILL_BY_CLICK_CACHE", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
+CACHE_TIMEOUT = float(os.getenv("KILL_BY_CLICK_CACHE_TIMEOUT", str(DEFAULT_CACHE_TIMEOUT)))
+
+# Toggle the cursor heatmap used by the scoring engine. Disabling this can
+# reduce CPU usage on slower systems. ``KILL_BY_CLICK_HEATMAP=0`` skips all
+# heatmap calculations.
+USE_HEATMAP = os.getenv("KILL_BY_CLICK_HEATMAP", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+)
 
 # Allow the refresh interval to be configured via an environment
 # variable. Falling back to the tuning default keeps behaviour
@@ -80,6 +128,12 @@ class ClickOverlay(tk.Toplevel):
         delay_scale: float | None = None,
         skip_confirm: bool | None = None,
         on_hover: Callable[[int | None, str | None], None] | None = None,
+        background: bool | None = None,
+        workers: int | None = None,
+        cache: bool | None = None,
+        cache_timeout: float | None = None,
+        heatmap: bool | None = None,
+        immediate: bool | None = None,
     ) -> None:
         super().__init__(parent)
         # Configure fullscreen before enabling override-redirect to avoid
@@ -149,6 +203,35 @@ class ClickOverlay(tk.Toplevel):
             self.delay_scale = delay_scale
         if self.delay_scale <= 0:
             self.delay_scale = tuning.delay_scale
+        if workers is None:
+            env = os.getenv("KILL_BY_CLICK_WORKERS")
+            if env is not None:
+                try:
+                    self.workers = max(1, int(env))
+                except ValueError:
+                    self.workers = DEFAULT_WORKERS
+            else:
+                self.workers = DEFAULT_WORKERS
+        else:
+            self.workers = max(1, workers)
+        if cache is None:
+            env = os.getenv("KILL_BY_CLICK_CACHE")
+            if env is not None:
+                cache = env.lower() not in ("0", "false", "no")
+            else:
+                cache = CACHE_RESULTS
+        self.cache = cache
+        if cache_timeout is None:
+            env = os.getenv("KILL_BY_CLICK_CACHE_TIMEOUT")
+            if env is not None:
+                try:
+                    self.cache_timeout = float(env)
+                except ValueError:
+                    self.cache_timeout = CACHE_TIMEOUT
+            else:
+                self.cache_timeout = CACHE_TIMEOUT
+        else:
+            self.cache_timeout = max(0.0, cache_timeout)
         if skip_confirm is None:
             env = os.getenv("KILL_BY_CLICK_SKIP_CONFIRM")
             skip_confirm = env not in (None, "0", "false", "no")
@@ -163,11 +246,19 @@ class ClickOverlay(tk.Toplevel):
         self._last_info: WindowInfo | None = None
         self._screen_w = self.winfo_screenwidth()
         self._screen_h = self.winfo_screenheight()
+        if heatmap is None:
+            env = os.getenv("KILL_BY_CLICK_HEATMAP")
+            if env is not None:
+                heatmap = env.lower() not in ("0", "false", "no")
+            else:
+                heatmap = USE_HEATMAP
+        self.heatmap_enabled = heatmap
         self.engine = ScoringEngine(
             tuning,
             self._screen_w,
             self._screen_h,
             os.getpid(),
+            heatmap_enabled=self.heatmap_enabled,
         )
         self._own_pid = os.getpid()
         self._initial_active_pid: int | None = None
@@ -191,6 +282,12 @@ class ClickOverlay(tk.Toplevel):
         )
         self._last_pid: int | None = None
         self._flash_id: str | None = None
+        self._cache_lock = threading.Lock()
+        # Remember the last rectangle returned from a window query so we can
+        # reuse the result while the cursor remains inside it. This avoids
+        # expensive system calls when hovering over the same window.
+        self._last_query_rect: tuple[int, int, int, int] | None = None
+        self._cache_time: float = 0.0
         try:
             self._cursor_x = self.winfo_pointerx()
             self._cursor_y = self.winfo_pointery()
@@ -198,6 +295,30 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_x = 0
         self._cursor_y = 0
         self._last_move_pos = (self._cursor_x, self._cursor_y)
+        if background is None:
+            background = BACKGROUND_QUERY
+        self.background = background
+        if immediate is None:
+            env = os.getenv("KILL_BY_CLICK_IMMEDIATE")
+            if env is not None:
+                self.immediate = env.lower() not in ("0", "false", "no")
+            else:
+                self.immediate = IMMEDIATE_QUERY
+        else:
+            self.immediate = immediate
+        self._pending_info: WindowInfo | None = None
+        self._stop_event: threading.Event | None = None
+        self._info_queue: queue.Queue[WindowInfo] | None = None
+        self._workers: list[threading.Thread] = []
+        self._query_event: threading.Event | None = None
+        if self.background:
+            self._stop_event = threading.Event()
+            self._info_queue = queue.Queue(maxsize=1)
+            self._query_event = threading.Event()
+            for _ in range(self.workers):
+                t = threading.Thread(target=self._worker_loop, daemon=True)
+                t.start()
+                self._workers.append(t)
 
     def _flash_highlight(self) -> None:
         """Temporarily thicken the highlight rectangle when the target changes."""
@@ -247,18 +368,46 @@ class ClickOverlay(tk.Toplevel):
             self._last_move_time = now
             self._last_move_pos = (_e.x_root, _e.y_root)
             self._path_history.append((_e.x_root, _e.y_root))
-            self.engine.heatmap.update(_e.x_root, _e.y_root)
+            if self.heatmap_enabled:
+                self.engine.heatmap.update(_e.x_root, _e.y_root)
             self._cursor_x = _e.x_root
             self._cursor_y = _e.y_root
+            if self.background and self.immediate and self._query_event is not None:
+                self._query_event.set()
         else:
             try:
                 self._cursor_x = self.winfo_pointerx()
                 self._cursor_y = self.winfo_pointery()
             except Exception:
                 pass
+        if not isinstance(_e, tk.Event) and self.background and self.immediate and self._query_event is not None:
+            self._query_event.set()
         if self.update_state is UpdateState.IDLE:
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
+
+    def _worker_loop(self) -> None:
+        while self._stop_event is not None and not self._stop_event.is_set():
+            delay = self._next_delay() / 1000.0
+            if self._query_event is not None:
+                self._query_event.wait(delay)
+                self._query_event.clear()
+            else:
+                if self._stop_event.wait(delay):
+                    break
+            if self._stop_event.is_set():
+                break
+            try:
+                info = self._query_window()
+                if self._info_queue is not None:
+                    try:
+                        self._info_queue.put_nowait(info)
+                    except queue.Full:
+                        pass
+                else:
+                    self._pending_info = info
+            except Exception:
+                pass
 
     def _next_delay(self) -> int:
         """Return the delay in milliseconds until the next update."""
@@ -279,7 +428,17 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_y = self.winfo_pointery()
         except Exception:
             pass
-        self._update_rect()
+        info: WindowInfo | None = None
+        if not self.background:
+            info = self._query_window()
+        else:
+            if self._info_queue is not None:
+                try:
+                    self._pending_info = self._info_queue.get_nowait()
+                except queue.Empty:
+                    pass
+            info = self._pending_info or self._last_info
+        self._update_rect(info)
         now = time.monotonic()
         if now - self._last_active_query >= self.interval:
             active = get_active_window().pid
@@ -303,15 +462,41 @@ class ClickOverlay(tk.Toplevel):
         self._last_move_time = now
         self._last_move_pos = (x, y)
         self._path_history.append((x, y))
-        self.engine.heatmap.update(x, y)
+        if self.heatmap_enabled:
+            self.engine.heatmap.update(x, y)
         self._cursor_x = x
         self._cursor_y = y
+        if self.background and self.immediate and self._query_event is not None:
+            self._query_event.set()
         self._queue_update()
 
     def _query_window(self) -> WindowInfo:
         """Return the window info below the cursor, ignoring this overlay."""
 
-        return self._query_window_at(int(self._cursor_x), int(self._cursor_y))
+        x = int(self._cursor_x)
+        y = int(self._cursor_y)
+        with self._cache_lock:
+            rect = self._last_query_rect
+            last_info = self._last_info
+            cache_time = self._cache_time
+        if (
+            self.cache
+            and rect is not None
+            and rect[0] <= x <= rect[0] + rect[2]
+            and rect[1] <= y <= rect[1] + rect[3]
+            and last_info is not None
+            and time.monotonic() - cache_time <= self.cache_timeout
+        ):
+            return last_info
+
+        info = self._query_window_at(x, y)
+        with self._cache_lock:
+            if info.rect is not None:
+                self._last_query_rect = info.rect
+                self._cache_time = time.monotonic()
+            else:
+                self._cache_time = 0.0
+        return info
 
     def _probe_point(self, x: int, y: int) -> WindowInfo:
         """Return window info at ``(x, y)`` applying fallbacks."""
@@ -426,7 +611,10 @@ class ClickOverlay(tk.Toplevel):
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
         if info is None:
-            info = self._query_window()
+            if self.background:
+                info = self._pending_info or self._last_info or WindowInfo(None)
+            else:
+                info = self._query_window()
         if not getattr(self, "_raised", False):
             self.lift()
             self._raised = True
@@ -446,7 +634,8 @@ class ClickOverlay(tk.Toplevel):
             if self._gaze_duration[pid] < tuning.score_min:
                 del self._gaze_duration[pid]
         if info.pid not in (self._own_pid, None):
-            self._last_info = info
+            with self._cache_lock:
+                self._last_info = info
             self._pid_history.append(info.pid)
             self._info_history.append(info)
             self.engine.tracker.add(info, self._initial_active_pid)
@@ -459,8 +648,15 @@ class ClickOverlay(tk.Toplevel):
             else:
                 self._current_pid = info.pid
                 self._current_streak = 1
+            if info.rect is not None:
+                with self._cache_lock:
+                    self._last_query_rect = info.rect
+                    self._cache_time = time.monotonic()
         elif info.pid is None:
-            self._last_info = None
+            with self._cache_lock:
+                self._last_info = None
+                self._last_query_rect = None
+                self._cache_time = 0.0
 
         px = int(self._cursor_x)
         py = int(self._cursor_y)
@@ -608,6 +804,25 @@ class ClickOverlay(tk.Toplevel):
             except Exception:
                 pass
             self._flash_id = None
+        if self._stop_event is not None:
+            self._stop_event.set()
+            for t in self._workers:
+                try:
+                    t.join(timeout=0.1)
+                except Exception:
+                    pass
+            self._workers.clear()
+            self._pending_info = None
+            if self._info_queue is not None:
+                with self._info_queue.mutex:
+                    self._info_queue.queue.clear()
+                self._info_queue = None
+            if self._query_event is not None:
+                self._query_event.set()
+                self._query_event = None
+        with self._cache_lock:
+            self._last_query_rect = None
+            self._cache_time = 0.0
         remove_window_clickthrough(self)
         self.destroy()
 

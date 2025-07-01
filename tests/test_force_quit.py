@@ -274,7 +274,7 @@ class TestForceQuit(unittest.TestCase):
             "time.sleep(30)"
         )
         proc = subprocess.Popen([sys.executable, "-c", script])
-        time.sleep(0.2)
+        time.sleep(0.5)
         self.assertTrue(psutil.pid_exists(proc.pid))
         count = ForceQuitDialog.force_kill_above_threads(5)
         time.sleep(0.1)
@@ -1215,6 +1215,7 @@ class TestForceQuit(unittest.TestCase):
         dialog.deiconify = mock.Mock()
 
         with (
+            mock.patch.dict(os.environ, {"KILL_BY_CLICK_BACKGROUND": "0"}),
             mock.patch("src.views.click_overlay.ClickOverlay") as CO,
             mock.patch("src.views.force_quit_dialog.messagebox") as MB,
         ):
@@ -1228,6 +1229,7 @@ class TestForceQuit(unittest.TestCase):
             assert args[0] is dialog
             assert kwargs.get("highlight") == dialog.accent
             assert kwargs.get("on_hover") == dialog._highlight_pid
+            assert kwargs.get("background") is False
             MB.showerror.assert_called_once()
             dialog.after_idle.assert_called_with(dialog._update_hover)
 
@@ -1251,6 +1253,144 @@ class TestForceQuit(unittest.TestCase):
             dialog._kill_by_click()
             MB.askyesno.assert_not_called()
             MB.showinfo.assert_called_once()
+            dialog.force_kill.assert_called_once_with(123)
+
+    def test_kill_by_click_background_env(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.after_idle = mock.Mock()
+
+        with (
+            mock.patch.dict(os.environ, {"KILL_BY_CLICK_BACKGROUND": "0"}),
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (123, "foo")
+            dialog._kill_by_click()
+            args, kwargs = CO.call_args
+            assert kwargs.get("background") is False
+            MB.askyesno.assert_called_once()
+            dialog.force_kill.assert_called_once_with(123)
+
+    def test_kill_by_click_workers_env(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.after_idle = mock.Mock()
+
+        with (
+            mock.patch.dict(os.environ, {"KILL_BY_CLICK_WORKERS": "5"}),
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (123, "foo")
+            dialog._kill_by_click()
+            args, kwargs = CO.call_args
+            assert kwargs.get("workers") == 5
+            MB.askyesno.assert_called_once()
+            dialog.force_kill.assert_called_once_with(123)
+
+    def test_kill_by_click_cache_env(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.after_idle = mock.Mock()
+
+        with (
+            mock.patch.dict(os.environ, {"KILL_BY_CLICK_CACHE": "0"}),
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (123, "foo")
+            dialog._kill_by_click()
+            args, kwargs = CO.call_args
+            assert kwargs.get("cache") is False
+            MB.askyesno.assert_called_once()
+            dialog.force_kill.assert_called_once_with(123)
+
+    def test_kill_by_click_cache_timeout_env(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.after_idle = mock.Mock()
+
+        with (
+            mock.patch.dict(os.environ, {"KILL_BY_CLICK_CACHE_TIMEOUT": "0.2"}),
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (123, "foo")
+            dialog._kill_by_click()
+            args, kwargs = CO.call_args
+            assert kwargs.get("cache_timeout") == 0.2
+            MB.askyesno.assert_called_once()
+            dialog.force_kill.assert_called_once_with(123)
+
+    def test_kill_by_click_heatmap_env(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.after_idle = mock.Mock()
+
+        with (
+            mock.patch.dict(os.environ, {"KILL_BY_CLICK_HEATMAP": "0"}),
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (123, "foo")
+            dialog._kill_by_click()
+            args, kwargs = CO.call_args
+            assert kwargs.get("heatmap") is False
+            MB.askyesno.assert_called_once()
+            dialog.force_kill.assert_called_once_with(123)
+
+    def test_kill_by_click_immediate_env(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.after_idle = mock.Mock()
+
+        with (
+            mock.patch.dict(os.environ, {"KILL_BY_CLICK_IMMEDIATE": "0"}),
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (123, "foo")
+            dialog._kill_by_click()
+            args, kwargs = CO.call_args
+            assert kwargs.get("immediate") is False
+            MB.askyesno.assert_called_once()
             dialog.force_kill.assert_called_once_with(123)
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")

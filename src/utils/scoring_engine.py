@@ -58,7 +58,6 @@ class Tuning:
     tracker_ratio: float = 1.5
     recency_weight: float = 0.0
     duration_weight: float = 0.0
-    confirm_delay: float = 0.0
     confirm_weight: float = 1.0
     zorder_weight: float = 0.0
     gaze_decay: float = 0.9
@@ -102,8 +101,9 @@ def softmax(weights: Dict[int, float], temp: float) -> Dict[int, float]:
 
 
 class CursorHeatmap:
-    def __init__(self, width: int, height: int, tuning: Tuning) -> None:
+    def __init__(self, width: int, height: int, tuning: Tuning, *, enabled: bool = True) -> None:
         self.tuning = tuning
+        self.enabled = enabled
         self.res = max(1, tuning.heatmap_res)
         self.decay = tuning.heatmap_decay
         self.w = width // self.res + 1
@@ -111,6 +111,8 @@ class CursorHeatmap:
         self.grid = [[0.0 for _ in range(self.w)] for _ in range(self.h)]
 
     def update(self, x: int, y: int) -> None:
+        if not self.enabled:
+            return
         gx = min(int(x / self.res), self.w - 1)
         gy = min(int(y / self.res), self.h - 1)
         for row in self.grid:
@@ -119,7 +121,7 @@ class CursorHeatmap:
         self.grid[gy][gx] += 1.0
 
     def region_score(self, rect: Tuple[int, int, int, int] | None) -> float:
-        if not rect:
+        if not self.enabled or not rect:
             return 0.0
         x, y, w, h = rect
         gx1 = max(0, int(x / self.res))
@@ -182,14 +184,14 @@ class WindowTracker:
         if not self.scores:
             return None, 0.0
         ordered = sorted(self.scores.items(), key=lambda i: i[1], reverse=True)
-        best_pid, best_score = ordered[0]
+        best_score = ordered[0][1]
         second_score = ordered[1][1] if len(ordered) > 1 else 0.0
         info = self.best()
         return info, best_score / (second_score or 1e-6)
 
 
 class ScoringEngine:
-    def __init__(self, tuning: Tuning, width: int, height: int, own_pid: int) -> None:
+    def __init__(self, tuning: Tuning, width: int, height: int, own_pid: int, *, heatmap_enabled: bool = True) -> None:
         self.tuning = tuning
         self.own_pid = own_pid
         self.tracker = WindowTracker(tuning)
@@ -202,7 +204,7 @@ class ScoringEngine:
         self.active_history: Deque[Tuple[int, float]] = deque(
             maxlen=tuning.active_history_size
         )
-        self.heatmap = CursorHeatmap(width, height, tuning)
+        self.heatmap = CursorHeatmap(width, height, tuning, enabled=heatmap_enabled)
 
     def score_samples(
         self,
@@ -254,7 +256,7 @@ class ScoringEngine:
                     ):
                         inside += 1
                 w += self.tuning.path_weight * inside / len(path_history)
-            if self.tuning.heatmap_weight and info.rect:
+            if self.tuning.heatmap_weight and self.heatmap.enabled and info.rect:
                 heat = self.heatmap.region_score(info.rect)
                 area = info.rect[2] * info.rect[3] or 1
                 w += self.tuning.heatmap_weight * heat / float(area)
@@ -359,7 +361,7 @@ class ScoringEngine:
             return None, 0.0, 0.0
         probs = softmax(weights, self.tuning.softmax_temp)
         ordered = sorted(probs.items(), key=lambda i: i[1], reverse=True)
-        best_pid, best_prob = ordered[0]
+        best_prob = ordered[0][1]
         second_prob = ordered[1][1] if len(ordered) > 1 else 0.0
         ratio = best_prob / (second_prob or 1e-6)
         info = self.select_from_weights(samples, weights)

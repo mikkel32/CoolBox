@@ -1121,21 +1121,6 @@ async def async_detect_local_hosts(
     )
 
 
-def _ping_host(host: str, timeout: float = 1.0) -> bool:
-    """Return ``True`` if ``host`` responds to ping within ``timeout`` seconds."""
-    system = platform.system().lower()
-    if system == "windows":
-        cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host]
-    else:
-        cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
-    return (
-        subprocess.run(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        ).returncode
-        == 0
-    )
-
-
 async def _async_ping_host(
     host: str,
     timeout: float = 1.0,

@@ -67,7 +67,7 @@ class RainbowBorder:
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(self, *exc_info) -> None:
         self.stop()
 
     def start(self) -> None:

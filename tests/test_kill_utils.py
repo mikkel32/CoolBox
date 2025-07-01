@@ -29,7 +29,7 @@ class TestKillUtils(unittest.TestCase):
             ),
         ]
         parent = subprocess.Popen(cmd)
-        time.sleep(0.2)
+        time.sleep(0.5)
         children = psutil.Process(parent.pid).children()
         self.assertTrue(children)
         kill_process_tree(parent.pid)
