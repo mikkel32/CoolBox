@@ -1995,7 +1995,8 @@ class ForceQuitDialog(BaseDialog):
                 self._watcher.pause()
             except Exception:
                 pass
-        overlay = ClickOverlay(self, highlight=self.accent)
+        color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
+        overlay = ClickOverlay(self, highlight=color)
         self.withdraw()
         try:
             pid, title = overlay.choose()
