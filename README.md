@@ -16,7 +16,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   so fonts and accent colors update instantly when settings change.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
-- **Security Center**: Toggle the Windows Firewall and Defender real-time protection directly from the app.
+- **Security Center**: Manage the system firewall on Windows or Linux and toggle Windows Defender. The dialog automatically requests administrator rights when launched so changes can be applied securely.
 - **Kill by Click CLI**: `scripts/kill_by_click.py` opens the crosshair overlay
   from the terminal so you can quickly select any window. Pass `--skip-confirm`
   to close the overlay immediately without rechecking the click location.

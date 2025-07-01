@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 from src.app import CoolBoxApp
 from src.views.tools_view import ToolsView
 
@@ -25,6 +26,24 @@ class TestToolsView(unittest.TestCase):
         self.assertEqual(name_lbl.cget("text_color"), default_name)
         self.assertEqual(desc_lbl.cget("text_color"), default_desc)
         app.destroy()
+
+    def test_security_center_requires_admin(self) -> None:
+        called = {"admin": False, "dialog": False}
+
+        def fake_require_admin() -> None:
+            called["admin"] = True
+
+        class FakeDialog:
+            def __init__(self, app) -> None:
+                called["dialog"] = True
+
+        with mock.patch("src.utils.security.require_admin", fake_require_admin), \
+                mock.patch("src.views.security_dialog.SecurityDialog", FakeDialog):
+            dummy = type("Dummy", (), {"app": object()})()
+            ToolsView._security_center(dummy)
+
+        self.assertTrue(called["admin"])
+        self.assertTrue(called["dialog"])
 
 
 if __name__ == "__main__":

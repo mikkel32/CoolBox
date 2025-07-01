@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Select a window by clicking it and print the PID and title."""
 
-import os
 import argparse
 import tkinter as tk
 from src.views.click_overlay import ClickOverlay
