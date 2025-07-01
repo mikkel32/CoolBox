@@ -32,6 +32,13 @@ from src.utils.helpers import (
     lighten_color,
     darken_color,
 )
+import importlib
+
+# Preload the click overlay module so its heavy dependencies are
+# ready when "Kill by Click" is launched. This avoids the noticeable
+# delay caused by importing ``pynput`` and related modules on the
+# first invocation.
+importlib.import_module("src.views.click_overlay")
 
 
 class ForceQuitDialog(BaseDialog):
@@ -2056,11 +2063,14 @@ class ForceQuitDialog(BaseDialog):
         self._populate()
 
     def _kill_by_click(self) -> None:
+        """Launch the click-to-kill overlay and terminate the selected window."""
+
         from .click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
         paused = self.paused
         if not paused:
             self._safe_pause()
+
         color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
         color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
         interval_env = os.getenv("KILL_BY_CLICK_INTERVAL")
@@ -2081,8 +2091,20 @@ class ForceQuitDialog(BaseDialog):
                 kwargs[name] = float(env)
             except ValueError:
                 pass
-        overlay = ClickOverlay(self, **kwargs)
+
+        # Hide the dialog first so the overlay appears instantly without
+        # waiting for geometry updates.
         self.withdraw()
+        if hasattr(self, "tk"):
+            self.update_idletasks()
+        overlay = ClickOverlay(self, **kwargs)
+        # Ensure the overlay window becomes visible immediately so the
+        # crosshair appears without any perceptible delay.
+        try:
+            overlay.update_idletasks()
+            overlay.wait_visibility()
+        except Exception:
+            pass
         try:
             pid, title = overlay.choose()
             if pid is None:
