@@ -2,6 +2,7 @@ import importlib
 import os
 import sys
 from types import ModuleType
+from importlib import metadata
 
 import main
 
@@ -10,32 +11,26 @@ def test_requirements_satisfied(monkeypatch, tmp_path):
     req = tmp_path / "req.txt"
     req.write_text("foo>=1.0\n")
 
-    fake = ModuleType("pkg_resources")
     calls = {}
 
-    def fake_require(args):
-        calls["reqs"] = args
+    def fake_version(name: str) -> str:
+        calls["pkg"] = name
+        return "1.2"
 
-    fake.require = fake_require
-    monkeypatch.setitem(sys.modules, "pkg_resources", fake)
-
+    monkeypatch.setattr(metadata, "version", fake_version)
     importlib.reload(main)
     assert main._requirements_satisfied(req) is True
-    assert calls["reqs"] == ["foo>=1.0"]
+    assert calls["pkg"] == "foo"
 
 
 def test_requirements_satisfied_fail(monkeypatch, tmp_path):
     req = tmp_path / "req.txt"
     req.write_text("foo>=1.0\n")
 
-    fake = ModuleType("pkg_resources")
+    def fake_version(name: str) -> str:
+        raise metadata.PackageNotFoundError
 
-    def fake_require(args):
-        raise Exception
-
-    fake.require = fake_require
-    monkeypatch.setitem(sys.modules, "pkg_resources", fake)
-
+    monkeypatch.setattr(metadata, "version", fake_version)
     importlib.reload(main)
     assert main._requirements_satisfied(req) is False
 
@@ -55,7 +50,7 @@ def install(skip_update=False):
     )
     (tmp_path / "requirements.txt").write_text("")
     monkeypatch.setattr(main, "_compute_setup_state", lambda root: "x")
-    monkeypatch.setattr(main, "_requirements_satisfied", lambda req: False)
+    monkeypatch.setattr(main, "_missing_requirements", lambda req: ["foo"])
     cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
