@@ -2073,10 +2073,21 @@ class ForceQuitDialog(BaseDialog):
                 kwargs["interval"] = float(interval_env)
             except ValueError:
                 kwargs["interval"] = KILL_BY_CLICK_INTERVAL
+        for name in ("min_interval", "max_interval", "delay_scale"):
+            env = os.getenv(f"KILL_BY_CLICK_{name.upper()}")
+            if env is None:
+                continue
+            try:
+                kwargs[name] = float(env)
+            except ValueError:
+                pass
         overlay = ClickOverlay(self, **kwargs)
         self.withdraw()
         try:
             pid, title = overlay.choose()
+            if pid is None:
+                fallback = self._get_window_under_cursor()
+                pid, title = fallback.pid, fallback.title
         finally:
             self.deiconify()
             self._highlight_pid(None)

@@ -75,6 +75,9 @@ class ClickOverlay(tk.Toplevel):
         probe_attempts: int = 5,
         timeout: float | None = None,
         interval: float = KILL_BY_CLICK_INTERVAL,
+        min_interval: float | None = None,
+        max_interval: float | None = None,
+        delay_scale: float | None = None,
         skip_confirm: bool | None = None,
         on_hover: Callable[[int | None, str | None], None] | None = None,
     ) -> None:
@@ -115,6 +118,37 @@ class ClickOverlay(tk.Toplevel):
         self.probe_attempts = probe_attempts
         self.timeout = timeout
         self.interval = interval
+        if min_interval is None:
+            try:
+                self.min_interval = float(
+                    os.getenv("KILL_BY_CLICK_MIN_INTERVAL", str(tuning.min_interval))
+                )
+            except ValueError:
+                self.min_interval = tuning.min_interval
+        else:
+            self.min_interval = min_interval
+        if max_interval is None:
+            try:
+                self.max_interval = float(
+                    os.getenv("KILL_BY_CLICK_MAX_INTERVAL", str(tuning.max_interval))
+                )
+            except ValueError:
+                self.max_interval = tuning.max_interval
+        else:
+            self.max_interval = max_interval
+        if self.min_interval > self.max_interval:
+            self.min_interval, self.max_interval = self.max_interval, self.min_interval
+        if delay_scale is None:
+            try:
+                self.delay_scale = float(
+                    os.getenv("KILL_BY_CLICK_DELAY_SCALE", str(tuning.delay_scale))
+                )
+            except ValueError:
+                self.delay_scale = tuning.delay_scale
+        else:
+            self.delay_scale = delay_scale
+        if self.delay_scale <= 0:
+            self.delay_scale = tuning.delay_scale
         if skip_confirm is None:
             env = os.getenv("KILL_BY_CLICK_SKIP_CONFIRM")
             skip_confirm = env not in (None, "0", "false", "no")
@@ -226,6 +260,18 @@ class ClickOverlay(tk.Toplevel):
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
 
+    def _next_delay(self) -> int:
+        """Return the delay in milliseconds until the next update."""
+        base_ms = self.interval * 1000.0
+        min_ms = self.min_interval * 1000.0
+        max_ms = self.max_interval * 1000.0
+        # Scale the refresh rate using a smooth curve so large
+        # cursor movements speed up updates without sudden jumps.
+        scale = 1.0 / (1.0 + self._velocity / self.delay_scale)
+        delay = base_ms * scale
+        delay = max(min(delay, max_ms), min_ms)
+        return int(delay)
+
     def _process_update(self) -> None:
         self.update_state = UpdateState.IDLE
         try:
@@ -241,7 +287,7 @@ class ClickOverlay(tk.Toplevel):
             if active not in (self._own_pid, None):
                 if not self._active_history or self._active_history[-1][0] != active:
                     self._active_history.append((active, now))
-        self._after_id = self.after(int(self.interval * 1000), self._queue_update)
+        self._after_id = self.after(self._next_delay(), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
         now = time.time()

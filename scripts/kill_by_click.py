@@ -2,6 +2,7 @@
 """Select a window by clicking it and print the PID and title."""
 
 import argparse
+import os
 import tkinter as tk
 from src.views.click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
@@ -21,19 +22,34 @@ def main(argv: list[str] | None = None) -> None:
             "KILL_BY_CLICK_INTERVAL if provided."
         ),
     )
+    parser.add_argument(
+        "--min-interval",
+        type=float,
+        help="Smallest allowed refresh interval in seconds",
+    )
+    parser.add_argument(
+        "--max-interval",
+        type=float,
+        help="Largest allowed refresh interval in seconds",
+    )
+    parser.add_argument(
+        "--delay-scale",
+        type=float,
+        help="Controls how strongly pointer speed shortens the delay",
+    )
     args = parser.parse_args(argv)
 
     root = tk.Tk()
     root.withdraw()
     kwargs = {"skip_confirm": args.skip_confirm}
     if args.interval is not None:
-        interval = args.interval
-    else:
-        try:
-            interval = float(os.getenv("KILL_BY_CLICK_INTERVAL", str(KILL_BY_CLICK_INTERVAL)))
-        except ValueError:
-            interval = KILL_BY_CLICK_INTERVAL
-    kwargs["interval"] = interval
+        kwargs["interval"] = args.interval
+    if args.min_interval is not None:
+        kwargs["min_interval"] = args.min_interval
+    if args.max_interval is not None:
+        kwargs["max_interval"] = args.max_interval
+    if args.delay_scale is not None:
+        kwargs["delay_scale"] = args.delay_scale
     overlay = ClickOverlay(root, **kwargs)
     pid, title = overlay.choose()
     if pid is None:

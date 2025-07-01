@@ -14,11 +14,21 @@ from .window_utils import WindowInfo, list_windows_at
 class Tuning:
     """Weight and scoring parameters loaded from environment variables."""
 
-    # Increase the default overlay update interval slightly to
-    # reduce CPU usage when the click overlay is active. This
-    # still provides responsive tracking without the excessive
-    # overhead from the previous 10ms refresh rate.
-    interval: float = 0.05
+    # Increase the default overlay update interval to reduce CPU
+    # usage while tracking the cursor. A 100ms refresh keeps the
+    # overlay responsive without the heavy overhead of the prior
+    # 50ms rate which could cause noticeable lag on some systems.
+    interval: float = 0.1
+    # Dynamic adjustment bounds for the overlay refresh delay.
+    # The update interval scales between these values based on
+    # cursor velocity so quick movements feel responsive while
+    # idle periods use fewer resources.
+    min_interval: float = 0.025
+    max_interval: float = 0.2
+    # Divisor controlling how strongly pointer speed compresses the overlay
+    # refresh interval. Larger values make motion influence the delay more
+    # gradually while smaller values cause faster updates during quick moves.
+    delay_scale: float = 400.0
     pid_history_size: int = 5
     sample_decay: float = 0.85
     history_decay: float = 0.9
