@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Utilities for toggling common security settings on Windows."""
+
+from __future__ import annotations
 
 
 import platform
@@ -8,7 +8,10 @@ import subprocess
 from typing import Optional
 from pathlib import Path
 import sys
+import socket
+from dataclasses import dataclass
 import psutil
+from .win_console import hidden_creation_flags
 from .kill_utils import kill_process, kill_process_tree
 
 
@@ -213,10 +216,6 @@ def require_admin(prompt: str = "Administrator access is required.") -> None:
         raise PermissionError("Administrator privileges are required")
 
 
-from dataclasses import dataclass
-import socket
-
-
 @dataclass(slots=True)
 class LocalPort:
     """Information about a local listening port."""
@@ -227,28 +226,49 @@ class LocalPort:
     service: str
 
 
+_SERVICE_CACHE: dict[int, str] = {}
+_PROC_NAME_CACHE: dict[int, str] = {}
+
+
 def list_open_ports() -> dict[int, list[LocalPort]]:
-    """Return a mapping of listening ports to :class:`LocalPort` objects."""
+    """Return a mapping of listening ports to :class:`LocalPort` objects.
+
+    Reuses cached service names and process names to reduce repeated lookups
+    when scanning ports frequently.
+    """
 
     ports: dict[int, list[LocalPort]] = {}
     try:
         for conn in psutil.net_connections(kind="inet"):
-            if conn.status == psutil.CONN_LISTEN and conn.laddr:
-                port = conn.laddr.port
-                pid: int | None = conn.pid
-                try:
-                    proc_name = psutil.Process(pid).name() if pid else "unknown"
-                except Exception:
-                    proc_name = "unknown"
+            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
+                continue
+
+            port = conn.laddr.port
+            pid: int | None = conn.pid
+
+            if pid is not None:
+                proc_name = _PROC_NAME_CACHE.get(pid)
+                if proc_name is None:
+                    try:
+                        proc_name = psutil.Process(pid).name()
+                    except Exception:
+                        proc_name = "unknown"
+                    _PROC_NAME_CACHE[pid] = proc_name
+            else:
+                proc_name = "unknown"
+
+            service = _SERVICE_CACHE.get(port)
+            if service is None:
                 try:
                     service = socket.getservbyport(port)
                 except Exception:
                     service = "unknown"
-                ports.setdefault(port, []).append(
-                    LocalPort(port, pid, proc_name, service)
-                )
+                _SERVICE_CACHE[port] = service
+
+            ports.setdefault(port, []).append(LocalPort(port, pid, proc_name, service))
     except Exception:
         return {}
+
     return {p: v for p, v in sorted(ports.items())}
 
 
@@ -294,18 +314,37 @@ def kill_port_range(start: int, end: int, *, tree: bool = False) -> dict[int, bo
     return results
 
 
-def launch_security_center() -> bool:
-    """Launch the standalone security_center script with admin rights if needed."""
+def launch_security_center(*, hide_console: bool = False) -> bool:
+    """Launch the standalone security_center script with admin rights if needed.
 
-    script = Path(__file__).resolve().parents[2] / "scripts" / "security_center.py"
+    Parameters
+    ----------
+    hide_console:
+        When ``True`` on Windows the command is executed using ``pythonw.exe``
+        if available and the ``CREATE_NO_WINDOW`` flag for a fully hidden
+        console. On other platforms the flag is ignored.
+    """
+
+    script_name = "security_center_hidden.py" if hide_console else "security_center.py"
+    script = Path(__file__).resolve().parents[2] / "scripts" / script_name
     if not script.is_file():
         return False
 
-    python = sys.executable
+    python = Path(sys.executable)
+    kwargs: dict[str, object] = {}
+
+    if hide_console:
+        kwargs["stdout"] = subprocess.DEVNULL
+        kwargs["stderr"] = subprocess.DEVNULL
+        if platform.system() == "Windows":
+            pythonw = python.with_name("pythonw.exe")
+            if pythonw.is_file():
+                python = pythonw
+            kwargs["creationflags"] = hidden_creation_flags()
 
     if is_admin():
         try:
-            subprocess.Popen([python, str(script)])
+            subprocess.Popen([str(python), str(script)], **kwargs)
             return True
         except Exception:
             return False
@@ -316,13 +355,14 @@ def launch_security_center() -> bool:
         try:
             import ctypes  # lazy import
             params = f'"{script}"'
-            rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", python, params, None, 1)
+            show = 0 if hide_console else 1
+            rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(python), params, None, show)
             return rc > 32
         except Exception:
             return False
     elif system in {"Linux", "Darwin"}:
         try:
-            subprocess.Popen(["sudo", python, str(script)])
+            subprocess.Popen(["sudo", str(python), str(script)], **kwargs)
             return True
         except Exception:
             return False

@@ -289,7 +289,7 @@ class CoolBoxApp:
         from tkinter import messagebox
 
         if not is_admin():
-            if not launch_security_center():
+            if not launch_security_center(hide_console=True):
                 messagebox.showerror(
                     "Security Center", "Failed to relaunch with admin rights"
                 )
