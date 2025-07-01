@@ -26,7 +26,7 @@ from src.utils.window_utils import (
 from src.utils.mouse_listener import capture_mouse, is_supported
 
 # Polling delay used when global hooks aren't available
-KILL_BY_CLICK_INTERVAL = float(os.getenv("KILL_BY_CLICK_INTERVAL", "0.03"))
+KILL_BY_CLICK_INTERVAL = float(os.getenv("KILL_BY_CLICK_INTERVAL", "0.01"))
 PID_HISTORY_SIZE = int(os.getenv("KILL_BY_CLICK_HISTORY", "5"))
 SAMPLE_DECAY = float(os.getenv("KILL_BY_CLICK_SAMPLE_DECAY", "0.85"))
 HISTORY_DECAY = float(os.getenv("KILL_BY_CLICK_HISTORY_DECAY", "0.9"))
@@ -56,7 +56,7 @@ STREAK_WEIGHT = float(os.getenv("KILL_BY_CLICK_STREAK_WEIGHT", "0.0"))
 TRACKER_RATIO = float(os.getenv("KILL_BY_CLICK_TRACKER_RATIO", "1.5"))
 RECENCY_WEIGHT = float(os.getenv("KILL_BY_CLICK_RECENCY_WEIGHT", "0.0"))
 DURATION_WEIGHT = float(os.getenv("KILL_BY_CLICK_DURATION_WEIGHT", "0.0"))
-CONFIRM_DELAY = float(os.getenv("KILL_BY_CLICK_CONFIRM_DELAY", "0.05"))
+CONFIRM_DELAY = float(os.getenv("KILL_BY_CLICK_CONFIRM_DELAY", "0.0"))
 CONFIRM_WEIGHT = float(os.getenv("KILL_BY_CLICK_CONFIRM_WEIGHT", "1.0"))
 ZORDER_WEIGHT = float(os.getenv("KILL_BY_CLICK_ZORDER_WEIGHT", "0.0"))
 GAZE_DECAY = float(os.getenv("KILL_BY_CLICK_GAZE_DECAY", "0.9"))
@@ -258,6 +258,7 @@ class ClickOverlay(tk.Toplevel):
         self._gaze_duration: dict[int, float] = {}
         self._hover_start = time.monotonic()
         self._last_gaze_pid: int | None = None
+        self._last_active_query = 0.0
         self._active_history: deque[tuple[int, float]] = deque(maxlen=ACTIVE_HISTORY_SIZE)
         try:
             self._cursor_x = self.winfo_pointerx()
@@ -452,10 +453,13 @@ class ClickOverlay(tk.Toplevel):
         except Exception:
             pass
         self._update_rect()
-        active = get_active_window().pid
-        if active not in (self._own_pid, None):
-            if not self._active_history or self._active_history[-1][0] != active:
-                self._active_history.append((active, time.monotonic()))
+        now = time.monotonic()
+        if now - self._last_active_query >= self.interval:
+            active = get_active_window().pid
+            self._last_active_query = now
+            if active not in (self._own_pid, None):
+                if not self._active_history or self._active_history[-1][0] != active:
+                    self._active_history.append((active, now))
         self._after_id = self.after(int(self.interval * 1000), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
@@ -492,7 +496,6 @@ class ClickOverlay(tk.Toplevel):
             samples.append(info)
             self._tracker.add(info, self._initial_active_pid)
             for _ in range(self.probe_attempts):
-                time.sleep(self.interval)
                 confirm = probe()
                 samples.append(confirm)
                 self._tracker.add(confirm, self._initial_active_pid)
@@ -506,7 +509,6 @@ class ClickOverlay(tk.Toplevel):
                 samples.append(info)
                 self._tracker.add(info, self._initial_active_pid)
                 for _ in range(self.probe_attempts):
-                    time.sleep(self.interval)
                     confirm = probe()
                     samples.append(confirm)
                     self._tracker.add(confirm, self._initial_active_pid)
@@ -525,7 +527,6 @@ class ClickOverlay(tk.Toplevel):
             info = choice
         attempts = 0
         while (ratio < CONFIDENCE_RATIO or prob < DOMINANCE) and attempts < EXTRA_ATTEMPTS:
-            time.sleep(self.interval)
             more = probe()
             samples.append(more)
             self._tracker.add(more, self._initial_active_pid)
@@ -624,7 +625,6 @@ class ClickOverlay(tk.Toplevel):
 
     def _confirm_window(self) -> WindowInfo:
         """Re-query the click location after the overlay closes."""
-        time.sleep(CONFIRM_DELAY)
         info = get_window_at(int(self._click_x), int(self._click_y))
         self._tracker.add(info, self._initial_active_pid)
         return info
