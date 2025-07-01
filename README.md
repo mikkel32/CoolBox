@@ -329,6 +329,12 @@ flake8 src setup.py tests
 ```bash
 python main.py
 ```
+By default, ``main.py`` computes a digest of ``requirements.txt``, ``setup.py``
+and your Python executable. It also verifies that all listed packages are
+installed. When either the digest has changed or any dependency is missing it
+silently runs ``setup.py install --skip-update`` before launching. Set
+``SKIP_SETUP=1`` to bypass this check if you have already handled installation
+yourself.
 
 To start the app and wait for a debugger to attach, use:
 ```bash
