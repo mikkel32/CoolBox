@@ -3,8 +3,15 @@ from __future__ import annotations
 
 import platform
 import subprocess
+from pathlib import Path
 
-__all__ = ["hide_console", "hidden_creation_flags", "hide_terminal", "silence_stdio"]
+__all__ = [
+    "hide_console",
+    "hidden_creation_flags",
+    "hide_terminal",
+    "silence_stdio",
+    "spawn_detached",
+]
 
 
 def hide_console(*, detach: bool = False) -> None:
@@ -64,6 +71,27 @@ def hide_terminal(*, detach: bool = True) -> None:
     except Exception:
         # Best-effort; ignore failures on exotic platforms
         pass
+
+
+def spawn_detached(args: list[str], *, use_pythonw: bool = True) -> None:
+    """Launch a process fully detached and hidden from any console."""
+    exe = Path(args[0])
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    system = platform.system()
+    if system == "Windows":
+        if use_pythonw and exe.name.lower() == "python.exe":
+            pythonw = exe.with_name("pythonw.exe")
+            if pythonw.is_file():
+                exe = pythonw
+        kwargs["creationflags"] = hidden_creation_flags()
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen([str(exe), *map(str, args[1:])], **kwargs)
 
 
 def silence_stdio() -> None:
