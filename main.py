@@ -4,7 +4,6 @@ CoolBox - A Modern Desktop Application
 Main entry point for the application
 """
 import os
-import subprocess
 import sys
 from pathlib import Path
 from argparse import ArgumentParser

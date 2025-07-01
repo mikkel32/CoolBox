@@ -67,6 +67,7 @@ class ClickOverlay(tk.Toplevel):
         probe_attempts: int = 5,
         timeout: float | None = None,
         interval: float = KILL_BY_CLICK_INTERVAL,
+        skip_confirm: bool | None = None,
     ) -> None:
         super().__init__(parent)
         # Configure fullscreen before enabling override-redirect to avoid
@@ -105,6 +106,10 @@ class ClickOverlay(tk.Toplevel):
         self.probe_attempts = probe_attempts
         self.timeout = timeout
         self.interval = interval
+        if skip_confirm is None:
+            env = os.getenv("KILL_BY_CLICK_SKIP_CONFIRM")
+            skip_confirm = env not in (None, "0", "false", "no")
+        self.skip_confirm = skip_confirm
         self._after_id: Optional[str] = None
         self._timeout_id: Optional[str] = None
         self.update_state = UpdateState.IDLE
@@ -483,6 +488,10 @@ class ClickOverlay(tk.Toplevel):
 
         self.pid = info.pid
         self.title_text = info.title
+        if self.skip_confirm:
+            self.close()
+            return
+
         self.close()
 
         confirm = self._confirm_window()

@@ -10,7 +10,6 @@ from typing import Iterable, Tuple
 from rich.console import Console, Control
 from rich.text import Text
 
-from .helpers import adjust_color
 
 THEMES: dict[str, list[str]] = {
     "classic": ["red", "yellow", "green", "cyan", "blue", "magenta"],
