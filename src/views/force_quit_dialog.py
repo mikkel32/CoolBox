@@ -2056,14 +2056,24 @@ class ForceQuitDialog(BaseDialog):
         self._populate()
 
     def _kill_by_click(self) -> None:
-        from .click_overlay import ClickOverlay
+        from .click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
         paused = self.paused
         if not paused:
             self._safe_pause()
         color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
         color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
-        overlay = ClickOverlay(self, highlight=color, on_hover=self._highlight_pid)
+        interval_env = os.getenv("KILL_BY_CLICK_INTERVAL")
+        kwargs = {
+            "highlight": color,
+            "on_hover": self._highlight_pid,
+        }
+        if interval_env is not None:
+            try:
+                kwargs["interval"] = float(interval_env)
+            except ValueError:
+                kwargs["interval"] = KILL_BY_CLICK_INTERVAL
+        overlay = ClickOverlay(self, **kwargs)
         self.withdraw()
         try:
             pid, title = overlay.choose()
