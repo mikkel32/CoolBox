@@ -65,10 +65,23 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   ``KILL_BY_CLICK_MAX_INTERVAL`` (``0.2`` seconds) using an exponential curve
   tied to pointer velocity. ``KILL_BY_CLICK_DELAY_SCALE`` controls how strongly
   speed influences this interval. Fast motion shortens the delay for responsive
-  tracking while slower movement stretches it to conserve CPU. The window's normal interaction state is restored automatically when the overlay closes. The Force Quit dialog uses this overlay when you choose *Kill by Click* and falls back to the window under the cursor if no PID is detected. Set ``FORCE_QUIT_CLICK_SKIP_CONFIRM=1`` to skip the termination prompt. The overlay samples the window
+tracking while slower movement stretches it to conserve CPU. The window's normal interaction state is restored automatically when the overlay closes. The Force Quit dialog uses this overlay when you choose *Kill by Click* and falls back to the window under the cursor if no PID is detected. Set ``FORCE_QUIT_CLICK_SKIP_CONFIRM=1`` to skip the termination prompt. The overlay samples the window
+  information using dedicated worker threads so UI events never block even when
+  window queries are slow. Set ``KILL_BY_CLICK_BACKGROUND=0`` to disable
+  background polling. ``KILL_BY_CLICK_WORKERS`` controls how many threads run
+  these queries concurrently.
+  The overlay also caches the most recent window information while the cursor
+  remains inside that window's bounds, eliminating redundant system queries
+  during slow motions or brief pauses. Set ``KILL_BY_CLICK_CACHE=0`` to disable
+  this optimisation or ``KILL_BY_CLICK_CACHE_TIMEOUT`` to control how long
+  cached results remain valid.
   The highlight color defaults to ``red`` but can be customized by setting
   ``KILL_BY_CLICK_HIGHLIGHT`` in the environment. The ``scripts/kill_by_click.py``
-  helper launches the overlay directly from the command line. Use `--skip-confirm` to close it instantly without the final check. The overlay samples the window
+  helper launches the overlay directly from the command line. Use `--skip-confirm` to close it instantly without the final check. Pass `--background` or
+  `--no-background` to explicitly enable or disable threaded detection. Use
+  `--workers` to control the number of detection threads. Pass `--cache` or
+  `--no-cache` to override caching and `--cache-timeout` to set the expiration.
+  The overlay samples the window
   repeatedly and mixes those results with a short hover history to choose the
   most stable PID even when windows overlap. ``KILL_BY_CLICK_HISTORY`` sets how
   many hover entries are kept while ``KILL_BY_CLICK_SAMPLE_DECAY`` and

@@ -8,6 +8,13 @@ from src.views.click_overlay import ClickOverlay, WindowInfo
 
 
 class TestClickOverlay(unittest.TestCase):
+    def setUp(self) -> None:
+        self._bg_patch = patch.dict(os.environ, {"KILL_BY_CLICK_BACKGROUND": "0"})
+        self._bg_patch.start()
+
+    def tearDown(self) -> None:
+        self._bg_patch.stop()
+
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_creation(self) -> None:
         root = tk.Tk()
@@ -31,6 +38,27 @@ class TestClickOverlay(unittest.TestCase):
                 overlay = ClickOverlay(root)
             color = overlay.canvas.itemcget(overlay.rect, "outline")
             self.assertEqual(color, "green")
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_workers_env_creates_threads(self) -> None:
+        with patch.dict(os.environ, {"KILL_BY_CLICK_BACKGROUND": "1", "KILL_BY_CLICK_WORKERS": "3"}):
+            root = tk.Tk()
+            started = []
+
+            class DummyThread:
+                def __init__(self, *_, **__):
+                    pass
+
+                def start(self):
+                    started.append(True)
+
+            with patch("src.views.click_overlay.threading.Thread", DummyThread), patch(
+                "src.views.click_overlay.is_supported", return_value=False
+            ):
+                overlay = ClickOverlay(root)
+                assert len(started) == 3
             overlay.destroy()
             root.destroy()
 
@@ -161,6 +189,71 @@ class TestClickOverlay(unittest.TestCase):
 
         overlay.destroy()
         root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_uses_cached_result(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        info = WindowInfo(123, (0, 0, 20, 20), "cached")
+        with patch("src.views.click_overlay.get_window_at", return_value=info) as gwa:
+            overlay._update_rect()  # first query
+            calls_after_first = gwa.call_count
+            overlay._cursor_x = 10
+            overlay._cursor_y = 10
+            overlay._update_rect()  # inside same rect, should use cache
+
+        self.assertEqual(gwa.call_count, calls_after_first)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_cache_timeout_expires(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, cache_timeout=0.05)
+
+        info = WindowInfo(123, (0, 0, 20, 20), "cached")
+        times = iter([0.0, 0.0, 0.04, 0.1])
+        with patch(
+            "src.views.click_overlay.time.monotonic",
+            side_effect=lambda: next(times),
+        ), patch("src.views.click_overlay.get_window_at", return_value=info) as gwa:
+            overlay._update_rect()  # first query at t=0
+            calls_after_first = gwa.call_count
+            overlay._cursor_x = 10
+            overlay._cursor_y = 10
+            overlay._update_rect()  # within timeout
+            overlay._cursor_x = 15
+            overlay._cursor_y = 15
+            overlay._update_rect()  # after timeout
+
+        self.assertEqual(gwa.call_count, calls_after_first + 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_cache_env_disables_caching(self) -> None:
+        with patch.dict(os.environ, {"KILL_BY_CLICK_CACHE": "0"}):
+            root = tk.Tk()
+            with patch("src.views.click_overlay.is_supported", return_value=False):
+                overlay = ClickOverlay(root)
+
+            info = WindowInfo(123, (0, 0, 20, 20), "cached")
+            with patch("src.views.click_overlay.get_window_at", return_value=info) as gwa:
+                overlay._update_rect()
+                calls_after_first = gwa.call_count
+                overlay._cursor_x = 5
+                overlay._cursor_y = 5
+                overlay._update_rect()
+
+            self.assertGreater(gwa.call_count, calls_after_first)
+
+            overlay.destroy()
+            root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_position_label_keeps_on_screen(self) -> None:

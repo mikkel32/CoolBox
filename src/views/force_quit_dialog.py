@@ -2078,6 +2078,24 @@ class ForceQuitDialog(BaseDialog):
             "highlight": color,
             "on_hover": self._highlight_pid,
         }
+        bg_env = os.getenv("KILL_BY_CLICK_BACKGROUND")
+        if bg_env is not None:
+            kwargs["background"] = bg_env.lower() not in ("0", "false", "no")
+        workers_env = os.getenv("KILL_BY_CLICK_WORKERS")
+        if workers_env is not None:
+            try:
+                kwargs["workers"] = int(workers_env)
+            except ValueError:
+                pass
+        cache_env = os.getenv("KILL_BY_CLICK_CACHE")
+        if cache_env is not None:
+            kwargs["cache"] = cache_env.lower() not in ("0", "false", "no")
+        cache_to_env = os.getenv("KILL_BY_CLICK_CACHE_TIMEOUT")
+        if cache_to_env is not None:
+            try:
+                kwargs["cache_timeout"] = float(cache_to_env)
+            except ValueError:
+                pass
         if interval_env is not None:
             try:
                 kwargs["interval"] = float(interval_env)

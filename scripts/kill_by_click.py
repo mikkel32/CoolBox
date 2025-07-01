@@ -37,6 +37,43 @@ def main(argv: list[str] | None = None) -> None:
         type=float,
         help="Controls how strongly pointer speed shortens the delay",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        help="Number of threads to use for background window detection",
+    )
+    parser.add_argument(
+        "--cache-timeout",
+        type=float,
+        help="Seconds to keep cached window info valid",
+    )
+    cache = parser.add_mutually_exclusive_group()
+    cache.add_argument(
+        "--cache",
+        dest="cache",
+        action="store_true",
+        help="Enable caching of window info",
+    )
+    cache.add_argument(
+        "--no-cache",
+        dest="cache",
+        action="store_false",
+        help="Disable cached window info",
+    )
+    bg = parser.add_mutually_exclusive_group()
+    bg.add_argument(
+        "--background",
+        dest="background",
+        action="store_true",
+        help="Query the window on a background thread",
+    )
+    bg.add_argument(
+        "--no-background",
+        dest="background",
+        action="store_false",
+        help="Disable threaded window detection",
+    )
+    parser.set_defaults(background=None, cache=None)
     args = parser.parse_args(argv)
 
     root = tk.Tk()
@@ -50,6 +87,14 @@ def main(argv: list[str] | None = None) -> None:
         kwargs["max_interval"] = args.max_interval
     if args.delay_scale is not None:
         kwargs["delay_scale"] = args.delay_scale
+    if args.workers is not None:
+        kwargs["workers"] = args.workers
+    if args.background is not None:
+        kwargs["background"] = args.background
+    if args.cache_timeout is not None:
+        kwargs["cache_timeout"] = args.cache_timeout
+    if args.cache is not None:
+        kwargs["cache"] = args.cache
     overlay = ClickOverlay(root, **kwargs)
     pid, title = overlay.choose()
     if pid is None:

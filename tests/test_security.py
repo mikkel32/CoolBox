@@ -5,12 +5,10 @@ import sys
 from types import SimpleNamespace
 import psutil
 import socket
-from src.utils import kill_utils
 import pytest
 
 from src.utils import security
 from src.utils.security import (
-    LocalPort,
     is_firewall_enabled,
     set_firewall_enabled,
     is_defender_enabled,
@@ -166,13 +164,18 @@ def test_kill_process_by_port(monkeypatch):
         SimpleNamespace(status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=80), pid=1234)
     ]
     monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": fake_conns)
+
     class FakeProc:
+
         def __init__(self, pid):
             called["pid"] = pid
+
         def terminate(self):
             called["term"] = True
+
         def kill(self):
             called["kill"] = True
+
         def wait(self, timeout=None):
             pass
 
