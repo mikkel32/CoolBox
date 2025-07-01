@@ -14,6 +14,10 @@ from ..utils.security import (
     set_defender_enabled,
     is_admin,
     ensure_admin,
+    LocalPort,
+    list_open_ports,
+    kill_process_by_port,
+    kill_port_range,
 )
 
 
@@ -21,7 +25,7 @@ class SecurityDialog(BaseDialog):
     """UI for basic security switches."""
 
     def __init__(self, app):
-        super().__init__(app, title="Security Center", geometry="320x200")
+        super().__init__(app, title="Security Center", geometry="420x350")
         container = self.create_container()
         self.is_admin = is_admin()
         if platform.system() == "Windows" and not self.is_admin:
@@ -42,40 +46,152 @@ class SecurityDialog(BaseDialog):
             container, "Enable Defender", self.defender_var, 2
         )
 
+        self.ports_box = self.grid_textbox(container, "Listening Ports", 3, height=100)
+        self.ports_box.configure(cursor="hand2")
+        self.filter_var = ctk.StringVar()
+        filter_entry = ctk.CTkEntry(container, textvariable=self.filter_var)
+        filter_entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(5, 0))
+        filter_entry.bind("<KeyRelease>", lambda e: self._update_list())
+        self.port_data: dict[int, list[LocalPort]] = {}
+        self.port_count_lbl = ctk.CTkLabel(container, text="")
+        self.port_count_lbl.grid(row=5, column=0, columnspan=2, sticky="w")
+
+        self.kill_tree_var = ctk.BooleanVar(value=False)
+        self.auto_refresh_var = ctk.BooleanVar(value=True)
+
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
-        btn_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
+        btn_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5, 6), weight=1)
 
         self.grid_button(btn_frame, "Refresh", self._refresh, 0, column=0, columnspan=1)
-        self.grid_button(btn_frame, "Apply", self._apply, 0, column=1, columnspan=1)
-        self.grid_button(btn_frame, "Close", self.destroy, 0, column=2, columnspan=1)
+        ctk.CTkCheckBox(
+            btn_frame,
+            text="Auto",
+            variable=self.auto_refresh_var,
+            command=self._schedule_refresh,
+        ).grid(row=0, column=1, padx=5)
+        self.grid_button(btn_frame, "Kill Selected", self._kill_selected, 0, column=2, columnspan=1)
+        self.grid_button(btn_frame, "Kill Filtered", self._kill_filtered, 0, column=3, columnspan=1)
+        ctk.CTkCheckBox(
+            btn_frame,
+            text="Tree",
+            variable=self.kill_tree_var,
+        ).grid(row=0, column=4, padx=5)
+        self.grid_button(btn_frame, "Apply", self._apply, 0, column=5, columnspan=1)
+        self.grid_button(btn_frame, "Close", self.destroy, 0, column=6, columnspan=1)
 
         container.grid_columnconfigure(0, weight=1)
         container.grid_columnconfigure(1, weight=1)
+        container.grid_rowconfigure(3, weight=1)
 
         self._refresh()
+        self._schedule_refresh()
         self.center_window()
         self.refresh_fonts()
         self.refresh_theme()
 
     def _refresh(self) -> None:
-        if platform.system() != "Windows" or not self.is_admin:
-            self.firewall_sw.configure(state="disabled")
+        self.port_data = list_open_ports()
+        self._update_list()
+
+        system = platform.system()
+
+        if system != "Windows":
             self.defender_sw.configure(state="disabled")
-            return
+
+        if not self.is_admin:
+            self.firewall_sw.configure(state="disabled")
+            if system == "Windows":
+                self.defender_sw.configure(state="disabled")
+
         self.firewall_var.set(is_firewall_enabled() or False)
-        self.defender_var.set(is_defender_enabled() or False)
+        if system == "Windows":
+            self.defender_var.set(is_defender_enabled() or False)
+
+    def _update_list(self) -> None:
+        filt = self.filter_var.get().strip().lower()
+        self.ports_box.configure(state="normal")
+        self.ports_box.delete("1.0", "end")
+        for port, items in self.port_data.items():
+            for info in items:
+                line = (
+                    f"{port:<5} {info.process} "
+                    f"({info.pid if info.pid is not None else '?'} )"
+                    f" [{info.service}]"
+                )
+                if not filt or filt in line.lower():
+                    self.ports_box.insert("end", line + "\n")
+        self.ports_box.configure(state="disabled")
+        self.port_count_lbl.configure(text=f"{len(self.port_data)} ports")
+
+    def _schedule_refresh(self) -> None:
+        if getattr(self, "_refresh_job", None):
+            self.after_cancel(self._refresh_job)
+            self._refresh_job = None
+        if self.auto_refresh_var.get():
+            self._refresh_job = self.after(5000, self._auto_step)
+
+    def _auto_step(self) -> None:
+        self._refresh()
+        self._schedule_refresh()
+
+    def _kill_selected(self) -> None:
+        line = self.ports_box.get("insert linestart", "insert lineend").strip()
+        if not line:
+            messagebox.showwarning("Security Center", "Select a port first")
+            return
+        try:
+            port = int(line.split()[0])
+        except Exception:
+            messagebox.showwarning("Security Center", "Failed to parse port")
+            return
+        if kill_process_by_port(port, tree=self.kill_tree_var.get()):
+            messagebox.showinfo("Security Center", f"Terminated process on port {port}")
+            self._refresh()
+        else:
+            messagebox.showwarning("Security Center", "Failed to terminate process")
+
+    def _kill_filtered(self) -> None:
+        text = self.filter_var.get().strip()
+        if not text:
+            messagebox.showwarning("Security Center", "Enter a port or range")
+            return
+        if "-" in text:
+            try:
+                start, end = map(int, text.split("-", 1))
+            except Exception:
+                messagebox.showwarning("Security Center", "Invalid range")
+                return
+            results = kill_port_range(start, end, tree=self.kill_tree_var.get())
+            killed = [str(p) for p, ok in results.items() if ok]
+            if killed:
+                messagebox.showinfo("Security Center", f"Killed ports: {', '.join(killed)}")
+            else:
+                messagebox.showwarning("Security Center", "No processes killed")
+        else:
+            try:
+                port = int(text)
+            except Exception:
+                messagebox.showwarning("Security Center", "Invalid port")
+                return
+            if kill_process_by_port(port, tree=self.kill_tree_var.get()):
+                messagebox.showinfo("Security Center", f"Terminated process on port {port}")
+            else:
+                messagebox.showwarning("Security Center", "Failed to terminate process")
+        self._refresh()
 
     def _apply(self) -> None:
-        if platform.system() != "Windows":
-            messagebox.showinfo(
-                "Security Center", "Firewall and Defender control is Windows only."
-            )
-            return
         if not ensure_admin():
             return
+
         ok_fw = set_firewall_enabled(self.firewall_var.get())
-        ok_def = set_defender_enabled(self.defender_var.get())
+
+        if platform.system() == "Windows":
+            ok_def = set_defender_enabled(self.defender_var.get())
+        else:
+            ok_def = True
+            self.defender_sw.configure(state="disabled")
+
         if ok_fw and ok_def:
             messagebox.showinfo("Security Center", "Settings applied successfully")
         else:

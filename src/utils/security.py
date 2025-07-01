@@ -6,6 +6,8 @@ from __future__ import annotations
 import platform
 import subprocess
 from typing import Optional
+import psutil
+from .kill_utils import kill_process, kill_process_tree
 
 
 # ---------------------------------------------------------------------------
@@ -207,3 +209,84 @@ def require_admin(prompt: str = "Administrator access is required.") -> None:
 
     if not ensure_admin(prompt):
         raise PermissionError("Administrator privileges are required")
+
+
+from dataclasses import dataclass
+import socket
+
+
+@dataclass(slots=True)
+class LocalPort:
+    """Information about a local listening port."""
+
+    port: int
+    pid: int | None
+    process: str
+    service: str
+
+
+def list_open_ports() -> dict[int, list[LocalPort]]:
+    """Return a mapping of listening ports to :class:`LocalPort` objects."""
+
+    ports: dict[int, list[LocalPort]] = {}
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.status == psutil.CONN_LISTEN and conn.laddr:
+                port = conn.laddr.port
+                pid: int | None = conn.pid
+                try:
+                    proc_name = psutil.Process(pid).name() if pid else "unknown"
+                except Exception:
+                    proc_name = "unknown"
+                try:
+                    service = socket.getservbyport(port)
+                except Exception:
+                    service = "unknown"
+                ports.setdefault(port, []).append(
+                    LocalPort(port, pid, proc_name, service)
+                )
+    except Exception:
+        return {}
+    return {p: v for p, v in sorted(ports.items())}
+
+
+def kill_process_by_port(port: int, *, tree: bool = False) -> bool:
+    """Kill any processes listening on ``port``.
+
+    If ``tree`` is ``True`` terminate each process and all of its children using
+    :func:`kill_process_tree`. Otherwise terminate just the listening processes
+    via :func:`kill_process`.
+    """
+
+    ports = list_open_ports()
+    entries = ports.get(port) or []
+    killed = False
+    for entry in entries:
+        if entry.pid is None:
+            continue
+        if tree:
+            ok = kill_process_tree(entry.pid)
+        else:
+            ok = kill_process(entry.pid)
+        killed = killed or ok
+    return killed
+
+
+def kill_port_range(start: int, end: int, *, tree: bool = False) -> dict[int, bool]:
+    """Kill all listeners within ``start``..``end`` (inclusive)."""
+
+    ports = list_open_ports()
+    results: dict[int, bool] = {}
+    for port in range(start, end + 1):
+        entries = ports.get(port) or []
+        killed = False
+        for entry in entries:
+            if entry.pid is None:
+                continue
+            if tree:
+                ok = kill_process_tree(entry.pid)
+            else:
+                ok = kill_process(entry.pid)
+            killed = killed or ok
+        results[port] = killed
+    return results

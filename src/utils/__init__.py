@@ -89,6 +89,10 @@ from .security import (
     is_admin,
     ensure_admin,
     require_admin,
+    LocalPort,
+    list_open_ports,
+    kill_process_by_port,
+    kill_port_range,
 )
 
 from . import file_manager
@@ -178,6 +182,10 @@ __all__ = [
     "is_admin",
     "ensure_admin",
     "require_admin",
+    "LocalPort",
+    "list_open_ports",
+    "kill_process_by_port",
+    "kill_port_range",
     "ScoringEngine",
     "Tuning",
     "tuning",
