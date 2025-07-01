@@ -9,8 +9,10 @@ from pathlib import Path
 from argparse import ArgumentParser
 import hashlib
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 
 from src.utils import launch_vm_debug
+from src.utils.helpers import log
 
 # Ensure package imports work when running as a script before other imports.
 sys.path.insert(0, str(Path(__file__).parent))
@@ -24,34 +26,68 @@ def _compute_setup_state(root: Path) -> str:
     for name in ("requirements.txt", "setup.py"):
         fp = root / name
         if fp.is_file():
+            h.update(str(fp.stat().st_mtime_ns).encode())
             h.update(fp.read_bytes())
-    pyver = f"{sys.executable}:{sys.version_info.major}.{sys.version_info.minor}"
+    pyver = (
+        f"{sys.executable}:{sys.version_info.major}"
+        f".{sys.version_info.minor}.{sys.version_info.micro}"
+    )
     h.update(pyver.encode())
     return h.hexdigest()
 
 
 def _requirements_satisfied(req_path: Path) -> bool:
     """Return ``True`` if all packages from ``req_path`` are installed."""
-    try:
-        import pkg_resources
-    except Exception:
-        return False
+    return not _missing_requirements(req_path)
 
+
+def _parse_requirements(req_path: Path) -> list[str]:
     reqs: list[str] = []
     for line in req_path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         reqs.append(line)
+    return reqs
 
-    if not reqs:
-        return True
 
+def _check_single(req: str) -> str | None:
     try:
-        pkg_resources.require(reqs)
-        return True
+        from importlib import metadata as importlib_metadata
+        from packaging.requirements import Requirement
     except Exception:
-        return False
+        try:
+            import pkg_resources
+
+            pkg_resources.require([req])
+            return None
+        except Exception:
+            return req
+    r = Requirement(req)
+    try:
+        from importlib import metadata as importlib_metadata
+
+        version = importlib_metadata.version(r.name)
+    except importlib_metadata.PackageNotFoundError:
+        return req
+    if r.specifier and version not in r.specifier:
+        return req
+    return None
+
+
+def _missing_requirements(req_path: Path) -> list[str]:
+    if not req_path.is_file():
+        return []
+    reqs = _parse_requirements(req_path)
+    if not reqs:
+        return []
+
+    missing: list[str] = []
+    with ThreadPoolExecutor() as ex:
+        for res in ex.map(_check_single, reqs):
+            if res:
+                missing.append(res)
+    return missing
 
 
 def _run_setup_if_needed(root: Path | None = None) -> None:
@@ -67,7 +103,7 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
     if sentinel.is_file() and requirements.is_file():
         try:
             recorded = sentinel.read_text().strip()
-            if recorded == current and _requirements_satisfied(requirements):
+            if recorded == current and not _missing_requirements(requirements):
                 return
         except Exception:
             pass
@@ -83,6 +119,9 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
             spec.loader.exec_module(module)
             module.show_setup_banner()
             module.check_python_version()
+            missing = _missing_requirements(requirements)
+            if missing:
+                log("Installing missing requirements: " + ", ".join(missing))
             module.install(skip_update=True)
         if requirements.is_file():
             sentinel.write_text(current)
