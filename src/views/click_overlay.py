@@ -13,7 +13,7 @@ import time
 import math
 import tkinter as tk
 from collections import deque
-from typing import Optional
+from typing import Optional, Callable
 from enum import Enum, auto
 
 from src.utils.window_utils import (
@@ -57,6 +57,9 @@ class ClickOverlay(tk.Toplevel):
         of this process's windows.
     timeout:
         Automatically close the overlay after this many seconds if provided.
+    on_hover:
+        Optional callback invoked with ``(pid, title)`` when the hovered window
+        changes.
     """
 
     def __init__(
@@ -68,6 +71,7 @@ class ClickOverlay(tk.Toplevel):
         timeout: float | None = None,
         interval: float = KILL_BY_CLICK_INTERVAL,
         skip_confirm: bool | None = None,
+        on_hover: Callable[[int | None, str | None], None] | None = None,
     ) -> None:
         super().__init__(parent)
         # Configure fullscreen before enabling override-redirect to avoid
@@ -110,6 +114,7 @@ class ClickOverlay(tk.Toplevel):
             env = os.getenv("KILL_BY_CLICK_SKIP_CONFIRM")
             skip_confirm = env not in (None, "0", "false", "no")
         self.skip_confirm = skip_confirm
+        self.on_hover = on_hover
         self._after_id: Optional[str] = None
         self._timeout_id: Optional[str] = None
         self.update_state = UpdateState.IDLE
@@ -447,6 +452,11 @@ class ClickOverlay(tk.Toplevel):
         self._last_cursor = (px, py)
         self._last_pid = info.pid
         self._position_label(px, py, sw, sh)
+        if self.on_hover is not None:
+            try:
+                self.on_hover(self.pid, self.title_text)
+            except Exception:
+                pass
 
     def _stable_info(self) -> WindowInfo | None:
         """Return a best guess based solely on recent hover history."""
@@ -553,6 +563,11 @@ class ClickOverlay(tk.Toplevel):
         self.bind("<Escape>", self.close)
         self._initial_active_pid = get_active_window().pid
         self.protocol("WM_DELETE_WINDOW", self.close)
+        if self.on_hover is not None:
+            try:
+                self.on_hover(None, None)
+            except Exception:
+                pass
         use_hooks = is_supported()
         if use_hooks:
             with capture_mouse(

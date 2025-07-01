@@ -137,7 +137,9 @@ class TestForceQuit(unittest.TestCase):
         tmpfile = "/tmp/force_quit_test.txt"
         with open(tmpfile, "w") as f:
             f.write("test")
-        proc = subprocess.Popen([sys.executable, "-c", f"open('{tmpfile}','r');import time;time.sleep(30)"])
+        proc = subprocess.Popen(
+            [sys.executable, "-c", f"open('{tmpfile}','r');import time;time.sleep(30)"]
+        )
         time.sleep(0.1)
         self.assertTrue(psutil.pid_exists(proc.pid))
         ForceQuitDialog.force_kill_by_file(tmpfile)
@@ -176,7 +178,9 @@ class TestForceQuit(unittest.TestCase):
         self.assertFalse(psutil.pid_exists(proc.pid))
 
     def test_force_kill_above_cpu(self) -> None:
-        proc = subprocess.Popen([sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL)
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL
+        )
         time.sleep(0.2)
         self.assertTrue(psutil.pid_exists(proc.pid))
         count = ForceQuitDialog.force_kill_above_cpu(10.0)
@@ -186,7 +190,9 @@ class TestForceQuit(unittest.TestCase):
 
     def test_force_kill_above_memory(self) -> None:
         self.skipTest("memory intensive")
-        proc = subprocess.Popen([sys.executable, "-c", "x=' '* (1024*1024); import time; time.sleep(30)"])
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "x=' '* (1024*1024); import time; time.sleep(30)"]
+        )
         time.sleep(0.2)
         self.assertTrue(psutil.pid_exists(proc.pid))
         count = ForceQuitDialog.force_kill_above_memory(0.5)
@@ -325,7 +331,9 @@ class TestForceQuit(unittest.TestCase):
         self.assertFalse(psutil.pid_exists(proc.pid))
 
     def test_force_kill_sustained_cpu(self) -> None:
-        proc = subprocess.Popen([sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL)
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL
+        )
         time.sleep(0.2)
         self.assertTrue(psutil.pid_exists(proc.pid))
         count = ForceQuitDialog.force_kill_sustained_cpu(10.0, duration=0.5)
@@ -887,7 +895,9 @@ class TestForceQuit(unittest.TestCase):
     def test_auto_baselines(self) -> None:
         q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
         watcher = ProcessWatcher(q, visible_auto=True)
-        watcher._update_auto_baselines([1.0, 2.0, 3.0, 4.0], [10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4])
+        watcher._update_auto_baselines(
+            [1.0, 2.0, 3.0, 4.0], [10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4]
+        )
         assert round(watcher._auto_cpu, 1) == 3.0
         assert round(watcher._auto_mem, 1) == 30.0
         assert round(watcher._auto_io, 1) == 0.3
@@ -1133,7 +1143,9 @@ class TestForceQuit(unittest.TestCase):
         if sys.platform.startswith("linux"):
             xdotool = shutil.which("xdotool")
             if xdotool:
-                subprocess.run([xdotool, "search", "--name", "FKAW", "windowactivate"], check=False)
+                subprocess.run(
+                    [xdotool, "search", "--name", "FKAW", "windowactivate"], check=False
+                )
                 time.sleep(0.5)
         elif sys.platform.startswith("win"):
             try:
@@ -1144,11 +1156,14 @@ class TestForceQuit(unittest.TestCase):
             except Exception:
                 pass
         elif sys.platform == "darwin":
-            subprocess.run([
-                "osascript",
-                "-e",
-                'tell application "System Events" to set frontmost of (first process whose name is "Python") to true',
-            ], check=False)
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to set frontmost of (first process whose name is "Python") to true',
+                ],
+                check=False,
+            )
             time.sleep(0.5)
         focused = False
         for _ in range(10):
@@ -1174,7 +1189,9 @@ class TestForceQuit(unittest.TestCase):
             "print(root.winfo_rootx(), root.winfo_rooty(), flush=True);"
             "root.mainloop()"
         )
-        proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(
+            [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True
+        )
         coords = proc.stdout.readline()
         x, y = (int(v) + 10 for v in coords.split())
         if sys.platform.startswith("win"):
@@ -1202,11 +1219,37 @@ class TestForceQuit(unittest.TestCase):
             mock.patch("src.views.force_quit_dialog.messagebox") as MB,
         ):
             CO.return_value.choose.return_value = (None, None)
+            dialog.after_idle = mock.Mock()
             dialog._kill_by_click()
             dialog._watcher.pause.assert_called_once()
             dialog._watcher.resume.assert_called_once()
-            CO.assert_called_once_with(dialog, highlight=dialog.accent)
+            CO.assert_called_once_with(
+                dialog, highlight=dialog.accent, on_hover=dialog._highlight_pid
+            )
             MB.showerror.assert_called_once()
+            dialog.after_idle.assert_called_with(dialog._update_hover)
+
+    def test_kill_by_click_skip_confirm(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.after_idle = mock.Mock()
+
+        with (
+            mock.patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
+            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
+            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+        ):
+            CO.return_value.choose.return_value = (123, "foo")
+            dialog._kill_by_click()
+            MB.askyesno.assert_not_called()
+            MB.showinfo.assert_called_once()
+            dialog.force_kill.assert_called_once_with(123)
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_hover_highlights_row(self) -> None:

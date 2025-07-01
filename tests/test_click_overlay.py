@@ -839,7 +839,11 @@ class TestClickOverlay(unittest.TestCase):
         with (
             patch.object(overlay, "_query_window_at", return_value=WindowInfo(None)),
             patch.object(overlay, "_stable_info", return_value=None),
-            patch.object(overlay._tracker, "best_with_confidence", return_value=(WindowInfo(8), 3.0)),
+            patch.object(
+                overlay._tracker,
+                "best_with_confidence",
+                return_value=(WindowInfo(8), 3.0),
+            ),
             patch("src.utils.scoring_engine.tuning.tracker_ratio", 2.0),
         ):
             overlay.close = lambda _e=None: None
@@ -860,8 +864,16 @@ class TestClickOverlay(unittest.TestCase):
         overlay._click_y = 5
 
         with (
-            patch.object(overlay, "_query_window_at", return_value=WindowInfo(1, (0, 0, 10, 10), "one")),
-            patch.object(overlay, "_confirm_window", return_value=WindowInfo(2, (5, 5, 10, 10), "two")),
+            patch.object(
+                overlay,
+                "_query_window_at",
+                return_value=WindowInfo(1, (0, 0, 10, 10), "one"),
+            ),
+            patch.object(
+                overlay,
+                "_confirm_window",
+                return_value=WindowInfo(2, (5, 5, 10, 10), "two"),
+            ),
             patch("src.utils.scoring_engine.tuning.confirm_weight", 5.0),
         ):
             overlay.close = lambda _e=None: None
@@ -883,7 +895,9 @@ class TestClickOverlay(unittest.TestCase):
         def fake_monotonic() -> float:
             return next(seq)
 
-        with patch("src.views.click_overlay.time.monotonic", side_effect=fake_monotonic):
+        with patch(
+            "src.views.click_overlay.time.monotonic", side_effect=fake_monotonic
+        ):
             overlay._update_rect(WindowInfo(1))
             overlay._update_rect(WindowInfo(1))
             overlay._update_rect(WindowInfo(2))
@@ -922,8 +936,12 @@ class TestClickOverlay(unittest.TestCase):
         with (
             patch("src.views.click_overlay.get_window_at", return_value=self_info),
             patch("src.views.click_overlay.list_windows_at", return_value=stack),
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
-            patch.object(overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough", return_value=False
+            ),
+            patch.object(
+                overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)
+            ),
         ):
             result = overlay._query_window_at(0, 0)
 
@@ -941,9 +959,16 @@ class TestClickOverlay(unittest.TestCase):
         info = WindowInfo(5, None, "target")
         with (
             patch("src.views.click_overlay.get_window_at", return_value=info),
-            patch("src.views.click_overlay.list_windows_at", return_value=[WindowInfo(5, (1, 1, 10, 10), "target")]),
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
-            patch.object(overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)),
+            patch(
+                "src.views.click_overlay.list_windows_at",
+                return_value=[WindowInfo(5, (1, 1, 10, 10), "target")],
+            ),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough", return_value=False
+            ),
+            patch.object(
+                overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)
+            ),
         ):
             result = overlay._query_window_at(1, 1)
 
@@ -964,10 +989,16 @@ class TestClickOverlay(unittest.TestCase):
             return WindowInfo(None) if (px, py) == (0, 0) else target
 
         with (
-            patch("src.views.click_overlay.get_window_at", side_effect=fake_get_window_at),
+            patch(
+                "src.views.click_overlay.get_window_at", side_effect=fake_get_window_at
+            ),
             patch("src.views.click_overlay.list_windows_at", return_value=[target]),
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
-            patch.object(overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough", return_value=False
+            ),
+            patch.object(
+                overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)
+            ),
         ):
             overlay.NEAR_RADIUS = 1
             result = overlay._query_window_at(0, 0)
@@ -996,14 +1027,36 @@ class TestClickOverlay(unittest.TestCase):
         overlay.canvas.coords.reset_mock()
 
         overlay._update_rect(WindowInfo(1, (0, 0, 10, 10), "one"))
-        same_calls = [c for c in overlay.canvas.coords.call_args_list if c.args[0] == overlay.rect]
+        same_calls = [
+            c for c in overlay.canvas.coords.call_args_list if c.args[0] == overlay.rect
+        ]
         overlay.canvas.coords.reset_mock()
 
         overlay._update_rect(WindowInfo(2, (0, 0, 10, 10), "two"))
-        changed_calls = [c for c in overlay.canvas.coords.call_args_list if c.args[0] == overlay.rect]
+        changed_calls = [
+            c for c in overlay.canvas.coords.call_args_list if c.args[0] == overlay.rect
+        ]
 
         self.assertEqual(len(same_calls), 0)
         self.assertEqual(len(changed_calls), 1)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_hover_callback_invoked(self) -> None:
+        root = tk.Tk()
+        calls: list[tuple[int | None, str | None]] = []
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(
+                root, on_hover=lambda pid, title: calls.append((pid, title))
+            )
+
+        overlay._cursor_x = 1
+        overlay._cursor_y = 1
+        overlay._update_rect(WindowInfo(5, (0, 0, 5, 5), "foo"))
+
+        self.assertIn((5, "foo"), calls)
 
         overlay.destroy()
         root.destroy()

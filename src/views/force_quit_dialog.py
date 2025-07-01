@@ -231,12 +231,16 @@ class ForceQuitDialog(BaseDialog):
             else float(cfg.get("force_quit_max_interval", 10.0))
         )
         if exclude_users_env:
-            exclude_users = {u.strip().lower() for u in exclude_users_env.split(',') if u.strip()}
+            exclude_users = {
+                u.strip().lower() for u in exclude_users_env.split(",") if u.strip()
+            }
         else:
             exclude_users = {u.lower() for u in cfg.get("force_quit_exclude_users", [])}
         ignore_names_env = os.getenv("FORCE_QUIT_IGNORE_NAMES")
         if ignore_names_env:
-            ignore_names = {n.strip().lower() for n in ignore_names_env.split(',') if n.strip()}
+            ignore_names = {
+                n.strip().lower() for n in ignore_names_env.split(",") if n.strip()
+            }
         else:
             ignore_names = {n.lower() for n in cfg.get("force_quit_ignore_names", [])}
         slow_ratio = (
@@ -455,7 +459,9 @@ class ForceQuitDialog(BaseDialog):
             self.adaptive_refresh = adaptive_env.lower() in {"1", "true", "yes"}
         else:
             self.adaptive_refresh = bool(
-                cfg.get("force_quit_auto_interval", cfg.get("force_quit_adaptive", True))
+                cfg.get(
+                    "force_quit_auto_interval", cfg.get("force_quit_adaptive", True)
+                )
             )
         self.adaptive_detail = (
             adaptive_detail_env.lower() in {"1", "true", "yes"}
@@ -469,14 +475,10 @@ class ForceQuitDialog(BaseDialog):
         )
         auto_setting = cfg.get("force_quit_auto_kill", "none").lower()
         self.auto_kill_cpu = (
-            "cpu" in auto_env
-            or "both" in auto_env
-            or auto_setting in ("cpu", "both")
+            "cpu" in auto_env or "both" in auto_env or auto_setting in ("cpu", "both")
         )
         self.auto_kill_mem = (
-            "mem" in auto_env
-            or "both" in auto_env
-            or auto_setting in ("mem", "both")
+            "mem" in auto_env or "both" in auto_env or auto_setting in ("mem", "both")
         )
         self._watcher = ProcessWatcher(
             self._queue,
@@ -683,22 +685,30 @@ class ForceQuitDialog(BaseDialog):
         self.auto_cpu_var = ctk.BooleanVar(value=self.auto_kill_cpu)
         self.auto_mem_var = ctk.BooleanVar(value=self.auto_kill_mem)
         ctk.CTkLabel(options_frame, text="CPU ≥", font=self.font).pack(side="left")
-        ctk.CTkEntry(options_frame, width=60, textvariable=self.cpu_alert_var).pack(side="left", padx=5)
+        ctk.CTkEntry(options_frame, width=60, textvariable=self.cpu_alert_var).pack(
+            side="left", padx=5
+        )
         ctk.CTkCheckBox(
             options_frame,
             text="Auto Kill CPU",
             variable=self.auto_cpu_var,
             command=lambda: setattr(self, "auto_kill_cpu", self.auto_cpu_var.get()),
         ).pack(side="left", padx=5)
-        ctk.CTkLabel(options_frame, text="Mem ≥ MB", font=self.font).pack(side="left", padx=(10, 0))
-        ctk.CTkEntry(options_frame, width=60, textvariable=self.mem_alert_var).pack(side="left", padx=5)
+        ctk.CTkLabel(options_frame, text="Mem ≥ MB", font=self.font).pack(
+            side="left", padx=(10, 0)
+        )
+        ctk.CTkEntry(options_frame, width=60, textvariable=self.mem_alert_var).pack(
+            side="left", padx=5
+        )
         ctk.CTkCheckBox(
             options_frame,
             text="Auto Kill Mem",
             variable=self.auto_mem_var,
             command=lambda: setattr(self, "auto_kill_mem", self.auto_mem_var.get()),
         ).pack(side="left", padx=5)
-        ctk.CTkButton(options_frame, text="Apply", command=self._apply_thresholds).pack(side="left", padx=5)
+        ctk.CTkButton(options_frame, text="Apply", command=self._apply_thresholds).pack(
+            side="left", padx=5
+        )
         self.show_details_var = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(
             options_frame,
@@ -718,7 +728,9 @@ class ForceQuitDialog(BaseDialog):
             options_frame,
             text="Adaptive Detail",
             variable=self.adaptive_detail_var,
-            command=lambda: self._toggle_adaptive_detail(self.adaptive_detail_var.get()),
+            command=lambda: self._toggle_adaptive_detail(
+                self.adaptive_detail_var.get()
+            ),
         ).pack(side="left", padx=5)
 
         self.tree_frame = ctk.CTkFrame(monitor_tab)
@@ -754,7 +766,9 @@ class ForceQuitDialog(BaseDialog):
             selectmode="extended",
         )
         vsb = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview)
-        hsb = ttk.Scrollbar(self.tree_frame, orient="horizontal", command=self.tree.xview)
+        hsb = ttk.Scrollbar(
+            self.tree_frame, orient="horizontal", command=self.tree.xview
+        )
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
@@ -765,12 +779,24 @@ class ForceQuitDialog(BaseDialog):
         self.empty_label.grid(row=0, column=0)
         self.empty_label.grid_remove()
         for col in columns:
-            self.tree.heading(col, text=col, command=lambda c=col: self._sort_by_column(c))
-            narrow = {"PID", "CPU", "Mem", "Avg CPU", "Avg IO", "Score", "\u0394CPU", "\u0394Mem", "\u0394IO"}
+            self.tree.heading(
+                col, text=col, command=lambda c=col: self._sort_by_column(c)
+            )
+            narrow = {
+                "PID",
+                "CPU",
+                "Mem",
+                "Avg CPU",
+                "Avg IO",
+                "Score",
+                "\u0394CPU",
+                "\u0394Mem",
+                "\u0394IO",
+            }
             width = 60 if col in narrow else 90
             self.tree.column(col, width=width, anchor="w")
         default_col = self.sort_var.get()
-        self.tree.heading(default_col, text=default_col + " \u25BC")
+        self.tree.heading(default_col, text=default_col + " \u25bc")
         self.tree.tag_configure("high_cpu", background="#ffdddd")
         self.tree.tag_configure("high_mem", background="#fff5cc")
         self.tree.tag_configure("changed", background="#e6f7ff")
@@ -778,17 +804,21 @@ class ForceQuitDialog(BaseDialog):
         self.tree.tag_configure("stable", background="#f5f5f5")
         self.tree.tag_configure("warning", background="#fff5cc")
         self.tree.tag_configure("critical", background="#ffcccc")
-        bright = hex_brightness(self.accent)
-        if bright < 0.3:
-            factor = 0.6
-        elif bright < 0.6:
-            factor = 0.4
+        hover_env = os.getenv("FORCE_QUIT_HOVER_COLOR")
+        if hover_env:
+            self.hover_color = hover_env
         else:
-            factor = 0.2
-        if bright < 0.5:
-            self.hover_color = lighten_color(self.accent, factor)
-        else:
-            self.hover_color = darken_color(self.accent, factor)
+            bright = hex_brightness(self.accent)
+            if bright < 0.3:
+                factor = 0.6
+            elif bright < 0.6:
+                factor = 0.4
+            else:
+                factor = 0.2
+            if bright < 0.5:
+                self.hover_color = lighten_color(self.accent, factor)
+            else:
+                self.hover_color = darken_color(self.accent, factor)
         self.tree.tag_configure("hover", background=self.hover_color)
         self._hover_iid: str | None = None
         self.tree.bind("<Double-1>", self._on_double_click)
@@ -809,7 +839,9 @@ class ForceQuitDialog(BaseDialog):
         ).pack(pady=(5, 0))
 
         self.status_var = ctk.StringVar(value="0 processes")
-        ctk.CTkLabel(monitor_tab, textvariable=self.status_var, font=self.font).pack(pady=(0, 5))
+        ctk.CTkLabel(monitor_tab, textvariable=self.status_var, font=self.font).pack(
+            pady=(0, 5)
+        )
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.center_window()
@@ -1091,9 +1123,7 @@ class ForceQuitDialog(BaseDialog):
         return cls.force_kill_multiple(pids)
 
     @classmethod
-    def force_kill_above_io(
-        cls, threshold_mb: float, interval: float = 1.0
-    ) -> int:
+    def force_kill_above_io(cls, threshold_mb: float, interval: float = 1.0) -> int:
         """Kill processes with I/O rate greater than threshold."""
         snapshot: dict[int, int] = {}
         for proc in psutil.process_iter(["pid"]):
@@ -1111,10 +1141,8 @@ class ForceQuitDialog(BaseDialog):
                 if prev is None:
                     continue
                 rate = (
-                    io.read_bytes
-                    + io.write_bytes
-                    - prev
-                ) / interval / (1024 * 1024)
+                    (io.read_bytes + io.write_bytes - prev) / interval / (1024 * 1024)
+                )
                 if rate > threshold_mb:
                     pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
@@ -1148,9 +1176,7 @@ class ForceQuitDialog(BaseDialog):
         return cls.force_kill_multiple(pids)
 
     @classmethod
-    def force_kill_sustained_cpu(
-        cls, threshold: float, duration: float = 1.0
-    ) -> int:
+    def force_kill_sustained_cpu(cls, threshold: float, duration: float = 1.0) -> int:
         """Kill processes averaging above CPU ``threshold`` during ``duration``."""
         snapshot: dict[int, float] = {}
         for proc in psutil.process_iter(["pid", "cpu_times"]):
@@ -1165,7 +1191,12 @@ class ForceQuitDialog(BaseDialog):
                 start = snapshot.get(proc.pid)
                 if start is None:
                     continue
-                cpu = (sum(proc.cpu_times()) - start) / duration / psutil.cpu_count() * 100
+                cpu = (
+                    (sum(proc.cpu_times()) - start)
+                    / duration
+                    / psutil.cpu_count()
+                    * 100
+                )
                 if cpu > threshold:
                     pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -1555,7 +1586,9 @@ class ForceQuitDialog(BaseDialog):
             return
         self.tree.selection_set(iid)
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label="Terminate", command=lambda pid=int(iid): self._confirm_kill(pid))
+        menu.add_command(
+            label="Terminate", command=lambda pid=int(iid): self._confirm_kill(pid)
+        )
         menu.post(event.x_root, event.y_root)
 
     def _sort_by_column(self, col: str) -> None:
@@ -1566,7 +1599,7 @@ class ForceQuitDialog(BaseDialog):
             self.tree.heading(current, text=current)
             self.sort_var.set(col)
             self.sort_reverse = True
-        arrow = " \u25BC" if self.sort_reverse else " \u25B2"
+        arrow = " \u25bc" if self.sort_reverse else " \u25b2"
         self.tree.heading(col, text=col + arrow)
         self._populate()
 
@@ -1574,10 +1607,22 @@ class ForceQuitDialog(BaseDialog):
         self.paused = not self.paused
         self.pause_btn.configure(text="Resume" if self.paused else "Pause")
         if self.paused:
-            self._watcher.pause()
+            self._safe_pause()
         else:
-            self._watcher.resume()
+            self._safe_resume()
             self._auto_refresh()
+
+    def _safe_pause(self) -> None:
+        try:
+            self._watcher.pause()
+        except Exception:
+            pass
+
+    def _safe_resume(self) -> None:
+        try:
+            self._watcher.resume()
+        except Exception:
+            pass
 
     def _toggle_adaptive(self, enabled: bool) -> None:
         """Enable or disable adaptive refresh."""
@@ -1662,6 +1707,20 @@ class ForceQuitDialog(BaseDialog):
             iid = None
         self._set_hover_row(iid)
 
+    def _highlight_pid(self, pid: int | None, _title: str | None = None) -> None:
+        """Highlight ``pid`` in the process list while the overlay is active."""
+        if not hasattr(self, "tree"):
+            return
+        if pid is None or not self.tree.exists(str(pid)):
+            self.tree.selection_remove(self.tree.selection())
+            self._set_hover_row(None)
+            return
+        iid = str(pid)
+        self.tree.see(iid)
+        self.tree.selection_set(iid)
+        self._set_hover_row(iid)
+        self._show_details()
+
     def _toggle_details(self) -> None:
         if self.show_details_var.get():
             self.details_frame.pack(fill="both", padx=10, pady=(5, 0))
@@ -1678,7 +1737,9 @@ class ForceQuitDialog(BaseDialog):
                 cmdline = " ".join(proc.cmdline())
                 cwd = proc.cwd() or ""
                 user = proc.username() or ""
-                start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(proc.create_time()))
+                start = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(proc.create_time())
+                )
                 status = proc.status()
                 mem = proc.memory_info().rss / (1024 * 1024)
                 cpu = proc.cpu_percent(interval=0.1)
@@ -1746,7 +1807,9 @@ class ForceQuitDialog(BaseDialog):
         port = int(value)
         count = self.force_kill_by_port(port)
         messagebox.showinfo(
-            "Force Quit", f"Terminated {count} process(es) using port {port}", parent=self
+            "Force Quit",
+            f"Terminated {count} process(es) using port {port}",
+            parent=self,
         )
         self._populate()
 
@@ -1757,7 +1820,9 @@ class ForceQuitDialog(BaseDialog):
             return
         count = self.force_kill_by_host(host)
         messagebox.showinfo(
-            "Force Quit", f"Terminated {count} process(es) connected to {host}", parent=self
+            "Force Quit",
+            f"Terminated {count} process(es) connected to {host}",
+            parent=self,
         )
         self._populate()
 
@@ -1802,7 +1867,9 @@ class ForceQuitDialog(BaseDialog):
     def _kill_by_cmdline(self) -> None:
         pattern = self.search_var.get().strip()
         if not pattern:
-            messagebox.showerror("Force Quit", "Enter a command line regex", parent=self)
+            messagebox.showerror(
+                "Force Quit", "Enter a command line regex", parent=self
+            )
             return
         try:
             regex = re.compile(pattern, re.IGNORECASE)
@@ -1826,7 +1893,9 @@ class ForceQuitDialog(BaseDialog):
             return
         count = self.force_kill_above_cpu(threshold)
         messagebox.showinfo(
-            "Force Quit", f"Terminated {count} process(es) above {threshold}% CPU", parent=self
+            "Force Quit",
+            f"Terminated {count} process(es) above {threshold}% CPU",
+            parent=self,
         )
         self._populate()
 
@@ -1972,14 +2041,14 @@ class ForceQuitDialog(BaseDialog):
             )
             return
         if not messagebox.askyesno(
-            "Force Quit", f"Terminate {info.title or 'window'} (pid {pid})?", parent=self
+            "Force Quit",
+            f"Terminate {info.title or 'window'} (pid {pid})?",
+            parent=self,
         ):
             return
         ok = self.force_kill(pid)
         if ok:
-            messagebox.showinfo(
-                "Force Quit", f"Terminated process {pid}", parent=self
-            )
+            messagebox.showinfo("Force Quit", f"Terminated process {pid}", parent=self)
         else:
             messagebox.showerror(
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
@@ -1991,36 +2060,37 @@ class ForceQuitDialog(BaseDialog):
 
         paused = self.paused
         if not paused:
-            try:
-                self._watcher.pause()
-            except Exception:
-                pass
+            self._safe_pause()
         color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
         color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
-        overlay = ClickOverlay(self, highlight=color)
+        overlay = ClickOverlay(self, highlight=color, on_hover=self._highlight_pid)
         self.withdraw()
         try:
             pid, title = overlay.choose()
         finally:
             self.deiconify()
+            self._highlight_pid(None)
             if not paused:
-                try:
-                    self._watcher.resume()
-                except Exception:
-                    pass
+                self._safe_resume()
+            self.after_idle(self._update_hover)
 
         if pid is None:
-            messagebox.showerror("Force Quit", "Unable to determine window", parent=self)
+            messagebox.showerror(
+                "Force Quit", "Unable to determine window", parent=self
+            )
             return
-        if not messagebox.askyesno(
-            "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
-        ):
-            return
+        skip_confirm_env = os.getenv("FORCE_QUIT_CLICK_SKIP_CONFIRM")
+        skip_confirm = False
+        if skip_confirm_env and skip_confirm_env.lower() not in {"0", "false", "no"}:
+            skip_confirm = True
+        if not skip_confirm:
+            if not messagebox.askyesno(
+                "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
+            ):
+                return
         ok = self.force_kill(pid)
         if ok:
-            messagebox.showinfo(
-                "Force Quit", f"Terminated process {pid}", parent=self
-            )
+            messagebox.showinfo("Force Quit", f"Terminated process {pid}", parent=self)
         else:
             messagebox.showerror(
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
