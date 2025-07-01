@@ -29,7 +29,12 @@ from src.utils.scoring_engine import ScoringEngine, tuning
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
 
-KILL_BY_CLICK_INTERVAL = tuning.interval
+# Allow the refresh interval to be configured via an environment
+# variable. Falling back to the tuning default keeps behaviour
+# consistent for tests while providing an easy knob for users.
+KILL_BY_CLICK_INTERVAL = float(
+    os.getenv("KILL_BY_CLICK_INTERVAL", str(tuning.interval))
+)
 
 
 class UpdateState(Enum):
@@ -122,10 +127,12 @@ class ClickOverlay(tk.Toplevel):
         self.pid: int | None = None
         self.title_text: str | None = None
         self._last_info: WindowInfo | None = None
+        self._screen_w = self.winfo_screenwidth()
+        self._screen_h = self.winfo_screenheight()
         self.engine = ScoringEngine(
             tuning,
-            self.winfo_screenwidth(),
-            self.winfo_screenheight(),
+            self._screen_w,
+            self._screen_h,
             os.getpid(),
         )
         self._own_pid = os.getpid()
@@ -412,8 +419,8 @@ class ClickOverlay(tk.Toplevel):
         px = int(self._cursor_x)
         py = int(self._cursor_y)
         cursor_changed = (px, py) != getattr(self, "_last_cursor", (None, None))
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
+        sw = self._screen_w
+        sh = self._screen_h
         # Draw crosshair lines centered on the cursor only when moved
         if (
             cursor_changed

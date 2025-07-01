@@ -20,7 +20,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Security Center**: Toggle the Windows Firewall and Defender real-time protection directly from the app.
 - **Kill by Click CLI**: `scripts/kill_by_click.py` opens the crosshair overlay
   from the terminal so you can quickly select any window. Pass `--skip-confirm`
-  to close the overlay immediately without rechecking the click location.
+  to close the overlay immediately without rechecking the click location. Use
+  `--interval 0.1` to override the refresh rate without setting
+  `KILL_BY_CLICK_INTERVAL`.
 - **Dynamic Gauges**: Resource gauges automatically change color from green to yellow to red as usage increases for quick visual feedback.
 - **Stylish Setup**: Dependency installation is wrapped in a pulsing neon border
   with a dynamic spinner and live output for extra flair, even when triggered
@@ -55,7 +57,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   start or aren't available it falls back to normal bindings and briefly ignores
   mouse events while polling the window under the cursor at ``KILL_BY_CLICK_INTERVAL``
   and tracks pointer coordinates from hook callbacks or motion events to keep
-  updates smooth without flicker. The window's normal interaction state is
+  updates smooth without flicker. Set ``KILL_BY_CLICK_INTERVAL`` to control the
+  refresh rate (defaults to ``0.05`` seconds) or pass ``--interval`` when using
+  ``scripts/kill_by_click.py``. The window's normal interaction state is
   restored automatically when the overlay closes. The overlay samples the window
   The highlight color defaults to ``red`` but can be customized by setting
   ``KILL_BY_CLICK_HIGHLIGHT`` in the environment. The ``scripts/kill_by_click.py``
@@ -355,7 +359,8 @@ others at the click location so background windows are less likely to be
 - The optional `pynput` package enables the Kill by Click overlay to remain
   fully click-through using global mouse hooks. If the hooks fail to start the
   overlay automatically falls back to event bindings that poll the cursor at
-  ``KILL_BY_CLICK_INTERVAL``.
+  ``KILL_BY_CLICK_INTERVAL`` (configurable via environment variable or the
+  ``--interval`` argument).
 
 ## 🛠️ Installation
 

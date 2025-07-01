@@ -14,7 +14,11 @@ from .window_utils import WindowInfo, list_windows_at
 class Tuning:
     """Weight and scoring parameters loaded from environment variables."""
 
-    interval: float = 0.01
+    # Increase the default overlay update interval slightly to
+    # reduce CPU usage when the click overlay is active. This
+    # still provides responsive tracking without the excessive
+    # overhead from the previous 10ms refresh rate.
+    interval: float = 0.05
     pid_history_size: int = 5
     sample_decay: float = 0.85
     history_decay: float = 0.9
