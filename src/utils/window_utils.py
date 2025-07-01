@@ -270,7 +270,10 @@ def get_window_at(x: int, y: int) -> WindowInfo:
             return WindowInfo(None)
 
     # X11 fallback - coordinates ignored
-    return get_window_under_cursor()
+    info = get_window_under_cursor()
+    if info.pid is None:
+        info = get_active_window()
+    return info
 
 
 def list_windows_at(x: int, y: int) -> List[WindowInfo]:
