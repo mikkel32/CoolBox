@@ -1,12 +1,22 @@
 """Utility helpers for installing and inspecting CoolBox dependencies."""
+
 from __future__ import annotations
 
 import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Iterable
+
+from rich.text import Text
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TimeElapsedColumn,
+)
 
 from src.utils.helpers import log, get_system_info, run_with_spinner, console
 from src.utils.rainbow import NeonPulseBorder
@@ -15,8 +25,65 @@ from src.utils.rainbow import NeonPulseBorder
 MIN_PYTHON = (3, 10)
 
 
+COOLBOX_ART = r"""
+  ____            _ ____
+ / ___|___   ___ | | __ )  _____  __
+| |   / _ \ / _ \| |  _ \ / _ \ \/ /
+| |__| (_) | (_) | | |_) | (_) >  <
+ \____\___/ \___/|_|____/ \___/_/\_\
+"""
+
+
+def _gradient_line(line: str, offset: int = 0) -> Text:
+    """Return *line* styled with a moving gradient."""
+    text = Text()
+    n = max(len(line) - 1, 1)
+    for i, ch in enumerate(line):
+        pos = ((i + offset) % len(line)) / n
+        color = _blend("#00eaff", "#ff00d0", pos)
+        text.append(ch, style=color)
+    return text
+
+
+def _blend(c1: str, c2: str, t: float) -> str:
+    """Return a color between ``c1`` and ``c2`` at position ``t``."""
+    c1 = c1.lstrip("#")
+    c2 = c2.lstrip("#")
+    if len(c1) == 3:
+        c1 = "".join(ch * 2 for ch in c1)
+    if len(c2) == 3:
+        c2 = "".join(ch * 2 for ch in c2)
+    r1, g1, b1 = int(c1[0:2], 16), int(c1[2:4], 16), int(c1[4:6], 16)
+    r2, g2, b2 = int(c2[0:2], 16), int(c2[2:4], 16), int(c2[4:6], 16)
+    r = round(r1 + (r2 - r1) * t)
+    g = round(g1 + (g2 - g1) * t)
+    b = round(b1 + (b2 - b1) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def show_setup_banner() -> None:
-    """Display a stylish banner before running setup."""
+    """Display an animated banner with a short loading bar."""
+    console.clear()
+    lines = COOLBOX_ART.strip("\n").splitlines()
+    with NeonPulseBorder(speed=0.05):
+        for step in range(30):
+            console.clear()
+            for line in lines:
+                console.print(_gradient_line(line, step), justify="center")
+            time.sleep(0.05)
+
+    with Progress(
+        SpinnerColumn(style="bold magenta"),
+        BarColumn(bar_width=None),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("Initializing", total=100)
+        for _ in range(100):
+            progress.update(task, advance=1)
+            time.sleep(0.01)
+
     console.rule("[bold cyan]CoolBox Setup")
 
 
@@ -54,11 +121,14 @@ def update_repo() -> None:
         remote, remote_branch = upstream.split("/", 1)
         try:
             with NeonPulseBorder():
-                run_with_spinner([
-                    "git",
-                    "fetch",
-                    remote,
-                ], message="Fetching updates")
+                run_with_spinner(
+                    [
+                        "git",
+                        "fetch",
+                        remote,
+                    ],
+                    message="Fetching updates",
+                )
         except subprocess.CalledProcessError as exc:
             log(f"Failed to fetch updates: {exc}")
             return
@@ -138,7 +208,9 @@ def ensure_venv(venv_dir: Path = VENV_DIR, *, python: str | None = None) -> Path
     return python_path
 
 
-def _pip(args: Iterable[str], python: Path | None = None, *, upgrade_pip: bool = False) -> None:
+def _pip(
+    args: Iterable[str], python: Path | None = None, *, upgrade_pip: bool = False
+) -> None:
     """Run ``pip`` using *python* with *args*, logging the command."""
     py = python or ensure_venv()
     if upgrade_pip:
@@ -163,7 +235,13 @@ def run_tests(extra: Iterable[str] | None = None) -> None:
     subprocess.check_call(cmd)
 
 
-def install(requirements: Path | None = None, *, dev: bool = False, upgrade: bool = False, skip_update: bool = False) -> None:
+def install(
+    requirements: Path | None = None,
+    *,
+    dev: bool = False,
+    upgrade: bool = False,
+    skip_update: bool = False,
+) -> None:
     """Install dependencies using ``pip`` with optional upgrades.
 
     Parameters
@@ -215,7 +293,10 @@ def check_outdated(requirements: Path | None = None, *, upgrade: bool = False) -
         check=False,
     )
     try:
-        pkgs = [f"{p['name']} {p['version']} -> {p['latest_version']}" for p in __import__('json').loads(result.stdout)]
+        pkgs = [
+            f"{p['name']} {p['version']} -> {p['latest_version']}"
+            for p in __import__("json").loads(result.stdout)
+        ]
     except Exception:
         pkgs = []
     if pkgs:
@@ -270,7 +351,9 @@ if __name__ == "__main__":
 
     sub.add_parser("info", help="Show system information")
     venv_p = sub.add_parser("venv", help="Create or ensure the project virtualenv")
-    venv_p.add_argument("--recreate", action="store_true", help="Recreate the virtual environment")
+    venv_p.add_argument(
+        "--recreate", action="store_true", help="Recreate the virtual environment"
+    )
     sub.add_parser("clean", help="Remove the project virtualenv")
     sub.add_parser("update", help="Pull the latest changes from the repository")
     sub.add_parser("upgrade", help="Upgrade all outdated packages")
@@ -287,10 +370,12 @@ if __name__ == "__main__":
     elif args.command == "venv":
         if args.recreate and VENV_DIR.exists():
             import shutil
+
             shutil.rmtree(VENV_DIR)
         ensure_venv()
     elif args.command == "clean":
         import shutil
+
         if VENV_DIR.exists():
             shutil.rmtree(VENV_DIR)
             log("Virtualenv removed.")
