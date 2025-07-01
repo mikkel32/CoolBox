@@ -35,7 +35,7 @@ def test_pip_uses_blue_glow(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             calls.append("exit")
 
-    monkeypatch.setattr(setup, "BlueGlowBorder", DummyBorder)
+    monkeypatch.setattr(setup, "NeonPulseBorder", DummyBorder)
     monkeypatch.setattr(
         setup.subprocess,
         "check_call",

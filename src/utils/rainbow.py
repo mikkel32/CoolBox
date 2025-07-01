@@ -140,32 +140,46 @@ class RainbowBorder:
         self.console.file.flush()
 
 
-class BlueGlowBorder(RainbowBorder):
-    """Animate a swirling blue glow around the terminal."""
+class NeonPulseBorder(RainbowBorder):
+    """Animate a pulsing neon gradient around the terminal."""
 
     def __init__(
         self,
         speed: float = 0.05,
         *,
-        base_color: str = "#2196f3",
-        amplitude: float = 0.5,
+        base_color: str = "#00eaff",
+        highlight_color: str = "#ff00d0",
         style: str = "rounded",
         console: Console | None = None,
     ) -> None:
         super().__init__(speed, colors=[base_color], style=style, console=console)
         self.base_color = base_color
-        self.amplitude = max(0.0, min(1.0, amplitude))
+        self.highlight_color = highlight_color
         self._phase = 0.0
+
+    def _blend(self, c1: str, c2: str, t: float) -> str:
+        c1 = c1.lstrip("#")
+        c2 = c2.lstrip("#")
+        if len(c1) == 3:
+            c1 = "".join(ch * 2 for ch in c1)
+        if len(c2) == 3:
+            c2 = "".join(ch * 2 for ch in c2)
+        r1, g1, b1 = int(c1[0:2], 16), int(c1[2:4], 16), int(c1[4:6], 16)
+        r2, g2, b2 = int(c2[0:2], 16), int(c2[2:4], 16), int(c2[4:6], 16)
+        r = round(r1 + (r2 - r1) * t)
+        g = round(g1 + (g2 - g1) * t)
+        b = round(b1 + (b2 - b1) * t)
+        return f"#{r:02x}{g:02x}{b:02x}"
 
     def _generate_colors(self, width: int, height: int) -> list[str]:
         """Return a list of colors for the current phase."""
         perimeter = 2 * width + 2 * height - 4
         colors = []
         for i in range(perimeter):
-            phase = self._phase + (i / perimeter) * (2 * math.pi)
-            brightness = (math.sin(phase) + 1.0) / 2.0
-            factor = (brightness * 2.0 - 1.0) * self.amplitude
-            colors.append(adjust_color(self.base_color, factor))
+            pos = i / perimeter
+            pulse = (math.sin(self._phase) + 1.0) / 2.0
+            color = self._blend(self.base_color, self.highlight_color, (pos + pulse) % 1.0)
+            colors.append(color)
         return colors
 
     def _run(self) -> None:
@@ -175,5 +189,5 @@ class BlueGlowBorder(RainbowBorder):
             self.colors = self._generate_colors(width, height)
             self._draw(offset)
             time.sleep(self.speed)
-            self._phase += 0.1
+            self._phase += 0.05
             offset += 1

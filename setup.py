@@ -8,11 +8,16 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-from src.utils.helpers import log, get_system_info
-from src.utils.rainbow import BlueGlowBorder
+from src.utils.helpers import log, get_system_info, run_with_spinner, console
+from src.utils.rainbow import NeonPulseBorder
 
 
 MIN_PYTHON = (3, 10)
+
+
+def show_setup_banner() -> None:
+    """Display a stylish banner before running setup."""
+    console.rule("[bold cyan]CoolBox Setup")
 
 
 def check_python_version() -> None:
@@ -48,7 +53,12 @@ def update_repo() -> None:
         ).strip()
         remote, remote_branch = upstream.split("/", 1)
         try:
-            subprocess.check_call(["git", "fetch", remote])
+            with NeonPulseBorder():
+                run_with_spinner([
+                    "git",
+                    "fetch",
+                    remote,
+                ], message="Fetching updates")
         except subprocess.CalledProcessError as exc:
             log(f"Failed to fetch updates: {exc}")
             return
@@ -65,7 +75,11 @@ def update_repo() -> None:
         ahead, behind = map(int, ahead_behind.split())
         if behind:
             log(f"Repository behind upstream by {behind} commit(s); pulling...")
-            subprocess.check_call(["git", "pull", "--ff-only", remote, remote_branch])
+            with NeonPulseBorder():
+                run_with_spinner(
+                    ["git", "pull", "--ff-only", remote, remote_branch],
+                    message="Pulling updates",
+                )
             log("Repository updated.")
         else:
             log("Repository is up to date.")
@@ -112,7 +126,11 @@ def ensure_venv(venv_dir: Path = VENV_DIR, *, python: str | None = None) -> Path
     if not venv_dir.exists():
         py_exe = python or sys.executable
         log(f"Creating virtual environment at {venv_dir} using {py_exe}")
-        subprocess.check_call([py_exe, "-m", "venv", str(venv_dir)])
+        with NeonPulseBorder():
+            run_with_spinner(
+                [py_exe, "-m", "venv", str(venv_dir)],
+                message="Creating virtualenv",
+            )
 
     python_path = venv_dir / "bin" / "python"
     if not python_path.exists():  # Windows fallback
@@ -124,12 +142,15 @@ def _pip(args: Iterable[str], python: Path | None = None, *, upgrade_pip: bool =
     """Run ``pip`` using *python* with *args*, logging the command."""
     py = python or ensure_venv()
     if upgrade_pip:
-        with BlueGlowBorder():
-            subprocess.check_call([str(py), "-m", "pip", "install", "--upgrade", "pip"])
+        with NeonPulseBorder():
+            run_with_spinner(
+                [str(py), "-m", "pip", "install", "--upgrade", "pip"],
+                message="Upgrading pip",
+            )
     cmd = [str(py), "-m", "pip", *args]
     log("Running: " + " ".join(cmd))
-    with BlueGlowBorder():
-        subprocess.check_call(cmd)
+    with NeonPulseBorder():
+        run_with_spinner(cmd, message="Installing dependencies")
 
 
 def run_tests(extra: Iterable[str] | None = None) -> None:
@@ -215,6 +236,7 @@ def show_info() -> None:
 
 
 if __name__ == "__main__":
+    show_setup_banner()
     check_python_version()
     parser = argparse.ArgumentParser(
         description="Manage CoolBox dependencies and show environment info"

@@ -9,7 +9,8 @@ from src.utils import (
 )
 from src.utils.cache import CacheManager
 from src.utils.helpers import adjust_color, hex_brightness, lighten_color
-from src.utils.helpers import darken_color
+from src.utils.helpers import darken_color, run_with_spinner
+import io
 
 
 def test_calc_hash(tmp_path):
@@ -103,3 +104,39 @@ def test_adjust_color_and_brightness() -> None:
     assert adjust_color("#fff", -0.5).lower() in {"#7f7f7f", "#808080"}
     assert hex_brightness("#000") == 0
     assert hex_brightness("#fff") == 1
+
+
+def test_run_with_spinner(monkeypatch):
+    """Ensure ``run_with_spinner`` streams output and checks return codes."""
+
+    class DummyProc:
+        def __init__(self):
+            self.stdout = io.StringIO("hello\n")
+
+        def wait(self):
+            return 0
+
+    captured = {}
+
+    def fake_popen(cmd, stdout=None, stderr=None, text=None, bufsize=None):
+        captured["cmd"] = cmd
+        return DummyProc()
+
+    class DummyProgress:
+        def __init__(self, *args, **kwargs):
+            self.console = type("C", (), {"print": lambda self, *a, **k: None})()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+        def add_task(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr("src.utils.helpers.Progress", DummyProgress)
+
+    run_with_spinner(["echo", "hi"], message="test")
+    assert captured["cmd"] == ["echo", "hi"]

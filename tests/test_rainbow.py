@@ -1,8 +1,8 @@
-from src.utils.rainbow import BlueGlowBorder
+from src.utils.rainbow import NeonPulseBorder
 
 
 def test_generate_colors_changes_with_phase():
-    b = BlueGlowBorder(speed=0.01)
+    b = NeonPulseBorder(speed=0.01)
     cols1 = b._generate_colors(10, 5)
     b._phase += 1.0
     cols2 = b._generate_colors(10, 5)
@@ -11,8 +11,8 @@ def test_generate_colors_changes_with_phase():
     assert all(c.startswith('#') for c in cols1)
 
 
-def test_generate_colors_amplitude_zero():
-    b = BlueGlowBorder(amplitude=0)
+def test_single_color_when_no_highlight():
+    b = NeonPulseBorder(base_color="#123456", highlight_color="#123456")
     colors = b._generate_colors(8, 4)
     assert len(set(colors)) == 1
 
