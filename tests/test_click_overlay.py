@@ -68,6 +68,31 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_click_uses_click_coordinates(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._cursor_x = 1
+        overlay._cursor_y = 2
+        overlay._click_x = 30
+        overlay._click_y = 40
+
+        with (
+            patch("src.views.click_overlay.get_window_at") as gwa,
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+        ):
+            gwa.return_value = WindowInfo(7, (0, 0, 5, 5), "clicked")
+            overlay.close = lambda _e=None: None
+            overlay._on_click()
+            gwa.assert_called_with(30, 40)
+
+        self.assertEqual(overlay.pid, 7)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_ignores_own_window(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
