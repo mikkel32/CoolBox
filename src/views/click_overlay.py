@@ -98,6 +98,8 @@ class ClickOverlay(tk.Toplevel):
         self.title_text: str | None = None
         self._last_info: WindowInfo | None = None
         self._own_pid = os.getpid()
+        self._click_x = 0
+        self._click_y = 0
         try:
             self._cursor_x = self.winfo_pointerx()
             self._cursor_y = self.winfo_pointery()
@@ -124,17 +126,27 @@ class ClickOverlay(tk.Toplevel):
         if isinstance(_e, tk.Event):
             self._cursor_x = _e.x_root
             self._cursor_y = _e.y_root
+        else:
+            try:
+                self._cursor_x = self.winfo_pointerx()
+                self._cursor_y = self.winfo_pointery()
+            except Exception:
+                pass
         if not self._update_pending:
             self._update_pending = True
             self.after_idle(self._process_update)
 
     def _process_update(self) -> None:
         self._update_pending = False
+        try:
+            self._cursor_x = self.winfo_pointerx()
+            self._cursor_y = self.winfo_pointery()
+        except Exception:
+            pass
         self._update_rect()
-        if not self._using_hooks:
-            self._after_id = self.after(
-                int(self.interval * 1000), self._queue_update
-            )
+        self._after_id = self.after(
+            int(self.interval * 1000), self._queue_update
+        )
 
     def _on_move(self, x: int, y: int) -> None:
         self._cursor_x = x
@@ -144,8 +156,10 @@ class ClickOverlay(tk.Toplevel):
     def _query_window(self) -> WindowInfo:
         """Return the window info below the cursor, ignoring this overlay."""
 
-        x = int(self._cursor_x)
-        y = int(self._cursor_y)
+        return self._query_window_at(int(self._cursor_x), int(self._cursor_y))
+
+    def _query_window_at(self, x: int, y: int) -> WindowInfo:
+        """Return the window info at ``(x, y)`` in screen coordinates."""
 
         def probe() -> WindowInfo:
             return get_window_at(x, y)
@@ -176,11 +190,12 @@ class ClickOverlay(tk.Toplevel):
                 if was_click:
                     remove_window_clickthrough(self)
 
-        if info.pid in (self._own_pid, None):
+        if info.pid is None:
             if self._last_info is not None:
-                info = self._last_info
-            else:
-                info = get_active_window()
+                return self._last_info
+            return WindowInfo(None)
+        if info.pid == self._own_pid:
+            return self._last_info or WindowInfo(None)
         return info
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
@@ -193,6 +208,8 @@ class ClickOverlay(tk.Toplevel):
         self.title_text = info.title
         if info.pid not in (self._own_pid, None):
             self._last_info = info
+        elif info.pid is None:
+            self._last_info = None
 
         px = int(self._cursor_x)
         py = int(self._cursor_y)
@@ -204,26 +221,27 @@ class ClickOverlay(tk.Toplevel):
             self.canvas.coords(self.vline, px, 0, px, sh)
             self._last_pos = (px, py, sw, sh)
 
-        if info.rect:
+        if info.pid is None or not info.rect:
+            rect = (-5, -5, -5, -5)
+            text = ""
+        else:
             rect = (
                 info.rect[0],
                 info.rect[1],
                 info.rect[0] + info.rect[2],
                 info.rect[1] + info.rect[3],
             )
-        else:
-            rect = (-5, -5, -5, -5)
+            text = info.title or f"PID {info.pid}" if info.pid else ""
         if rect != getattr(self, "_last_rect", None):
             self.canvas.coords(self.rect, *rect)
             self._last_rect = rect
-        text = info.title or ("PID " + str(info.pid) if info.pid else "")
         if text != getattr(self, "_last_text", None):
             self.canvas.itemconfigure(self.label, text=text)
             self._last_text = text
         self._position_label(px, py, sw, sh)
 
     def _on_click(self) -> None:
-        info: WindowInfo = self._query_window()
+        info: WindowInfo = self._query_window_at(int(self._click_x), int(self._click_y))
         if info.pid in (self._own_pid, None):
             if self._last_info is not None:
                 info = self._last_info
@@ -239,11 +257,15 @@ class ClickOverlay(tk.Toplevel):
         if pressed:
             self._cursor_x = x
             self._cursor_y = y
+            self._click_x = x
+            self._click_y = y
             self.after(0, self._on_click)
 
     def _click_event(self, e: tk.Event) -> None:
         self._cursor_x = e.x_root
         self._cursor_y = e.y_root
+        self._click_x = e.x_root
+        self._click_y = e.y_root
         self.after(0, self._on_click)
 
     def close(self, _e: object | None = None) -> None:
