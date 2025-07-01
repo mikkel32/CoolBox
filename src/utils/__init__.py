@@ -80,6 +80,12 @@ from .network import (
 
 from .ui import center_window
 from .kill_utils import kill_process, kill_process_tree
+from .win_console import (
+    hide_console,
+    hidden_creation_flags,
+    hide_terminal,
+    silence_stdio,
+)
 from .scoring_engine import ScoringEngine, Tuning, tuning
 from .security import (
     is_firewall_enabled,
@@ -175,7 +181,11 @@ __all__ = [
     "center_window",
     "kill_process",
     "kill_process_tree",
-    "is_firewall_enabled",
+    "hide_console",
+    "hide_terminal",
+    "silence_stdio",
+    "hidden_creation_flags",
+    "is_firewall_enabled", 
     "set_firewall_enabled",
     "is_defender_enabled",
     "set_defender_enabled",

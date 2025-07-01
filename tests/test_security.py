@@ -5,12 +5,10 @@ import sys
 from types import SimpleNamespace
 import psutil
 import socket
-from src.utils import kill_utils
 import pytest
 
 from src.utils import security
 from src.utils.security import (
-    LocalPort,
     is_firewall_enabled,
     set_firewall_enabled,
     is_defender_enabled,
@@ -212,9 +210,19 @@ def test_launch_security_center_admin(monkeypatch):
     monkeypatch.setattr(security.Path, "is_file", lambda self: True, raising=False)
     monkeypatch.setattr(security, "is_admin", lambda: True)
     called = {}
-    monkeypatch.setattr(subprocess, "Popen", lambda args: called.setdefault("args", args))
+
+    def fake_popen(args, creationflags=0, stdout=None, stderr=None):
+        called["args"] = args
+        called["flags"] = creationflags
+        called["stdout"] = stdout
+        called["stderr"] = stderr
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
     assert security.launch_security_center() is True
     assert called.get("args", [])[0] == sys.executable
+    assert called.get("flags") == 0
+    assert called.get("stdout") is None
+    assert called.get("stderr") is None
 
 
 def test_launch_security_center_sudo(monkeypatch):
@@ -222,6 +230,96 @@ def test_launch_security_center_sudo(monkeypatch):
     monkeypatch.setattr(security, "is_admin", lambda: False)
     monkeypatch.setattr(security.platform, "system", lambda: "Linux")
     called = {}
-    monkeypatch.setattr(subprocess, "Popen", lambda args: called.setdefault("args", args))
+
+    def fake_popen(args, creationflags=0, stdout=None, stderr=None):
+        called["args"] = args
+        called["flags"] = creationflags
+        called["stdout"] = stdout
+        called["stderr"] = stderr
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
     assert security.launch_security_center() is True
     assert called.get("args", [])[0] == "sudo"
+    assert called.get("flags") == 0
+    assert called.get("stdout") is None
+    assert called.get("stderr") is None
+
+
+def test_launch_security_center_hidden(monkeypatch):
+    monkeypatch.setattr(security.Path, "is_file", lambda self: True, raising=False)
+    monkeypatch.setattr(security, "is_admin", lambda: True)
+    monkeypatch.setattr(security.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(subprocess, "DETACHED_PROCESS", 0x00000008, raising=False)
+    monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, raising=False)
+    called = {}
+
+    def fake_popen(args, creationflags=0, stdout=None, stderr=None, **kwargs):
+        called["args"] = args
+        called["flags"] = creationflags
+        called["stdout"] = stdout
+        called["stderr"] = stderr
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    assert security.launch_security_center(hide_console=True) is True
+    assert called.get("args", [])[0].endswith("pythonw.exe")
+    expected = (
+        subprocess.CREATE_NO_WINDOW
+        | subprocess.DETACHED_PROCESS
+        | subprocess.CREATE_NEW_PROCESS_GROUP
+    )
+    assert called.get("flags") == expected
+    assert called.get("stdout") is subprocess.DEVNULL
+    assert called.get("stderr") is subprocess.DEVNULL
+
+
+def test_launch_security_center_hidden_elevate(monkeypatch):
+    monkeypatch.setattr(security.Path, "is_file", lambda self: True, raising=False)
+    monkeypatch.setattr(security, "is_admin", lambda: False)
+    monkeypatch.setattr(security.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(subprocess, "DETACHED_PROCESS", 0x00000008, raising=False)
+    monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, raising=False)
+    called = {}
+
+    def fake_shell_execute(hwnd, verb, file, params, directory, show):
+        called["file"] = file
+        called["verb"] = verb
+        called["params"] = params
+        called["show"] = show
+        return 40
+
+    import ctypes
+
+    monkeypatch.setattr(
+        ctypes,
+        "windll",
+        SimpleNamespace(shell32=SimpleNamespace(ShellExecuteW=fake_shell_execute)),
+        raising=False,
+    )
+
+    assert security.launch_security_center(hide_console=True) is True
+    assert called["file"].endswith("pythonw.exe")
+    assert called["verb"] == "runas"
+    assert called["show"] == 0
+
+
+def test_launch_security_center_hidden_unix(monkeypatch):
+    monkeypatch.setattr(security.Path, "is_file", lambda self: True, raising=False)
+    monkeypatch.setattr(security, "is_admin", lambda: True)
+    monkeypatch.setattr(security.platform, "system", lambda: "Linux")
+    called = {}
+
+    def fake_popen(args, creationflags=0, stdout=None, stderr=None):
+        called["args"] = args
+        called["flags"] = creationflags
+        called["stdout"] = stdout
+        called["stderr"] = stderr
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    assert security.launch_security_center(hide_console=True) is True
+    assert called.get("args", [])[0] == sys.executable
+    assert called.get("flags") == 0
+    assert called.get("stdout") is subprocess.DEVNULL
+    assert called.get("stderr") is subprocess.DEVNULL

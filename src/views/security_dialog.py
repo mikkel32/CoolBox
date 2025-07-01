@@ -20,6 +20,9 @@ from ..utils.security import (
     kill_port_range,
 )
 
+from threading import Thread
+from queue import Queue, Empty
+
 
 class SecurityDialog(BaseDialog):
     """UI for basic security switches."""
@@ -56,6 +59,11 @@ class SecurityDialog(BaseDialog):
         self.port_count_lbl = ctk.CTkLabel(container, text="")
         self.port_count_lbl.grid(row=5, column=0, columnspan=2, sticky="w")
 
+        # Async port scanning helpers
+        self._scan_queue: Queue[dict[int, list[LocalPort]]] = Queue(maxsize=1)
+        self._scan_thread: Thread | None = None
+        self._scan_check: int | None = None
+
         self.kill_tree_var = ctk.BooleanVar(value=False)
         self.auto_refresh_var = ctk.BooleanVar(value=True)
 
@@ -91,8 +99,7 @@ class SecurityDialog(BaseDialog):
         self.refresh_theme()
 
     def _refresh(self) -> None:
-        self.port_data = list_open_ports()
-        self._update_list()
+        self._start_scan()
 
         system = platform.system()
 
@@ -130,6 +137,39 @@ class SecurityDialog(BaseDialog):
             self._refresh_job = None
         if self.auto_refresh_var.get():
             self._refresh_job = self.after(5000, self._auto_step)
+
+    # ------------------------------------------------------------------
+    # Asynchronous port scanning helpers
+    # ------------------------------------------------------------------
+
+    def _start_scan(self) -> None:
+        """Begin scanning ports in a background thread."""
+        if self._scan_thread is not None and self._scan_thread.is_alive():
+            return
+
+        self.ports_box.configure(state="normal")
+        self.ports_box.delete("1.0", "end")
+        self.ports_box.insert("end", "Scanning...\n")
+        self.ports_box.configure(state="disabled")
+
+        self._scan_thread = Thread(target=self._scan_ports, daemon=True)
+        self._scan_thread.start()
+        self._check_scan_result()
+
+    def _scan_ports(self) -> None:
+        data = list_open_ports()
+        if not self._scan_queue.full():
+            self._scan_queue.put(data)
+
+    def _check_scan_result(self) -> None:
+        try:
+            data = self._scan_queue.get_nowait()
+        except Empty:
+            self._scan_check = self.after(50, self._check_scan_result)
+            return
+        self.port_data = data
+        self._scan_thread = None
+        self._update_list()
 
     def _auto_step(self) -> None:
         self._refresh()
@@ -198,3 +238,12 @@ class SecurityDialog(BaseDialog):
             messagebox.showwarning(
                 "Security Center", "Failed to apply some settings"
             )
+
+    def destroy(self) -> None:  # type: ignore[override]
+        if self._scan_check is not None:
+            self.after_cancel(self._scan_check)
+            self._scan_check = None
+        if getattr(self, "_refresh_job", None):
+            self.after_cancel(self._refresh_job)
+            self._refresh_job = None
+        super().destroy()
