@@ -124,11 +124,11 @@ def _pip(args: Iterable[str], python: Path | None = None, *, upgrade_pip: bool =
     """Run ``pip`` using *python* with *args*, logging the command."""
     py = python or ensure_venv()
     if upgrade_pip:
-        with RainbowBorder():
+        with RainbowBorder(theme="awau", style="rounded"):
             subprocess.check_call([str(py), "-m", "pip", "install", "--upgrade", "pip"])
     cmd = [str(py), "-m", "pip", *args]
     log("Running: " + " ".join(cmd))
-    with RainbowBorder():
+    with RainbowBorder(theme="awau", style="rounded"):
         subprocess.check_call(cmd)
 
 
