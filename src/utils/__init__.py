@@ -31,6 +31,8 @@ from .file_manager import (
     delete_dir,
 )
 from .process_monitor import ProcessEntry, ProcessWatcher
+from .port_watchdog import PortWatchdog
+from .process_blocker import ProcessBlocker
 from .network import (
     PortInfo,
     HTTPInfo,
@@ -185,6 +187,8 @@ __all__ = [
     "file_manager",
     "ProcessEntry",
     "ProcessWatcher",
+    "PortWatchdog",
+    "ProcessBlocker",
     "center_window",
     "kill_process",
     "kill_process_tree",

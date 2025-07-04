@@ -153,15 +153,15 @@ def test_list_open_ports(monkeypatch):
     monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": fake_conns)
 
     def fake_process(pid):
-        return SimpleNamespace(name=lambda: "proc")
+        return SimpleNamespace(name=lambda: "proc", exe=lambda: "/proc")
 
     monkeypatch.setattr(psutil, "Process", fake_process)
     monkeypatch.setattr(socket, "getservbyport", lambda p: {80: "http", 22: "ssh"}.get(p, "unknown"))
 
     ports = list_open_ports()
     assert ports == {
-        22: [security.LocalPort(22, None, "unknown", "ssh")],
-        80: [security.LocalPort(80, 1234, "proc", "http")],
+        22: [security.LocalPort(22, None, "unknown", "ssh", None)],
+        80: [security.LocalPort(80, 1234, "proc", "http", "/proc")],
     }
 
 
