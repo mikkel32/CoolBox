@@ -86,6 +86,13 @@ from .win_console import (
     hide_terminal,
     silence_stdio,
 )
+from .process_utils import (
+    run_command,
+    run_command_async,
+    run_command_ex,
+    run_command_async_ex,
+    run_command_background,
+)
 from .scoring_engine import ScoringEngine, Tuning, tuning
 from .security import (
     is_firewall_enabled,
@@ -185,6 +192,11 @@ __all__ = [
     "hide_terminal",
     "silence_stdio",
     "hidden_creation_flags",
+    "run_command_async_ex",
+    "run_command_ex",
+    "run_command_async",
+    "run_command",
+    "run_command_background",
     "is_firewall_enabled",
     "set_firewall_enabled",
     "is_defender_enabled",

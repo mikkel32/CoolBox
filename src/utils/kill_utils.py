@@ -3,32 +3,22 @@ from __future__ import annotations
 """Robust cross-platform process termination helpers."""
 
 import os
-import subprocess
 import shutil
-from typing import Iterable
 
 import psutil
-
-
-def _run(cmd: Iterable[str]) -> bool:
-    """Run *cmd* suppressing output. Return ``True`` if it executed."""
-    try:
-        subprocess.run(list(cmd), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        return True
-    except Exception:
-        return False
+from .process_utils import run_command
 
 
 def _taskkill(pid: int) -> None:
-    _run(["taskkill", "/F", "/T", "/PID", str(pid)])
+    run_command(["taskkill", "/F", "/T", "/PID", str(pid)], check=False)
 
 
 def _kill_cmd(pid: int) -> None:
     if os.name != "nt":
         if os.getuid() != 0 and shutil.which("sudo"):
-            _run(["sudo", "-n", "kill", "-9", str(pid)])
+            run_command(["sudo", "-n", "kill", "-9", str(pid)], check=False)
         else:
-            _run(["kill", "-9", str(pid)])
+            run_command(["kill", "-9", str(pid)], check=False)
     else:
         _taskkill(pid)
 

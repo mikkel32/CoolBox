@@ -28,7 +28,7 @@ class SecurityDialog(BaseDialog):
     """UI for basic security switches."""
 
     def __init__(self, app):
-        super().__init__(app, title="Security Center", geometry="420x350")
+        super().__init__(app, title="Security Center", geometry="1000x700")
         container = self.create_container()
         self.is_admin = is_admin()
         if platform.system() == "Windows" and not self.is_admin:

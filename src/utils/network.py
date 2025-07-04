@@ -21,8 +21,12 @@ from typing import (
     Awaitable,
     TypeVar,
 )
-import subprocess
 import platform
+from .process_utils import (
+    run_command as _run,
+    run_command_ex as _run_ex,
+    run_command_async_ex as _run_async_ex,
+)
 import time
 import ipaddress
 import psutil
@@ -480,16 +484,11 @@ def _refresh_arp_cache(force: bool = False) -> None:
 
     system = platform.system().lower()
     cmd = ["arp", "-a"] if system == "windows" else ["arp", "-n"]
-    output = None
-    try:
-        output = subprocess.check_output(cmd, text=True, timeout=2)
-    except Exception:
+    output = _run(cmd, capture=True, timeout=2)
+    if output is None:
         if shutil.which("ip"):
-            try:
-                output = subprocess.check_output(
-                    ["ip", "neighbor"], text=True, timeout=2
-                )
-            except Exception:
+            output = _run(["ip", "neighbor"], capture=True, timeout=2)
+            if output is None:
                 return
         else:
             return
@@ -538,11 +537,10 @@ def get_mac_address(host: str) -> str | None:
 
     system = platform.system().lower()
     cmd = ["arp", "-a", host] if system == "windows" else ["arp", "-n", host]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
-    except Exception:
+    out = _run(cmd, capture=True, timeout=2, check=False)
+    if out is None:
         return None
-    for line in result.stdout.splitlines():
+    for line in out.splitlines():
         if host in line:
             match = re.search(r"([0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}", line)
             if match:
@@ -1128,12 +1126,8 @@ def _ping_host(host: str, timeout: float = 1.0) -> bool:
         cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host]
     else:
         cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
-    return (
-        subprocess.run(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        ).returncode
-        == 0
-    )
+    out, code = _run_ex(cmd, timeout=timeout + 1, check=False)
+    return code == 0 if code is not None else False
 
 
 async def _async_ping_host(
@@ -1163,19 +1157,17 @@ async def _async_ping_host(
         cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
     try:
         start_ts = time.perf_counter() if return_latency else 0.0
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=(
-                asyncio.subprocess.PIPE if return_ttl else asyncio.subprocess.DEVNULL
-            ),
-            stderr=asyncio.subprocess.DEVNULL,
+        out, code = await _run_async_ex(
+            cmd,
+            capture=return_ttl,
+            timeout=timeout + 1,
+            check=False,
         )
-        out, _ = await asyncio.wait_for(proc.communicate(), timeout + 1)
-        ok = proc.returncode == 0
+        ok = code == 0 if code is not None else False
         latency_val = time.perf_counter() - start_ts if return_latency else None
         ttl_val = None
-        if return_ttl and out:
-            ttl_val = _extract_ttl_from_ping(out.decode(errors="ignore"))
+        if return_ttl and ok and out:
+            ttl_val = _extract_ttl_from_ping(out)
         _PING_CACHE[host] = (ok, ttl_val, latency_val, time.time())
         if return_ttl and return_latency:
             return ok, ttl_val, latency_val

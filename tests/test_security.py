@@ -5,6 +5,7 @@ import sys
 from types import SimpleNamespace
 import psutil
 import socket
+import shutil
 import pytest
 
 from src.utils import security
@@ -25,18 +26,22 @@ from src.utils.security import (
 def test_is_firewall_enabled_true(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
 
-    def fake_output(cmd, text=True, stderr=None):
-        return "State ON"
-    monkeypatch.setattr(subprocess, "check_output", fake_output)
+    monkeypatch.setattr(
+        security,
+        "_run",
+        lambda cmd, capture=False, **kwargs: "State ON" if capture else "",
+    )
     assert is_firewall_enabled() is True
 
 
 def test_is_firewall_enabled_false(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
 
-    def fake_output(cmd, text=True, stderr=None):
-        return "State OFF"
-    monkeypatch.setattr(subprocess, "check_output", fake_output)
+    monkeypatch.setattr(
+        security,
+        "_run",
+        lambda cmd, capture=False, **kwargs: "State OFF" if capture else "",
+    )
     assert is_firewall_enabled() is False
 
 
@@ -44,10 +49,10 @@ def test_set_firewall_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     called = {}
 
-    def fake_run(cmd, check=True, stdout=None, stderr=None):
+    def fake_run(cmd, capture=False, **kwargs):
         called["cmd"] = cmd
-        return SimpleNamespace(returncode=0)
-    monkeypatch.setattr(subprocess, "run", fake_run)
+        return ""
+    monkeypatch.setattr(security, "_run", fake_run)
     assert set_firewall_enabled(True) is True
     assert called["cmd"] == ["netsh", "advfirewall", "set", "allprofiles", "state", "on"]
 
@@ -55,10 +60,11 @@ def test_set_firewall_enabled(monkeypatch):
 def test_is_firewall_enabled_linux(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Linux")
 
-    def fake_output(cmd, text=True, stderr=None):
-        return "Status: active"
-
-    monkeypatch.setattr(subprocess, "check_output", fake_output)
+    monkeypatch.setattr(
+        security,
+        "_run",
+        lambda cmd, capture=False, **kwargs: "Status: active" if capture else "",
+    )
     assert is_firewall_enabled() is True
 
 
@@ -66,11 +72,10 @@ def test_set_firewall_enabled_linux(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Linux")
     called = {}
 
-    def fake_run(cmd, check=True, stdout=None, stderr=None):
+    def fake_run(cmd, capture=False, **kwargs):
         called["cmd"] = cmd
-        return SimpleNamespace(returncode=0)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
+        return ""
+    monkeypatch.setattr(security, "_run", fake_run)
     assert set_firewall_enabled(False) is True
     assert called["cmd"] == ["ufw", "disable"]
 
@@ -78,9 +83,11 @@ def test_set_firewall_enabled_linux(monkeypatch):
 def test_is_defender_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
 
-    def fake_output(cmd, text=True, stderr=None):
-        return "False"
-    monkeypatch.setattr(subprocess, "check_output", fake_output)
+    monkeypatch.setattr(
+        security,
+        "_run",
+        lambda cmd, capture=False, **kwargs: "False" if capture else "",
+    )
     assert is_defender_enabled() is True
 
 
@@ -88,10 +95,10 @@ def test_set_defender_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     called = {}
 
-    def fake_run(cmd, check=True, stdout=None, stderr=None):
+    def fake_run(cmd, capture=False, **kwargs):
         called["cmd"] = cmd
-        return SimpleNamespace(returncode=0)
-    monkeypatch.setattr(subprocess, "run", fake_run)
+        return ""
+    monkeypatch.setattr(security, "_run", fake_run)
     assert set_defender_enabled(False) is True
     assert called["cmd"] == [
         "powershell",
@@ -215,18 +222,17 @@ def test_launch_security_center_admin(monkeypatch):
     monkeypatch.setattr(security, "is_admin", lambda: True)
     called = {}
 
-    def fake_popen(args, creationflags=0, stdout=None, stderr=None):
+    def fake_bg(args, **kwargs):
         called["args"] = args
-        called["flags"] = creationflags
-        called["stdout"] = stdout
-        called["stderr"] = stderr
+        called.update(kwargs)
+        return True
 
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(security, "run_command_background", fake_bg)
     assert security.launch_security_center() is True
     assert called.get("args", [])[0] == sys.executable
-    assert called.get("flags") == 0
-    assert called.get("stdout") is None
-    assert called.get("stderr") is None
+    assert "creationflags" not in called
+    assert "stdout" not in called
+    assert "stderr" not in called
 
 
 def test_launch_security_center_sudo(monkeypatch):
@@ -235,18 +241,17 @@ def test_launch_security_center_sudo(monkeypatch):
     monkeypatch.setattr(security.platform, "system", lambda: "Linux")
     called = {}
 
-    def fake_popen(args, creationflags=0, stdout=None, stderr=None):
+    def fake_bg(args, **kwargs):
         called["args"] = args
-        called["flags"] = creationflags
-        called["stdout"] = stdout
-        called["stderr"] = stderr
+        called.update(kwargs)
+        return True
 
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(security, "run_command_background", fake_bg)
     assert security.launch_security_center() is True
     assert called.get("args", [])[0] == "sudo"
-    assert called.get("flags") == 0
-    assert called.get("stdout") is None
-    assert called.get("stderr") is None
+    assert "creationflags" not in called
+    assert "stdout" not in called
+    assert "stderr" not in called
 
 
 def test_launch_security_center_hidden(monkeypatch):
@@ -258,12 +263,12 @@ def test_launch_security_center_hidden(monkeypatch):
     monkeypatch.setattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200, raising=False)
     called = {}
 
-    def fake_popen(args, creationflags=0, stdout=None, stderr=None, **kwargs):
+    def fake_bg(args, **kwargs):
         called["args"] = args
-        called["flags"] = creationflags
-        called["stdout"] = stdout
-        called["stderr"] = stderr
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        called.update(kwargs)
+        return True
+
+    monkeypatch.setattr(security, "run_command_background", fake_bg)
 
     assert security.launch_security_center(hide_console=True) is True
     assert called.get("args", [])[0].endswith("pythonw.exe")
@@ -272,7 +277,7 @@ def test_launch_security_center_hidden(monkeypatch):
         | subprocess.DETACHED_PROCESS
         | subprocess.CREATE_NEW_PROCESS_GROUP
     )
-    assert called.get("flags") == expected
+    assert called.get("creationflags") == expected
     assert called.get("stdout") is subprocess.DEVNULL
     assert called.get("stderr") is subprocess.DEVNULL
 
@@ -314,16 +319,61 @@ def test_launch_security_center_hidden_unix(monkeypatch):
     monkeypatch.setattr(security.platform, "system", lambda: "Linux")
     called = {}
 
-    def fake_popen(args, creationflags=0, stdout=None, stderr=None):
+    def fake_bg(args, **kwargs):
         called["args"] = args
-        called["flags"] = creationflags
-        called["stdout"] = stdout
-        called["stderr"] = stderr
+        called.update(kwargs)
+        return True
 
-    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(security, "run_command_background", fake_bg)
 
     assert security.launch_security_center(hide_console=True) is True
     assert called.get("args", [])[0] == sys.executable
-    assert called.get("flags") == 0
+    assert "creationflags" not in called
     assert called.get("stdout") is subprocess.DEVNULL
     assert called.get("stderr") is subprocess.DEVNULL
+
+
+def test_unix_firewall_tool_cache(monkeypatch):
+    calls = []
+    monkeypatch.setattr(shutil, "which", lambda name: calls.append(name) or "pfctl")
+    security._unix_firewall_tool.cache_clear()
+    assert security._unix_firewall_tool() == "pfctl"
+    assert security._unix_firewall_tool() == "pfctl"
+    assert calls.count("pfctl") == 1
+
+
+def test_run_timeout(monkeypatch):
+    captured = {}
+
+    def fake_run(args, check=True, stdout=None, timeout=None, **kwargs):
+        captured["timeout"] = timeout
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert security._run(["echo", "hi"]) == ""
+    assert captured.get("timeout") == 10.0
+
+
+def test_is_firewall_enabled_pfctl(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(security, "_unix_firewall_tool", lambda: "pfctl")
+    monkeypatch.setattr(
+        security,
+        "_run",
+        lambda cmd, capture=False, **kwargs: "Status: Enabled" if capture else "",
+    )
+    assert is_firewall_enabled() is True
+
+
+def test_set_firewall_enabled_pfctl(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(security, "_unix_firewall_tool", lambda: "pfctl")
+    called = {}
+
+    def fake_run(cmd, capture=False, **kwargs):
+        called["cmd"] = cmd
+        return ""
+
+    monkeypatch.setattr(security, "_run", fake_run)
+    assert set_firewall_enabled(False) is True
+    assert called["cmd"] == ["pfctl", "-d"]

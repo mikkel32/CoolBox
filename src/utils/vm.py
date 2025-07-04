@@ -1,8 +1,20 @@
 import os
-import subprocess
 import shutil
 from pathlib import Path
 from typing import Iterable, List
+
+try:
+    from .process_utils import (
+        run_command,
+        run_command_ex,
+        run_command_background,
+    )
+except ImportError:  # pragma: no cover - fallback when run as a script
+    from src.utils.process_utils import (
+        run_command,
+        run_command_ex,
+        run_command_background,
+    )
 
 
 def _pick_backend(prefer: str) -> Iterable[str]:
@@ -53,7 +65,7 @@ def launch_vm_debug(
     if open_code:
         if shutil.which("code"):
             # Launch VS Code in the background so it's ready when the VM starts
-            subprocess.Popen(["code", str(root)])
+            run_command_background(["code", str(root)], env=os.environ.copy())
         else:
             print("warning: 'code' command not found; cannot open Visual Studio Code")
 
@@ -68,15 +80,19 @@ def launch_vm_debug(
                 env["SKIP_DEPS"] = "1"
             if name in {"docker", "podman"}:
                 script = root / "scripts" / "run_devcontainer.sh"
-                subprocess.check_call([str(script), name], env=env)
+                cmd = [str(script), name]
             else:
                 script = root / "scripts" / "run_vagrant.sh"
-                subprocess.check_call([str(script)], env=env)
-            return
+                cmd = [str(script)]
+            _out, code = run_command_ex(cmd, timeout=None, check=False, env=env)
+            if code == 0:
+                return
+            print(f"{name} failed with code {code}; trying next backend")
+            continue
 
     print("No VM backend available; detected none. Launching locally under debugpy.")
     env = os.environ.copy()
     env["DEBUG_PORT"] = str(port)
     if skip_deps:
         env["SKIP_DEPS"] = "1"
-    subprocess.check_call([str(root / "scripts" / "run_debug.sh")], env=env)
+    run_command([str(root / "scripts" / "run_debug.sh")], timeout=None, env=env)
