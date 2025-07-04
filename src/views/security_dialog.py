@@ -3,7 +3,7 @@ from __future__ import annotations
 """Dialog for toggling firewall and Defender."""
 
 import platform
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import tkinter as tk
 import customtkinter as ctk
 
@@ -58,19 +58,57 @@ class SecurityDialog(BaseDialog):
         open_tab = self.tabview.add("Listeners")
         blocked_tab = self.tabview.add("Blocked")
 
-        self.ports_box = ctk.CTkTextbox(open_tab, height=150)
-        self.ports_box.pack(fill="both", expand=True, padx=5, pady=5)
-        self.ports_box.configure(cursor="hand2")
-        self.ports_box.bind("<Double-1>", lambda e: self._kill_selected())
-        self.ports_box.bind("<Button-3>", self._on_port_right_click)
+        tree_frame = ctk.CTkFrame(open_tab, fg_color="transparent")
+        tree_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        columns = ("Port", "Process", "PID", "Service")
+
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.map(
+            "PortTreeview",
+            background=[("selected", "#2a6cad")],
+            foreground=[("selected", "white")],
+        )
+
+        self.port_tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+            style="PortTreeview",
+        )
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.port_tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.port_tree.xview)
+        self.port_tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self.port_tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        for col in columns:
+            self.port_tree.heading(col, text=col, command=lambda c=col: self._sort_ports(c))
+            width = 80 if col == "Port" else 150
+            self.port_tree.column(col, width=width, anchor="w")
+        self.port_tree.bind("<Double-1>", lambda e: self._kill_selected())
+        self.port_tree.bind("<Button-3>", self._on_port_right_click)
 
         self.filter_var = ctk.StringVar()
         filter_entry = ctk.CTkEntry(open_tab, textvariable=self.filter_var)
         filter_entry.pack(fill="x", padx=5)
         filter_entry.bind("<KeyRelease>", lambda e: self._update_list())
         self.port_data: dict[int, list[LocalPort]] = {}
+        self.sort_column = "Port"
+        self.sort_reverse = False
         self.port_count_lbl = ctk.CTkLabel(open_tab, text="")
         self.port_count_lbl.pack(anchor="w", padx=5)
+        self.status_var = ctk.StringVar(value="")
+        self.status_label = ctk.CTkLabel(open_tab, textvariable=self.status_var)
+        self.status_label.pack(anchor="w", padx=5)
+
+        self.progress = ctk.CTkProgressBar(open_tab)
+        self.progress.pack(fill="x", padx=5)
+        self.progress.set(0)
+        self.progress.pack_forget()
 
         self.blocked_ports_box = ctk.CTkTextbox(blocked_tab, height=120)
         self.blocked_ports_box.pack(fill="both", expand=True, padx=5, pady=(5, 0))
@@ -152,19 +190,25 @@ class SecurityDialog(BaseDialog):
 
     def _update_list(self) -> None:
         filt = self.filter_var.get().strip().lower()
-        self.ports_box.configure(state="normal")
-        self.ports_box.delete("1.0", "end")
+        self.port_tree.delete(*self.port_tree.get_children())
+        rows: list[tuple[int, str, str | int, str]] = []
         for port, items in self.port_data.items():
             for info in items:
-                line = (
-                    f"{port:<5} {info.process} "
-                    f"({info.pid if info.pid is not None else '?'} )"
-                    f" [{info.service}]"
+                row = (
+                    port,
+                    info.process,
+                    info.pid if info.pid is not None else "",
+                    info.service,
                 )
-                if not filt or filt in line.lower():
-                    self.ports_box.insert("end", line + "\n")
-        self.ports_box.configure(state="disabled")
+                text = " ".join(str(v) for v in row)
+                if not filt or filt in text.lower():
+                    rows.append(row)
+        idx = {"Port": 0, "Process": 1, "PID": 2, "Service": 3}[self.sort_column]
+        rows.sort(key=lambda r: r[idx] if r[idx] != "" else 0, reverse=self.sort_reverse)
+        for row in rows:
+            self.port_tree.insert("", "end", values=row)
         self.port_count_lbl.configure(text=f"{len(self.port_data)} ports")
+        self.status_var.set(f"{len(rows)} match(es)")
 
         self._update_blocked_lists()
 
@@ -207,10 +251,11 @@ class SecurityDialog(BaseDialog):
         if self._scan_thread is not None and self._scan_thread.is_alive():
             return
 
-        self.ports_box.configure(state="normal")
-        self.ports_box.delete("1.0", "end")
-        self.ports_box.insert("end", "Scanning...\n")
-        self.ports_box.configure(state="disabled")
+        self.port_tree.delete(*self.port_tree.get_children())
+        self.status_var.set("Scanning...")
+        self.progress.set(0)
+        self.progress.pack(fill="x", padx=5)
+        self.progress.start()
 
         self._scan_thread = Thread(target=self._scan_ports, daemon=True)
         self._scan_thread.start()
@@ -229,6 +274,9 @@ class SecurityDialog(BaseDialog):
             return
         self.port_data = data
         self._scan_thread = None
+        self.progress.stop()
+        self.progress.pack_forget()
+        self.status_var.set("")
         self._update_list()
         self._process_watchlist()
 
@@ -245,12 +293,12 @@ class SecurityDialog(BaseDialog):
         self._schedule_refresh()
 
     def _kill_selected(self) -> None:
-        line = self.ports_box.get("insert linestart", "insert lineend").strip()
-        if not line:
+        sel = self.port_tree.selection()
+        if not sel:
             messagebox.showwarning("Security Center", "Select a port first")
             return
         try:
-            port = int(line.split()[0])
+            port = int(self.port_tree.item(sel[0], "values")[0])
         except Exception:
             messagebox.showwarning("Security Center", "Failed to parse port")
             return
@@ -361,6 +409,8 @@ class SecurityDialog(BaseDialog):
         if getattr(self, "_refresh_job", None):
             self.after_cancel(self._refresh_job)
             self._refresh_job = None
+        self.progress.stop()
+        self.progress.pack_forget()
         super().destroy()
 
     # ------------------------------------------------------------------
@@ -368,11 +418,12 @@ class SecurityDialog(BaseDialog):
     # ------------------------------------------------------------------
 
     def _on_port_right_click(self, event) -> None:
-        line = self.ports_box.get("@%d,%d linestart" % (event.x, event.y), "@%d,%d lineend" % (event.x, event.y)).strip()
-        if not line:
+        iid = self.port_tree.identify_row(event.y)
+        if not iid:
             return
+        self.port_tree.selection_set(iid)
         try:
-            port = int(line.split()[0])
+            port = int(self.port_tree.item(iid, "values")[0])
         except Exception:
             return
         menu = tk.Menu(self, tearoff=0)
@@ -411,3 +462,15 @@ class SecurityDialog(BaseDialog):
     def _remove_blocked_proc(self, name: str) -> None:
         self.blocker.remove(name)
         self._update_blocked_lists()
+
+    def _sort_ports(self, column: str) -> None:
+        """Sort the port list by *column* and refresh."""
+        if column == self.sort_column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.port_tree.heading(self.sort_column, text=self.sort_column)
+            self.sort_column = column
+            self.sort_reverse = False
+        arrow = " \u25bc" if self.sort_reverse else " \u25b2"
+        self.port_tree.heading(column, text=column + arrow)
+        self._update_list()
