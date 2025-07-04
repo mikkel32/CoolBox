@@ -376,8 +376,8 @@ def launch_security_center(*, hide_console: bool = False) -> bool:
 
     script_name = "security_center_hidden.py" if hide_console else "security_center.py"
     script = Path(__file__).resolve().parents[2] / "scripts" / script_name
-    if not script.is_file():
-        return False
+    module = f"src.security_center{'_hidden' if hide_console else ''}"
+    use_script = script.is_file()
 
     python = Path(sys.executable)
     kwargs: dict[str, object] = {}
@@ -392,21 +392,31 @@ def launch_security_center(*, hide_console: bool = False) -> bool:
             kwargs["creationflags"] = hidden_creation_flags()
     kwargs["env"] = os.environ.copy()
 
+    if use_script:
+        args = [str(python), str(script)]
+        params = f'"{script}"'
+    else:
+        args = [str(python), "-m", module]
+        params = f'-m {module}'
+
     if is_admin():
-        return run_command_background([str(python), str(script)], **kwargs)
+        return run_command_background(args, **kwargs)
 
     system = platform.system()
 
     if system == "Windows":
         try:
             import ctypes  # lazy import
-            params = f'"{script}"'
             show = 0 if hide_console else 1
             rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(python), params, None, show)
             return rc > 32
         except Exception:
             return False
     elif system in {"Linux", "Darwin"}:
-        return run_command_background(["sudo", str(python), str(script)], **kwargs)
+        if use_script:
+            cmd = ["sudo", str(python), str(script)]
+        else:
+            cmd = ["sudo", str(python), "-m", module]
+        return run_command_background(cmd, **kwargs)
 
     return False
