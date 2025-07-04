@@ -8,3 +8,4 @@ requests>=2.31.0
 pyperclip>=1.8.2
 psutil>=5.9.0
 pynput>=1.7.0
+pytest-asyncio>=1.0.0

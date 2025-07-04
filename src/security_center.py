@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from .app import CoolBoxApp
-from .views.security_dialog import SecurityDialog
+from .app import CoolBoxApp  # noqa: E402
+from .views.security_dialog import SecurityDialog  # noqa: E402
 
 
 def main() -> None:

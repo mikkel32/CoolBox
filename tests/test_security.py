@@ -20,6 +20,12 @@ from src.utils.security import (
     list_open_ports,
     kill_process_by_port,
     kill_port_range,
+    async_kill_process_by_port,
+    async_kill_port_range,
+    async_block_port_firewall,
+    async_unblock_port_firewall,
+    async_block_remote_firewall,
+    async_unblock_remote_firewall,
 )
 
 
@@ -145,17 +151,40 @@ def test_require_admin_failure(monkeypatch):
         require_admin()
 
 
+def test_refresh_process_cache(monkeypatch):
+    security._PROC_NAME_CACHE.clear()
+    security._PROC_EXE_CACHE.clear()
+    called = {"iter": 0}
+
+    def fake_iter(attrs=None):
+        called["iter"] += 1
+        return iter([
+            SimpleNamespace(info={"pid": 1, "name": "foo", "exe": "/f"}),
+            SimpleNamespace(info={"pid": 2, "name": "bar", "exe": None}),
+        ])
+
+    monkeypatch.setattr(psutil, "process_iter", fake_iter)
+    monkeypatch.setattr(psutil, "Process", lambda pid: (_ for _ in ()).throw(AssertionError))
+    security.refresh_process_cache([1, 2])
+    assert security._PROC_NAME_CACHE[1] == "foo"
+    assert security._PROC_EXE_CACHE[1] == "/f"
+    assert security._PROC_NAME_CACHE[2] == "bar"
+    assert 2 not in security._PROC_EXE_CACHE
+    assert called["iter"] == 1
+
+
 def test_list_open_ports(monkeypatch):
     fake_conns = [
         SimpleNamespace(status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=80), pid=1234),
         SimpleNamespace(status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=22), pid=None),
     ]
-    monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": fake_conns)
-
-    def fake_process(pid):
-        return SimpleNamespace(name=lambda: "proc", exe=lambda: "/proc")
-
-    monkeypatch.setattr(psutil, "Process", fake_process)
+    monkeypatch.setattr(security, "network_snapshot", lambda: list(fake_conns))
+    monkeypatch.setattr(
+        psutil,
+        "process_iter",
+        lambda attrs=None: iter([SimpleNamespace(info={"pid": 1234, "name": "proc", "exe": "/proc"})]),
+    )
+    monkeypatch.setattr(psutil, "Process", lambda pid: (_ for _ in ()).throw(AssertionError))
     monkeypatch.setattr(socket, "getservbyport", lambda p: {80: "http", 22: "ssh"}.get(p, "unknown"))
 
     ports = list_open_ports()
@@ -165,12 +194,30 @@ def test_list_open_ports(monkeypatch):
     }
 
 
+def test_list_open_ports_with_snapshot(monkeypatch):
+    fake_conns = [
+        SimpleNamespace(status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=80), pid=1234)
+    ]
+    monkeypatch.setattr(security, "refresh_process_cache", lambda pids: None)
+    called = {"snap": 0}
+
+    def snap():
+        called["snap"] += 1
+        return list(fake_conns)
+
+    monkeypatch.setattr(security, "network_snapshot", snap)
+
+    ports = list_open_ports(fake_conns)
+    assert 80 in ports
+    assert called["snap"] == 0
+
+
 def test_kill_process_by_port(monkeypatch):
     called = {}
     fake_conns = [
         SimpleNamespace(status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=80), pid=1234)
     ]
-    monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": fake_conns)
+    monkeypatch.setattr(security, "network_snapshot", lambda: list(fake_conns))
 
     class FakeProc:
         def __init__(self, pid):
@@ -189,7 +236,7 @@ def test_kill_process_by_port(monkeypatch):
     assert kill_process_by_port(80) is True
     assert called == {"pid": 1234, "term": True}
 
-    monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": [])
+    monkeypatch.setattr(security, "network_snapshot", lambda: [])
     assert kill_process_by_port(80) is False
 
 
@@ -199,8 +246,9 @@ def test_kill_port_range(monkeypatch):
         SimpleNamespace(status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=80), pid=111),
         SimpleNamespace(status=psutil.CONN_LISTEN, laddr=SimpleNamespace(port=81), pid=222),
     ]
-    monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": fake_conns)
+    monkeypatch.setattr(security, "network_snapshot", lambda: list(fake_conns))
     monkeypatch.setattr(psutil, "Process", lambda pid: SimpleNamespace(name=lambda: "proc"))
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: iter([]))
 
     monkeypatch.setattr(security, "kill_process", lambda pid, timeout=3.0: (called.append(pid), True)[1])
     monkeypatch.setattr(security, "kill_process_tree", lambda pid, timeout=3.0: (called.append(pid), True)[1])
@@ -208,7 +256,7 @@ def test_kill_port_range(monkeypatch):
     assert res == {80: True, 81: True}
     assert called == [111, 222]
 
-    monkeypatch.setattr(psutil, "net_connections", lambda kind="inet": [])
+    monkeypatch.setattr(security, "network_snapshot", lambda: [])
     assert kill_port_range(80, 81) == {80: False, 81: False}
 
 
@@ -351,6 +399,64 @@ def test_unix_firewall_tool_cache(monkeypatch):
     assert calls.count("pfctl") == 1
 
 
+def test_unix_firewall_tool_iptables(monkeypatch):
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name: "/sbin/iptables" if name == "iptables" else None,
+    )
+    security._unix_firewall_tool.cache_clear()
+    assert security._unix_firewall_tool() == "iptables"
+
+
+def test_block_port_firewall_iptables(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(security, "_unix_firewall_tool", lambda: "iptables")
+    called = {}
+
+    def fake_run(cmd, capture=False, **kwargs):
+        called["cmd"] = cmd
+        return ""
+
+    monkeypatch.setattr(security, "_run", fake_run)
+    assert security.block_port_firewall(8080) is True
+    assert called["cmd"] == [
+        "iptables",
+        "-A",
+        "INPUT",
+        "-p",
+        "tcp",
+        "--dport",
+        "8080",
+        "-j",
+        "DROP",
+    ]
+
+
+def test_unblock_port_firewall_iptables(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(security, "_unix_firewall_tool", lambda: "iptables")
+    called = {}
+
+    def fake_run(cmd, capture=False, **kwargs):
+        called["cmd"] = cmd
+        return ""
+
+    monkeypatch.setattr(security, "_run", fake_run)
+    assert security.unblock_port_firewall(8080) is True
+    assert called["cmd"] == [
+        "iptables",
+        "-D",
+        "INPUT",
+        "-p",
+        "tcp",
+        "--dport",
+        "8080",
+        "-j",
+        "DROP",
+    ]
+
+
 def test_run_timeout(monkeypatch):
     captured = {}
 
@@ -386,3 +492,99 @@ def test_set_firewall_enabled_pfctl(monkeypatch):
     monkeypatch.setattr(security, "_run", fake_run)
     assert set_firewall_enabled(False) is True
     assert called["cmd"] == ["pfctl", "-d"]
+
+
+def test_resolve_host_cached(monkeypatch):
+    calls = []
+
+    def fake_gethost(name):
+        calls.append(name)
+        return "1.2.3.4"
+
+    monkeypatch.setattr(socket, "gethostbyname", fake_gethost)
+    security.clear_resolve_cache()
+
+    assert security.resolve_host("example.com", ttl=1.0) == "1.2.3.4"
+    assert security.resolve_host("example.com", ttl=1.0) == "1.2.3.4"
+    assert calls == ["example.com"]
+    import time
+    time.sleep(1.1)
+    assert security.resolve_host("example.com", ttl=1.0) == "1.2.3.4"
+    assert calls == ["example.com", "example.com"]
+
+
+def test_block_remote_firewall_iptables(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(security, "_unix_firewall_tool", lambda: "iptables")
+    called = {}
+
+    def fake_run(cmd, capture=False, **kwargs):
+        called["cmd"] = cmd
+        return ""
+
+    monkeypatch.setattr(security, "_run", fake_run)
+    assert security.block_remote_firewall("1.1.1.1", 443) is True
+    assert called["cmd"] == [
+        "iptables",
+        "-A",
+        "OUTPUT",
+        "-d",
+        "1.1.1.1",
+        "-p",
+        "tcp",
+        "--dport",
+        "443",
+        "-j",
+        "DROP",
+    ]
+
+
+def test_unblock_remote_firewall_iptables(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(security, "_unix_firewall_tool", lambda: "iptables")
+    called = {}
+
+    def fake_run(cmd, capture=False, **kwargs):
+        called["cmd"] = cmd
+        return ""
+
+    monkeypatch.setattr(security, "_run", fake_run)
+    assert security.unblock_remote_firewall("1.1.1.1", 443) is True
+    assert called["cmd"] == [
+        "iptables",
+        "-D",
+        "OUTPUT",
+        "-d",
+        "1.1.1.1",
+        "-p",
+        "tcp",
+        "--dport",
+        "443",
+        "-j",
+        "DROP",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_async_wrappers(monkeypatch):
+    calls = []
+    monkeypatch.setattr(security, "kill_process_by_port", lambda p, tree=False: (calls.append(p), True)[1])
+    assert await async_kill_process_by_port(80) is True
+    assert calls == [80]
+
+    calls.clear()
+    monkeypatch.setattr(security, "kill_port_range", lambda s, e, tree=False: calls.append((s, e)) or {s: True, e: False})
+    assert await async_kill_port_range(5, 6) == {5: True, 6: False}
+    assert calls == [(5, 6)]
+
+    calls.clear()
+    monkeypatch.setattr(security, "block_port_firewall", lambda p, proto="tcp": calls.append(f"bp{p}") or True)
+    assert await async_block_port_firewall(55)
+    monkeypatch.setattr(security, "unblock_port_firewall", lambda p, proto="tcp": calls.append(f"up{p}") or True)
+    assert await async_unblock_port_firewall(55)
+
+    monkeypatch.setattr(security, "block_remote_firewall", lambda h, port=None, protocol="tcp": calls.append(f"br{h}:{port}") or True)
+    assert await async_block_remote_firewall("1.1.1.1", 80)
+    monkeypatch.setattr(security, "unblock_remote_firewall", lambda h, port=None, protocol="tcp": calls.append(f"ur{h}:{port}") or True)
+    assert await async_unblock_remote_firewall("1.1.1.1", 80)
+    assert calls == ["bp55", "up55", "br1.1.1.1:80", "ur1.1.1.1:80"]

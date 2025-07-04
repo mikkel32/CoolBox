@@ -9,9 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from .utils.win_console import hide_terminal, spawn_detached, silence_stdio
-from .app import CoolBoxApp
-from .views.security_dialog import SecurityDialog
+from .utils.win_console import hide_terminal, spawn_detached, silence_stdio  # noqa: E402
+from .app import CoolBoxApp  # noqa: E402
+from .views.security_dialog import SecurityDialog  # noqa: E402
 
 
 def _relaunch_if_needed() -> None:
