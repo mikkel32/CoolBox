@@ -454,6 +454,8 @@ on ``--vm-prefer`` (or auto-detection when omitted). ``--open-code`` opens
 Visual Studio Code once the environment starts and ``--debug-port`` sets the
 debug server port. If no backend is available the app runs locally under
 ``debugpy``.
+An asynchronous wrapper ``async_launch_vm_debug`` is also available for
+integrations that rely on ``asyncio``.
 
 ### Network Scanner CLI
 
