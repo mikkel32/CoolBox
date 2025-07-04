@@ -3,6 +3,7 @@ from pathlib import Path
 
 import src.utils.vm as vm
 from src.utils.vm import launch_vm_debug
+import pytest
 import scripts.run_vm_debug as vmcli
 
 
@@ -176,3 +177,21 @@ def test_vm_cli_main_list(monkeypatch, capsys):
     vmcli.main(["--list"])
     out = capsys.readouterr().out
     assert "docker" in out
+
+
+@pytest.mark.asyncio
+async def test_async_launch_vm_debug(monkeypatch):
+    called = []
+
+    async def run_in_executor(executor, func, *args):
+        func(*args)
+
+    class FakeLoop:
+        def run_in_executor(self, executor, func, *args):
+            return run_in_executor(executor, func, *args)
+
+    monkeypatch.setattr(vm.asyncio, "get_running_loop", lambda: FakeLoop())
+
+    monkeypatch.setattr(vm, "launch_vm_debug", lambda *a, **k: called.append(True))
+    await vm.async_launch_vm_debug()
+    assert called == [True]

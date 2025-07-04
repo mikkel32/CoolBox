@@ -9,15 +9,22 @@ import subprocess
 import os
 from functools import lru_cache
 import re
-from typing import Optional
+from typing import Optional, Iterable
 from pathlib import Path
 import sys
 import socket
 from dataclasses import dataclass
+import asyncio
+import time
 import psutil
+from typing import TYPE_CHECKING
 from .win_console import hidden_creation_flags
 from .process_utils import run_command as _run, run_command_background
 from .kill_utils import kill_process, kill_process_tree
+
+if TYPE_CHECKING:
+    from .port_watchdog import PortWatchdog
+    from .connection_watchdog import ConnectionWatchdog
 
 
 @lru_cache(maxsize=1)
@@ -29,7 +36,7 @@ def _unix_firewall_tool() -> str:
     predictable on systems without these utilities installed.
     """
     fallback: str | None = None
-    for tool in ("ufw", "firewall-cmd", "pfctl"):
+    for tool in ("ufw", "firewall-cmd", "pfctl", "iptables"):
         path = shutil.which(tool)
         if not path:
             continue
@@ -39,6 +46,37 @@ def _unix_firewall_tool() -> str:
         if fallback is None:
             fallback = binary
     return fallback or "ufw"
+
+
+_RESOLVE_CACHE: dict[str, tuple[str, float]] = {}
+_RESOLVE_TTL = float(os.environ.get("RESOLVE_CACHE_TTL", 300.0))
+
+
+def clear_resolve_cache() -> None:
+    """Clear the cached DNS lookups."""
+
+    _RESOLVE_CACHE.clear()
+
+
+def resolve_host(host: str, *, ttl: float = _RESOLVE_TTL) -> str:
+    """Resolve ``host`` to an IP address with caching and TTL."""
+
+    entry = _RESOLVE_CACHE.get(host)
+    now = time.time()
+    if entry and now - entry[1] < ttl:
+        return entry[0]
+    try:
+        ip = socket.gethostbyname(host)
+    except Exception:
+        ip = host
+    _RESOLVE_CACHE[host] = (ip, now)
+    return ip
+
+
+async def async_resolve_host(host: str, *, ttl: float = _RESOLVE_TTL) -> str:
+    """Asynchronous wrapper for :func:`resolve_host`."""
+
+    return await asyncio.to_thread(resolve_host, host, ttl=ttl)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +153,238 @@ def set_firewall_enabled(enabled: bool) -> bool:
             return _run(cmd) is not None
         return False
     return False
+
+
+def block_port_firewall(port: int, protocol: str = "tcp") -> bool:
+    """Block inbound traffic to ``port`` via the system firewall."""
+    system = platform.system()
+    if system == "Windows":
+        cmd = [
+            "netsh",
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            f"name=CoolBoxBlock{port}",
+            "dir=in",
+            "action=block",
+            f"protocol={protocol.upper()}",
+            f"localport={port}",
+        ]
+        return _run(cmd) is not None
+
+    if system in {"Linux", "Darwin"}:
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            cmd = ["ufw", "deny", f"{port}/{protocol}"]
+        elif tool == "firewall-cmd":
+            cmd = [
+                "firewall-cmd",
+                "--permanent",
+                "--add-rich-rule",
+                f"rule family=ipv4 port port={port} protocol={protocol} drop",
+            ]
+            if _run(cmd) is None:
+                return False
+            return _run(["firewall-cmd", "--reload"]) is not None
+        elif tool == "iptables":
+            cmd = [
+                "iptables",
+                "-A",
+                "INPUT",
+                "-p",
+                protocol,
+                "--dport",
+                str(port),
+                "-j",
+                "DROP",
+            ]
+        else:
+            return False
+        return _run(cmd) is not None
+
+    return False
+
+
+async def async_block_port_firewall(
+    port: int, protocol: str = "tcp"
+) -> bool:
+    """Asynchronous wrapper for :func:`block_port_firewall`."""
+
+    return await asyncio.to_thread(block_port_firewall, port, protocol)
+
+
+def unblock_port_firewall(port: int, protocol: str = "tcp") -> bool:
+    """Remove firewall rules blocking ``port``."""
+    system = platform.system()
+    if system == "Windows":
+        cmd = [
+            "netsh",
+            "advfirewall",
+            "firewall",
+            "delete",
+            "rule",
+            f"name=CoolBoxBlock{port}",
+            f"protocol={protocol.upper()}",
+            f"localport={port}",
+        ]
+        return _run(cmd) is not None
+
+    if system in {"Linux", "Darwin"}:
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            cmd = ["ufw", "delete", "deny", f"{port}/{protocol}"]
+        elif tool == "firewall-cmd":
+            cmd = [
+                "firewall-cmd",
+                "--permanent",
+                "--remove-rich-rule",
+                f"rule family=ipv4 port port={port} protocol={protocol} drop",
+            ]
+            if _run(cmd) is None:
+                return False
+            return _run(["firewall-cmd", "--reload"]) is not None
+        elif tool == "iptables":
+            cmd = [
+                "iptables",
+                "-D",
+                "INPUT",
+                "-p",
+                protocol,
+                "--dport",
+                str(port),
+                "-j",
+                "DROP",
+            ]
+        else:
+            return False
+        return _run(cmd) is not None
+
+    return False
+
+
+async def async_unblock_port_firewall(
+    port: int, protocol: str = "tcp"
+) -> bool:
+    """Asynchronous wrapper for :func:`unblock_port_firewall`."""
+
+    return await asyncio.to_thread(unblock_port_firewall, port, protocol)
+
+
+def block_remote_firewall(host: str, port: int | None = None, protocol: str = "tcp") -> bool:
+    """Block outbound traffic to ``host`` via the system firewall."""
+    ip = resolve_host(host)
+    system = platform.system()
+    if system == "Windows":
+        rule = f"CoolBoxBlockRemote{ip.replace('.', '_')}_{port or 'any'}"
+        cmd = [
+            "netsh",
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            f"name={rule}",
+            "dir=out",
+            "action=block",
+            f"remoteip={ip}",
+        ]
+        if port is not None:
+            cmd += [f"protocol={protocol.upper()}", f"remoteport={port}"]
+        return _run(cmd) is not None
+
+    if system in {"Linux", "Darwin"}:
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            cmd = ["ufw", "deny", "out", "to", ip]
+            if port is not None:
+                cmd += ["port", str(port), protocol]
+        elif tool == "firewall-cmd":
+            if port is None:
+                rule = f"rule family=ipv4 destination address={ip} drop"
+            else:
+                rule = (
+                    f"rule family=ipv4 destination address={ip} "
+                    f"port port={port} protocol={protocol} drop"
+                )
+            cmd = ["firewall-cmd", "--permanent", "--add-rich-rule", rule]
+            if _run(cmd) is None:
+                return False
+            return _run(["firewall-cmd", "--reload"]) is not None
+        elif tool == "iptables":
+            cmd = ["iptables", "-A", "OUTPUT", "-d", ip]
+            if port is not None:
+                cmd += ["-p", protocol, "--dport", str(port)]
+            cmd += ["-j", "DROP"]
+        else:
+            return False
+        return _run(cmd) is not None
+
+    return False
+
+
+async def async_block_remote_firewall(
+    host: str, port: int | None = None, protocol: str = "tcp"
+) -> bool:
+    """Asynchronous wrapper for :func:`block_remote_firewall`."""
+
+    return await asyncio.to_thread(block_remote_firewall, host, port, protocol)
+
+
+def unblock_remote_firewall(host: str, port: int | None = None, protocol: str = "tcp") -> bool:
+    """Remove firewall rules blocking traffic to ``host``."""
+    ip = resolve_host(host)
+    system = platform.system()
+    if system == "Windows":
+        rule = f"CoolBoxBlockRemote{ip.replace('.', '_')}_{port or 'any'}"
+        cmd = [
+            "netsh",
+            "advfirewall",
+            "firewall",
+            "delete",
+            "rule",
+            f"name={rule}",
+        ]
+        if port is not None:
+            cmd += [f"protocol={protocol.upper()}", f"remoteport={port}"]
+        cmd += [f"remoteip={ip}"]
+        return _run(cmd) is not None
+
+    if system in {"Linux", "Darwin"}:
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            cmd = ["ufw", "delete", "deny", "out", "to", ip]
+            if port is not None:
+                cmd += ["port", str(port), protocol]
+        elif tool == "firewall-cmd":
+            if port is None:
+                rule = f"rule family=ipv4 destination address={ip} drop"
+            else:
+                rule = (
+                    f"rule family=ipv4 destination address={ip} "
+                    f"port port={port} protocol={protocol} drop"
+                )
+            cmd = ["firewall-cmd", "--permanent", "--remove-rich-rule", rule]
+            if _run(cmd) is None:
+                return False
+            return _run(["firewall-cmd", "--reload"]) is not None
+        elif tool == "iptables":
+            cmd = ["iptables", "-D", "OUTPUT", "-d", ip]
+            if port is not None:
+                cmd += ["-p", protocol, "--dport", str(port)]
+            cmd += ["-j", "DROP"]
+        else:
+            return False
+        return _run(cmd) is not None
+
+    return False
+
+
+async def async_unblock_remote_firewall(
+    host: str, port: int | None = None, protocol: str = "tcp"
+) -> bool:
+    """Asynchronous wrapper for :func:`unblock_remote_firewall`."""
+
+    return await asyncio.to_thread(unblock_remote_firewall, host, port, protocol)
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +530,86 @@ class LocalPort:
     exe: str | None = None
 
 
+@dataclass(slots=True)
+class ActiveConnection:
+    """Information about an active network connection."""
+
+    laddr: tuple[str, int] | None
+    raddr: tuple[str, int] | None
+    status: str
+    pid: int | None
+    process: str
+    exe: str | None = None
+
+
 _SERVICE_CACHE: dict[int, str] = {}
 _PROC_NAME_CACHE: dict[int, str] = {}
 _PROC_EXE_CACHE: dict[int, str] = {}
 
 
-def list_open_ports() -> dict[int, list[LocalPort]]:
+def network_snapshot() -> list[psutil._common.sconn]:
+    """Return a snapshot of current inet connections."""
+
+    try:
+        return psutil.net_connections(kind="inet")
+    except Exception:
+        return []
+
+
+async def async_network_snapshot() -> list[psutil._common.sconn]:
+    """Asynchronous wrapper for :func:`network_snapshot`."""
+
+    return await asyncio.to_thread(network_snapshot)
+
+
+def refresh_process_cache(pids: Iterable[int]) -> None:
+    """Populate process caches for ``pids`` in bulk.
+
+    Parameters
+    ----------
+    pids:
+        Iterable of process IDs to query. Only PIDs missing from the caches
+        will trigger lookups.
+    """
+
+    missing = {pid for pid in pids if pid not in _PROC_NAME_CACHE}
+    if not missing:
+        return
+
+    for proc in psutil.process_iter(["pid", "name", "exe"]):
+        pid = proc.info.get("pid")
+        if pid not in missing:
+            continue
+        name = proc.info.get("name") or "unknown"
+        exe = proc.info.get("exe")
+        _PROC_NAME_CACHE[pid] = name
+        if exe:
+            _PROC_EXE_CACHE[pid] = exe
+        missing.discard(pid)
+        if not missing:
+            return
+
+    for pid in list(missing):
+        try:
+            p = psutil.Process(pid)
+            _PROC_NAME_CACHE[pid] = p.name()
+            exe = p.exe()
+            if exe:
+                _PROC_EXE_CACHE[pid] = exe
+        except Exception:
+            _PROC_NAME_CACHE[pid] = "unknown"
+        missing.discard(pid)
+
+
+async def async_refresh_process_cache(pids: Iterable[int]) -> None:
+    """Asynchronous wrapper for :func:`refresh_process_cache`."""
+
+    await asyncio.to_thread(refresh_process_cache, pids)
+
+
+def list_open_ports(
+    connections: Iterable[psutil._common.sconn] | None = None,
+) -> dict[int, list[LocalPort]]:
     """Return a mapping of listening ports to :class:`LocalPort` objects.
 
     Reuses cached service names and process names to reduce repeated lookups
@@ -274,34 +618,18 @@ def list_open_ports() -> dict[int, list[LocalPort]]:
 
     ports: dict[int, list[LocalPort]] = {}
     try:
-        for conn in psutil.net_connections(kind="inet"):
-            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
-                continue
+        if connections is None:
+            connections = network_snapshot()
+        connections = [c for c in connections if c.status == psutil.CONN_LISTEN and c.laddr]
+        refresh_process_cache({c.pid for c in connections if c.pid is not None})
 
+        for conn in connections:
             port = conn.laddr.port
             pid: int | None = conn.pid
 
             if pid is not None:
-                proc_name = _PROC_NAME_CACHE.get(pid)
+                proc_name = _PROC_NAME_CACHE.get(pid, "unknown")
                 proc_exe = _PROC_EXE_CACHE.get(pid)
-                if proc_name is None:
-                    try:
-                        proc = psutil.Process(pid)
-                        proc_name = proc.name()
-                        proc_exe = proc.exe()
-                    except Exception:
-                        proc_name = "unknown"
-                        proc_exe = None
-                    _PROC_NAME_CACHE[pid] = proc_name
-                    if proc_exe is not None:
-                        _PROC_EXE_CACHE[pid] = proc_exe
-                elif proc_exe is None:
-                    try:
-                        proc_exe = psutil.Process(pid).exe()
-                    except Exception:
-                        proc_exe = None
-                    if proc_exe is not None:
-                        _PROC_EXE_CACHE[pid] = proc_exe
             else:
                 proc_name = "unknown"
                 proc_exe = None
@@ -319,6 +647,60 @@ def list_open_ports() -> dict[int, list[LocalPort]]:
         return {}
 
     return {p: v for p, v in sorted(ports.items())}
+
+
+async def async_list_open_ports(
+    connections: Iterable[psutil._common.sconn] | None = None,
+) -> dict[int, list[LocalPort]]:
+    """Asynchronous wrapper for :func:`list_open_ports`."""
+
+    return await asyncio.to_thread(list_open_ports, connections)
+
+
+def list_active_connections(connections: Iterable[psutil._common.sconn] | None = None) -> dict[str, list[ActiveConnection]]:
+    """Return a mapping of ``"ip:port"`` to :class:`ActiveConnection` objects."""
+
+    conns: dict[str, list[ActiveConnection]] = {}
+    try:
+        if connections is None:
+            connections = network_snapshot()
+        connections = [c for c in connections if c.raddr]
+        refresh_process_cache({c.pid for c in connections if c.pid is not None})
+
+        for conn in connections:
+            pid: int | None = conn.pid
+            if pid is not None:
+                proc_name = _PROC_NAME_CACHE.get(pid, "unknown")
+                proc_exe = _PROC_EXE_CACHE.get(pid)
+            else:
+                proc_name = "unknown"
+                proc_exe = None
+
+            key = f"{conn.raddr.ip}:{conn.raddr.port}"
+            laddr = (conn.laddr.ip, conn.laddr.port) if conn.laddr else None
+            raddr = (conn.raddr.ip, conn.raddr.port)
+            conns.setdefault(key, []).append(
+                ActiveConnection(
+                    laddr,
+                    raddr,
+                    conn.status,
+                    pid,
+                    proc_name,
+                    proc_exe,
+                )
+            )
+    except Exception:
+        return {}
+
+    return {k: v for k, v in sorted(conns.items())}
+
+
+async def async_list_active_connections(
+    connections: Iterable[psutil._common.sconn] | None = None,
+) -> dict[str, list[ActiveConnection]]:
+    """Asynchronous wrapper for :func:`list_active_connections`."""
+
+    return await asyncio.to_thread(list_active_connections, connections)
 
 
 def kill_process_by_port(port: int, *, tree: bool = False) -> bool:
@@ -343,6 +725,12 @@ def kill_process_by_port(port: int, *, tree: bool = False) -> bool:
     return killed
 
 
+async def async_kill_process_by_port(port: int, *, tree: bool = False) -> bool:
+    """Asynchronous wrapper for :func:`kill_process_by_port`."""
+
+    return await asyncio.to_thread(kill_process_by_port, port, tree=tree)
+
+
 def kill_port_range(start: int, end: int, *, tree: bool = False) -> dict[int, bool]:
     """Kill all listeners within ``start``..``end`` (inclusive)."""
 
@@ -361,6 +749,112 @@ def kill_port_range(start: int, end: int, *, tree: bool = False) -> dict[int, bo
             killed = killed or ok
         results[port] = killed
     return results
+
+
+async def async_kill_port_range(
+    start: int, end: int, *, tree: bool = False
+) -> dict[int, bool]:
+    """Asynchronous wrapper for :func:`kill_port_range`."""
+
+    return await asyncio.to_thread(kill_port_range, start, end, tree=tree)
+
+
+def kill_connections_by_remote(host: str, port: int | None = None, *, tree: bool = False) -> bool:
+    """Terminate processes with connections to ``host`` and optional ``port``."""
+
+    ip = resolve_host(host)
+
+    killed = False
+    for conn in psutil.net_connections(kind="inet"):
+        if not conn.raddr or conn.pid is None:
+            continue
+        if conn.raddr.ip != ip:
+            continue
+        if port is not None and conn.raddr.port != port:
+            continue
+        if tree:
+            ok = kill_process_tree(conn.pid)
+        else:
+            ok = kill_process(conn.pid)
+        killed = killed or ok
+    return killed
+
+
+def kill_connections_by_remotes(
+    hosts: Iterable[str], port: int | None = None, *, tree: bool = False
+) -> dict[str, bool]:
+    """Terminate processes connected to any of ``hosts``.
+
+    Parameters
+    ----------
+    hosts:
+        Iterable of hostnames or IP addresses.
+    port:
+        Optional port number to match. When ``None`` all ports are
+        considered.
+    tree:
+        If ``True`` processes are terminated with their children via
+        :func:`kill_process_tree`.
+    """
+
+    results: dict[str, bool] = {}
+    for host in hosts:
+        results[host] = kill_connections_by_remote(host, port=port, tree=tree)
+    return results
+
+
+async def async_kill_connections_by_remote(
+    host: str, port: int | None = None, *, tree: bool = False
+) -> bool:
+    """Asynchronous wrapper for :func:`kill_connections_by_remote`."""
+
+    return await asyncio.to_thread(kill_connections_by_remote, host, port=port, tree=tree)
+
+
+async def async_kill_connections_by_remotes(
+    hosts: Iterable[str], port: int | None = None, *, tree: bool = False
+) -> dict[str, bool]:
+    """Asynchronous wrapper for :func:`kill_connections_by_remotes`."""
+
+    return await asyncio.to_thread(kill_connections_by_remotes, hosts, port=port, tree=tree)
+
+
+def monitor_network(
+    *,
+    port_watchdog: "PortWatchdog | None" = None,
+    conn_watchdog: "ConnectionWatchdog | None" = None,
+) -> tuple[dict[int, list[LocalPort]], dict[str, list[ActiveConnection]]]:
+    """Snapshot network state and feed it to any provided watchdogs."""
+
+    conns = network_snapshot()
+    ports = list_open_ports(conns)
+    remote = list_active_connections(conns)
+
+    if port_watchdog:
+        port_watchdog.check(ports)
+        port_watchdog.expire()
+        port_watchdog.blocker.check()
+
+    if conn_watchdog:
+        conn_watchdog.check(remote)
+        conn_watchdog.expire()
+        conn_watchdog.blocker.check()
+
+    return ports, remote
+
+
+async def async_monitor_network(
+    *,
+    port_watchdog: "PortWatchdog | None" = None,
+    conn_watchdog: "ConnectionWatchdog | None" = None,
+) -> tuple[dict[int, list[LocalPort]], dict[str, list[ActiveConnection]]]:
+    """Asynchronous wrapper for :func:`monitor_network`."""
+
+    return await asyncio.to_thread(
+        monitor_network,
+        port_watchdog=port_watchdog,
+        conn_watchdog=conn_watchdog,
+    )
 
 
 def launch_security_center(*, hide_console: bool = False) -> bool:

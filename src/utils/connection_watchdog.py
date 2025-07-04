@@ -1,6 +1,6 @@
-from __future__ import annotations
+"""Watchdog for repeatedly blocked remote connections."""
 
-"""Watchdog for repeatedly killed ports."""
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Iterable
@@ -9,18 +9,17 @@ import time
 import json
 from pathlib import Path
 
-from .process_blocker import ProcessBlocker
-
 import psutil
 
+from .process_blocker import ProcessBlocker
 from .kill_utils import kill_process_tree
-from .security import LocalPort
+from .security import ActiveConnection
 from . import security, security_log
 
 
 @dataclass(slots=True)
-class PortRecord:
-    """Tracking info for a blocked port."""
+class ConnectionRecord:
+    """Tracking info for a blocked remote address."""
 
     pids: set[int]
     names: set[str] = field(default_factory=set)
@@ -30,13 +29,8 @@ class PortRecord:
     blocked_firewall: bool = False
 
 
-class PortWatchdog:
-    """Terminate processes that reopen blocked ports.
-
-    If a port is killed ``max_attempts`` times the associated process name is
-    forwarded to a :class:`~src.utils.process_blocker.ProcessBlocker` instance
-    which aggressively terminates any future instances.
-    """
+class ConnectionWatchdog:
+    """Terminate processes that reconnect to blocked hosts."""
 
     def __init__(
         self,
@@ -47,8 +41,8 @@ class PortWatchdog:
         firewall: bool = False,
         path: str | Path | None = None,
     ) -> None:
-        self.path = Path(path).expanduser() if path else Path.home() / ".coolbox" / "blocked_ports.json"
-        self.records: dict[int, PortRecord] = {}
+        self.path = Path(path).expanduser() if path else Path.home() / ".coolbox" / "blocked_hosts.json"
+        self.records: dict[str, ConnectionRecord] = {}
         self.max_attempts = max_attempts
         self.blocker = blocker or ProcessBlocker()
         self.expiration = expiration
@@ -60,19 +54,28 @@ class PortWatchdog:
     # Query helpers
     # ------------------------------------------------------------------
 
-    def list_records(self) -> dict[int, PortRecord]:
-        """Return the current blocked port records."""
+    def list_records(self) -> dict[str, ConnectionRecord]:
+        """Return the current blocked host records."""
         return self.records
 
-    def remove(self, port: int) -> bool:
-        """Remove ``port`` from the watch list."""
-        rec = self.records.pop(port, None)
+    def remove(self, host: str) -> bool:
+        """Remove ``host`` from the watch list."""
+        rec = self.records.pop(host, None)
         if rec is None:
             return False
         if self.firewall and rec.blocked_firewall:
-            security.unblock_port_firewall(port)
-            security_log.add_security_event("unblock_port", f"port {port}")
+            if ":" in host:
+                ip, port_str = host.split(":", 1)
+                try:
+                    port_num = int(port_str)
+                except Exception:
+                    port_num = None
+                security.unblock_remote_firewall(ip, port_num)
+            else:
+                security.unblock_remote_firewall(host)
+            security_log.add_security_event("firewall_unblock_remote", f"{host}")
         self.save()
+        security_log.add_security_event("unblock_remote", host)
         return True
 
     # ------------------------------------------------------------------
@@ -80,7 +83,7 @@ class PortWatchdog:
     # ------------------------------------------------------------------
 
     def load(self) -> None:
-        """Load blocked ports from disk if possible."""
+        """Load blocked hosts from disk if possible."""
         if self._loaded or not self.path:
             return
         if self.path.is_file():
@@ -88,9 +91,8 @@ class PortWatchdog:
                 data = json.loads(self.path.read_text())
             except Exception:
                 data = {}
-            for port_str, rec in data.items():
-                port = int(port_str)
-                self.records[port] = PortRecord(
+            for host, rec in data.items():
+                self.records[host] = ConnectionRecord(
                     set(rec.get("pids", [])),
                     set(rec.get("names", [])),
                     set(rec.get("exes", [])),
@@ -101,13 +103,13 @@ class PortWatchdog:
         self._loaded = True
 
     def save(self) -> None:
-        """Persist the current blocked port list."""
+        """Persist the current blocked host list."""
         if not self.path:
             return
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             data = {
-                str(port): {
+                host: {
                     "pids": sorted(rec.pids),
                     "names": sorted(rec.names),
                     "exes": sorted(rec.exes),
@@ -115,7 +117,7 @@ class PortWatchdog:
                     "last_seen": rec.last_seen,
                     "blocked_firewall": rec.blocked_firewall,
                 }
-                for port, rec in self.records.items()
+                for host, rec in self.records.items()
             }
             self.path.write_text(json.dumps(data, indent=2))
         except Exception:
@@ -123,12 +125,12 @@ class PortWatchdog:
 
     def add(
         self,
-        port: int,
+        host: str,
         pids: Iterable[int],
         names: Iterable[str] | None = None,
         exes: Iterable[str] | None = None,
     ) -> None:
-        rec = self.records.setdefault(port, PortRecord(set()))
+        rec = self.records.setdefault(host, ConnectionRecord(set()))
         rec.pids.update(pids)
         if names:
             rec.names.update(n for n in names if n)
@@ -137,20 +139,28 @@ class PortWatchdog:
         rec.last_seen = time.time()
         self.save()
 
-    def check(self, ports: dict[int, list[LocalPort]]) -> None:
+    def check(self, conns: dict[str, list[ActiveConnection]]) -> None:
         now = time.time()
         changed = False
-        for port in list(self.records):
-            rec = self.records[port]
+        for host in list(self.records):
+            rec = self.records[host]
             if self.expiration is not None and now - rec.last_seen > self.expiration:
                 if self.firewall and rec.blocked_firewall:
-                    security.unblock_port_firewall(port)
-                    security_log.add_security_event("firewall_unblock_port", f"port {port}")
-                self.records.pop(port, None)
-                security_log.add_security_event("port_expired", f"port {port}")
+                    if ":" in host:
+                        ip, port_str = host.split(":", 1)
+                        try:
+                            port_num = int(port_str)
+                        except Exception:
+                            port_num = None
+                        security.unblock_remote_firewall(ip, port_num)
+                    else:
+                        security.unblock_remote_firewall(host)
+                    security_log.add_security_event("firewall_unblock_remote", host)
+                self.records.pop(host, None)
+                security_log.add_security_event("host_expired", host)
                 changed = True
                 continue
-            entries = ports.get(port) or []
+            entries = conns.get(host) or []
             if entries:
                 rec.last_seen = now
             active_pids = {e.pid for e in entries if e.pid is not None}
@@ -163,12 +173,11 @@ class PortWatchdog:
                     continue
                 if kill_process_tree(pid):
                     killed = True
-                    security_log.add_security_event("kill_port", f"pid {pid} port {port}")
+                    security_log.add_security_event("kill_remote", f"pid {pid} host {host}")
                 else:
-                    # fall back to kill if tree kill fails
                     try:
                         psutil.Process(pid).kill()
-                        security_log.add_security_event("kill_port", f"pid {pid} port {port}")
+                        security_log.add_security_event("kill_remote", f"pid {pid} host {host}")
                     except Exception:
                         pass
             rec.pids.update(active_pids)
@@ -185,29 +194,19 @@ class PortWatchdog:
                             self.blocker.add(name, exe)
                     else:
                         self.blocker.add(name)
-                security_log.add_security_event("escalate_port", f"port {port}")
+                security_log.add_security_event("escalate_remote", host)
                 if self.firewall and not rec.blocked_firewall:
-                    security.block_port_firewall(port)
+                    if ":" in host:
+                        ip, port_str = host.split(":", 1)
+                        try:
+                            port_num = int(port_str)
+                        except Exception:
+                            port_num = None
+                        security.block_remote_firewall(ip, port_num)
+                    else:
+                        security.block_remote_firewall(host)
                     rec.blocked_firewall = True
-                    security_log.add_security_event("firewall_block_port", f"port {port}")
-                changed = True
-        if changed:
-            self.save()
-
-    def expire(self) -> None:
-        """Remove records that haven't been seen within ``expiration`` seconds."""
-        if self.expiration is None:
-            return
-        now = time.time()
-        changed = False
-        for port in list(self.records):
-            rec = self.records[port]
-            if now - rec.last_seen > self.expiration:
-                if self.firewall and rec.blocked_firewall:
-                    security.unblock_port_firewall(port)
-                    security_log.add_security_event("firewall_unblock_port", f"port {port}")
-                self.records.pop(port, None)
-                security_log.add_security_event("port_expired", f"port {port}")
+                    security_log.add_security_event("firewall_block_remote", host)
                 changed = True
         if changed:
             self.save()
@@ -217,13 +216,47 @@ class PortWatchdog:
         if not self.records:
             return
         if self.firewall:
-            for port, rec in list(self.records.items()):
+            for host, rec in list(self.records.items()):
                 if rec.blocked_firewall:
-                    security.unblock_port_firewall(port)
-                    security_log.add_security_event("firewall_unblock_port", f"port {port}")
+                    if ":" in host:
+                        ip, port_str = host.split(":", 1)
+                        try:
+                            port_num = int(port_str)
+                        except Exception:
+                            port_num = None
+                        security.unblock_remote_firewall(ip, port_num)
+                    else:
+                        security.unblock_remote_firewall(host)
+                    security_log.add_security_event("firewall_unblock_remote", host)
         self.records.clear()
-        security_log.add_security_event("clear_ports", "all")
+        security_log.add_security_event("clear_hosts", "all")
         self.save()
+
+    def expire(self) -> None:
+        """Remove records that haven't been seen within ``expiration`` seconds."""
+        if self.expiration is None:
+            return
+        now = time.time()
+        changed = False
+        for host in list(self.records):
+            rec = self.records[host]
+            if now - rec.last_seen > self.expiration:
+                if self.firewall and rec.blocked_firewall:
+                    if ":" in host:
+                        ip, port_str = host.split(":", 1)
+                        try:
+                            port_num = int(port_str)
+                        except Exception:
+                            port_num = None
+                        security.unblock_remote_firewall(ip, port_num)
+                    else:
+                        security.unblock_remote_firewall(host)
+                    security_log.add_security_event("firewall_unblock_remote", host)
+                self.records.pop(host, None)
+                security_log.add_security_event("host_expired", host)
+                changed = True
+        if changed:
+            self.save()
 
     # ------------------------------------------------------------------
     # Async wrappers
@@ -231,18 +264,18 @@ class PortWatchdog:
 
     async def async_add(
         self,
-        port: int,
+        host: str,
         pids: Iterable[int],
         names: Iterable[str] | None = None,
         exes: Iterable[str] | None = None,
     ) -> None:
-        await asyncio.to_thread(self.add, port, pids, names=names, exes=exes)
+        await asyncio.to_thread(self.add, host, pids, names=names, exes=exes)
 
-    async def async_check(self, ports: dict[int, list[LocalPort]]) -> None:
-        await asyncio.to_thread(self.check, ports)
+    async def async_check(self, conns: dict[str, list[ActiveConnection]]) -> None:
+        await asyncio.to_thread(self.check, conns)
 
-    async def async_remove(self, port: int) -> bool:
-        return await asyncio.to_thread(self.remove, port)
+    async def async_remove(self, host: str) -> bool:
+        return await asyncio.to_thread(self.remove, host)
 
     async def async_expire(self) -> None:
         await asyncio.to_thread(self.expire)
