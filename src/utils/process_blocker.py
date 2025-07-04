@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Optional
+
 
 import psutil
 import json
@@ -100,6 +100,14 @@ class ProcessBlocker:
             self.targets.pop(name, None)
             self.save()
             return True
+
+    # ------------------------------------------------------------------
+    # Query helpers
+    # ------------------------------------------------------------------
+
+    def list_targets(self) -> dict[str, BlockTarget]:
+        """Return the current block list."""
+        return self.targets
 
     def check(self) -> None:
         """Kill any running processes that match the block list."""
