@@ -19,6 +19,8 @@ from ..utils.security import (
     kill_process_by_port,
     kill_port_range,
 )
+from ..utils.port_watchdog import PortWatchdog
+from ..utils.process_blocker import ProcessBlocker
 
 from threading import Thread
 from queue import Queue, Empty
@@ -66,6 +68,8 @@ class SecurityDialog(BaseDialog):
 
         self.kill_tree_var = ctk.BooleanVar(value=False)
         self.auto_refresh_var = ctk.BooleanVar(value=True)
+        self.blocker = ProcessBlocker()
+        self.watchdog = PortWatchdog(blocker=self.blocker)
 
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
         btn_frame.grid(row=6, column=0, columnspan=2, pady=10)
@@ -170,9 +174,17 @@ class SecurityDialog(BaseDialog):
         self.port_data = data
         self._scan_thread = None
         self._update_list()
+        self._process_watchlist()
+
+    def _process_watchlist(self) -> None:
+        """Kill processes that reopen blocked ports or reappear by name."""
+        self.watchdog.check(self.port_data)
+        self.watchdog.expire()
+        self.blocker.check()
 
     def _auto_step(self) -> None:
         self._refresh()
+        self._process_watchlist()
         self._schedule_refresh()
 
     def _kill_selected(self) -> None:
@@ -186,7 +198,14 @@ class SecurityDialog(BaseDialog):
             messagebox.showwarning("Security Center", "Failed to parse port")
             return
         if kill_process_by_port(port, tree=self.kill_tree_var.get()):
-            messagebox.showinfo("Security Center", f"Terminated process on port {port}")
+            messagebox.showinfo(
+                "Security Center", f"Terminated process on port {port}"
+            )
+            entries = self.port_data.get(port, [])
+            pids = [e.pid for e in entries if e.pid is not None]
+            names = [e.process for e in entries]
+            exes = [e.exe for e in entries if e.exe]
+            self.watchdog.add(port, pids, names=names, exes=exes)
             self._refresh()
         else:
             messagebox.showwarning("Security Center", "Failed to terminate process")
@@ -206,6 +225,12 @@ class SecurityDialog(BaseDialog):
             killed = [str(p) for p, ok in results.items() if ok]
             if killed:
                 messagebox.showinfo("Security Center", f"Killed ports: {', '.join(killed)}")
+                for p in map(int, killed):
+                    entries = self.port_data.get(p, [])
+                    pids = [e.pid for e in entries if e.pid is not None]
+                    names = [e.process for e in entries]
+                    exes = [e.exe for e in entries if e.exe]
+                    self.watchdog.add(p, pids, names=names, exes=exes)
             else:
                 messagebox.showwarning("Security Center", "No processes killed")
         else:
@@ -216,6 +241,11 @@ class SecurityDialog(BaseDialog):
                 return
             if kill_process_by_port(port, tree=self.kill_tree_var.get()):
                 messagebox.showinfo("Security Center", f"Terminated process on port {port}")
+                entries = self.port_data.get(port, [])
+                pids = [e.pid for e in entries if e.pid is not None]
+                names = [e.process for e in entries]
+                exes = [e.exe for e in entries if e.exe]
+                self.watchdog.add(port, pids, names=names, exes=exes)
             else:
                 messagebox.showwarning("Security Center", "Failed to terminate process")
         self._refresh()

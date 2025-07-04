@@ -257,10 +257,12 @@ class LocalPort:
     pid: int | None
     process: str
     service: str
+    exe: str | None = None
 
 
 _SERVICE_CACHE: dict[int, str] = {}
 _PROC_NAME_CACHE: dict[int, str] = {}
+_PROC_EXE_CACHE: dict[int, str] = {}
 
 
 def list_open_ports() -> dict[int, list[LocalPort]]:
@@ -281,14 +283,28 @@ def list_open_ports() -> dict[int, list[LocalPort]]:
 
             if pid is not None:
                 proc_name = _PROC_NAME_CACHE.get(pid)
+                proc_exe = _PROC_EXE_CACHE.get(pid)
                 if proc_name is None:
                     try:
-                        proc_name = psutil.Process(pid).name()
+                        proc = psutil.Process(pid)
+                        proc_name = proc.name()
+                        proc_exe = proc.exe()
                     except Exception:
                         proc_name = "unknown"
+                        proc_exe = None
                     _PROC_NAME_CACHE[pid] = proc_name
+                    if proc_exe is not None:
+                        _PROC_EXE_CACHE[pid] = proc_exe
+                elif proc_exe is None:
+                    try:
+                        proc_exe = psutil.Process(pid).exe()
+                    except Exception:
+                        proc_exe = None
+                    if proc_exe is not None:
+                        _PROC_EXE_CACHE[pid] = proc_exe
             else:
                 proc_name = "unknown"
+                proc_exe = None
 
             service = _SERVICE_CACHE.get(port)
             if service is None:
@@ -298,7 +314,7 @@ def list_open_ports() -> dict[int, list[LocalPort]]:
                     service = "unknown"
                 _SERVICE_CACHE[port] = service
 
-            ports.setdefault(port, []).append(LocalPort(port, pid, proc_name, service))
+            ports.setdefault(port, []).append(LocalPort(port, pid, proc_name, service, proc_exe))
     except Exception:
         return {}
 
