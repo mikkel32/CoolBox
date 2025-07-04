@@ -214,7 +214,16 @@ def test_kill_port_range(monkeypatch):
 
 def test_launch_security_center_missing(monkeypatch):
     monkeypatch.setattr(security.Path, "is_file", lambda self: False, raising=False)
-    assert security.launch_security_center() is False
+    monkeypatch.setattr(security, "is_admin", lambda: True)
+    called = {}
+
+    def fake_bg(args, **kwargs):
+        called["args"] = args
+        return True
+
+    monkeypatch.setattr(security, "run_command_background", fake_bg)
+    assert security.launch_security_center() is True
+    assert called["args"][:2] == [sys.executable, "-m"]
 
 
 def test_launch_security_center_admin(monkeypatch):

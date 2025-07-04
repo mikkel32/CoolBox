@@ -64,8 +64,10 @@ class SecurityDialog(BaseDialog):
 
         style = ttk.Style(self)
         style.theme_use("clam")
+        style.layout("PortTreeview.Treeview", style.layout("Treeview"))
+        style.configure("PortTreeview.Treeview")
         style.map(
-            "PortTreeview",
+            "PortTreeview.Treeview",
             background=[("selected", "#2a6cad")],
             foreground=[("selected", "white")],
         )
@@ -75,7 +77,7 @@ class SecurityDialog(BaseDialog):
             columns=columns,
             show="headings",
             selectmode="browse",
-            style="PortTreeview",
+            style="PortTreeview.Treeview",
         )
         vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.port_tree.yview)
         hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.port_tree.xview)
