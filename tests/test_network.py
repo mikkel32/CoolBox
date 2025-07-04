@@ -1403,13 +1403,13 @@ def test_clear_local_host_cache(tmp_path, monkeypatch):
 def test_refresh_arp_cache_fallback(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: "/sbin/ip" if name == "ip" else None)
 
-    def fake_check_output(cmd, text=True, timeout=2):
+    def fake_run(cmd, capture=False, **kwargs):
         if cmd[0] == "arp":
-            raise FileNotFoundError
+            return None
         assert cmd == ["ip", "neighbor"]
         return "192.168.1.10 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE\n"
 
-    monkeypatch.setattr(subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(network, "_run", fake_run)
     network.clear_arp_cache()
     hosts = network.detect_arp_hosts()
     assert hosts == ["192.168.1.10"]
@@ -1423,12 +1423,12 @@ def test_arp_cache_file(tmp_path, monkeypatch):
 
     calls = 0
 
-    def fake_check_output(cmd, text=True, timeout=2):
+    def fake_run(cmd, capture=False, **kwargs):
         nonlocal calls
         calls += 1
         return "192.168.1.10 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE\n"
 
-    monkeypatch.setattr(subprocess, "check_output", fake_check_output)
+    monkeypatch.setattr(network, "_run", fake_run)
     monkeypatch.setattr(shutil, "which", lambda name: "/sbin/arp" if name == "arp" else None)
 
     network.clear_arp_cache()
@@ -1810,22 +1810,12 @@ def test_async_get_http_info_cache(tmp_path, monkeypatch):
 def test_async_ping_cache(monkeypatch):
     calls = 0
 
-    class DummyProc:
-        returncode = 0
-
-        async def communicate(self):
-            return b"ttl=64", b""
-
-    async def fake_exec(*args, **kwargs):
+    async def fake_run(cmd, capture=False, **kwargs):
         nonlocal calls
         calls += 1
-        return DummyProc()
+        return "ttl=64", 0
 
-    async def fake_wait_for(coro, timeout):
-        return await coro
-
-    monkeypatch.setattr(network.asyncio, "create_subprocess_exec", fake_exec)
-    monkeypatch.setattr(network.asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(network, "_run_async_ex", fake_run)
 
     res1 = asyncio.run(network._async_ping_host("1.1.1.1", return_ttl=True))
     res2 = asyncio.run(network._async_ping_host("1.1.1.1", return_ttl=True))
@@ -1833,6 +1823,16 @@ def test_async_ping_cache(monkeypatch):
     assert res1 == (True, 64)
     assert res2 == (True, 64)
     assert calls == 1
+
+
+def test_ping_host_success(monkeypatch):
+    monkeypatch.setattr(network, "_run_ex", lambda cmd, **k: ("", 0))
+    assert network._ping_host("1.1.1.1") is True
+
+
+def test_ping_host_fail(monkeypatch):
+    monkeypatch.setattr(network, "_run_ex", lambda cmd, **k: (None, 1))
+    assert network._ping_host("1.1.1.1") is False
 
 
 def test_async_auto_scan_http_info(monkeypatch):

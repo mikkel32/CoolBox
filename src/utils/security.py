@@ -4,7 +4,11 @@ from __future__ import annotations
 
 
 import platform
+import shutil
 import subprocess
+import os
+from functools import lru_cache
+import re
 from typing import Optional
 from pathlib import Path
 import sys
@@ -12,7 +16,29 @@ import socket
 from dataclasses import dataclass
 import psutil
 from .win_console import hidden_creation_flags
+from .process_utils import run_command as _run, run_command_background
 from .kill_utils import kill_process, kill_process_tree
+
+
+@lru_cache(maxsize=1)
+def _unix_firewall_tool() -> str:
+    """Return the available firewall tool on Unix systems.
+
+    The result is cached to avoid repeated ``shutil.which`` lookups. If no
+    known tool is detected ``ufw`` is returned as a fallback so calls remain
+    predictable on systems without these utilities installed.
+    """
+    fallback: str | None = None
+    for tool in ("ufw", "firewall-cmd", "pfctl"):
+        path = shutil.which(tool)
+        if not path:
+            continue
+        binary = Path(path).name
+        if binary == tool:
+            return tool
+        if fallback is None:
+            fallback = binary
+    return fallback or "ufw"
 
 
 # ---------------------------------------------------------------------------
@@ -23,32 +49,44 @@ def is_firewall_enabled() -> Optional[bool]:
     """Return ``True`` if the system firewall is enabled."""
     system = platform.system()
     if system == "Windows":
-        try:
-            out = subprocess.check_output(
-                ["netsh", "advfirewall", "show", "allprofiles"],
-                text=True,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception:
+        out = _run(
+            ["netsh", "advfirewall", "show", "allprofiles"],
+            capture=True,
+        )
+        if out is None:
             return None
         for line in out.splitlines():
-            if "State" in line:
-                if "ON" in line.upper():
-                    return True
-                if "OFF" in line.upper():
-                    return False
+            m = re.search(r"State\s+(\w+)", line, re.I)
+            if m:
+                return m.group(1).lower() == "on"
         return None
     elif system in {"Linux", "Darwin"}:
-        try:
-            out = subprocess.check_output(["ufw", "status"], text=True, stderr=subprocess.DEVNULL)
-        except Exception:
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            out = _run(["ufw", "status"], capture=True)
+            if out is None:
+                return None
+            for line in out.splitlines():
+                if "Status:" in line:
+                    if "active" in line.lower():
+                        return True
+                    if "inactive" in line.lower():
+                        return False
             return None
-        for line in out.splitlines():
-            if "Status:" in line:
-                if "active" in line.lower():
-                    return True
-                if "inactive" in line.lower():
-                    return False
+        elif tool == "firewall-cmd":
+            out = _run(["firewall-cmd", "--state"], capture=True)
+            if out is None:
+                return None
+            return out.strip() == "running"
+        elif tool == "pfctl":
+            out = _run(["pfctl", "-s", "info"], capture=True)
+            if out is None:
+                return None
+            for line in out.splitlines():
+                m = re.search(r"Status:\s+(\w+)", line)
+                if m:
+                    return m.group(1).lower() == "enabled"
+            return None
         return None
     return None
 
@@ -58,23 +96,24 @@ def set_firewall_enabled(enabled: bool) -> bool:
     system = platform.system()
     if system == "Windows":
         state = "on" if enabled else "off"
-        try:
-            subprocess.run(
-                ["netsh", "advfirewall", "set", "allprofiles", "state", state],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+        return (
+            _run(
+                ["netsh", "advfirewall", "set", "allprofiles", "state", state]
             )
-            return True
-        except Exception:
-            return False
+            is not None
+        )
     elif system in {"Linux", "Darwin"}:
-        cmd = ["ufw", "enable"] if enabled else ["ufw", "disable"]
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except Exception:
-            return False
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            cmd = ["ufw", "enable"] if enabled else ["ufw", "disable"]
+            return _run(cmd) is not None
+        elif tool == "firewall-cmd":
+            action = "start" if enabled else "stop"
+            return _run(["systemctl", action, "firewalld"]) is not None
+        elif tool == "pfctl":
+            cmd = ["pfctl", "-e"] if enabled else ["pfctl", "-d"]
+            return _run(cmd) is not None
+        return False
     return False
 
 
@@ -86,17 +125,15 @@ def is_defender_enabled() -> Optional[bool]:
     """Return ``True`` if real-time protection is enabled."""
     if platform.system() != "Windows":
         return None
-    try:
-        out = subprocess.check_output(
-            [
-                "powershell",
-                "-Command",
-                "(Get-MpPreference).DisableRealtimeMonitoring",
-            ],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
+    out = _run(
+        [
+            "powershell",
+            "-Command",
+            "(Get-MpPreference).DisableRealtimeMonitoring",
+        ],
+        capture=True,
+    )
+    if out is None:
         return None
     val = out.strip().lower()
     if val in {"true", "1"}:
@@ -111,20 +148,16 @@ def set_defender_enabled(enabled: bool) -> bool:
     if platform.system() != "Windows":
         return False
     value = "$false" if enabled else "$true"
-    try:
-        subprocess.run(
+    return (
+        _run(
             [
                 "powershell",
                 "-Command",
                 f"Set-MpPreference -DisableRealtimeMonitoring {value}",
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            ]
         )
-        return True
-    except Exception:
-        return False
+        is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -341,13 +374,10 @@ def launch_security_center(*, hide_console: bool = False) -> bool:
             if pythonw.is_file():
                 python = pythonw
             kwargs["creationflags"] = hidden_creation_flags()
+    kwargs["env"] = os.environ.copy()
 
     if is_admin():
-        try:
-            subprocess.Popen([str(python), str(script)], **kwargs)
-            return True
-        except Exception:
-            return False
+        return run_command_background([str(python), str(script)], **kwargs)
 
     system = platform.system()
 
@@ -361,10 +391,6 @@ def launch_security_center(*, hide_console: bool = False) -> bool:
         except Exception:
             return False
     elif system in {"Linux", "Darwin"}:
-        try:
-            subprocess.Popen(["sudo", str(python), str(script)], **kwargs)
-            return True
-        except Exception:
-            return False
+        return run_command_background(["sudo", str(python), str(script)], **kwargs)
 
     return False
