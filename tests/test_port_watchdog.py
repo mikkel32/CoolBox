@@ -1,9 +1,7 @@
-import types
 import psutil
-import pytest
 import time
 
-from src.utils.port_watchdog import PortWatchdog, PortRecord
+from src.utils.port_watchdog import PortWatchdog
 from src.utils.process_blocker import ProcessBlocker
 from src.utils.security import LocalPort
 
@@ -18,7 +16,11 @@ def test_watchdog_kills_reopened(monkeypatch, tmp_path):
     monkeypatch.setattr('src.utils.port_watchdog.kill_process_tree', fake_kill)
     monkeypatch.setattr(psutil, 'pid_exists', lambda pid: True)
 
-    wd = PortWatchdog(max_attempts=2, blocker=ProcessBlocker(path=tmp_path / "b.json"))
+    wd = PortWatchdog(
+        max_attempts=2,
+        blocker=ProcessBlocker(path=tmp_path / "b.json"),
+        path=tmp_path / "w.json",
+    )
     wd.add(80, [123])
 
     ports = {80: [LocalPort(80, 123, 'proc', 'http')]}
@@ -41,7 +43,11 @@ def test_watchdog_handles_new_pid(monkeypatch, tmp_path):
     monkeypatch.setattr('src.utils.port_watchdog.kill_process_tree', fake_kill)
     monkeypatch.setattr(psutil, 'pid_exists', lambda pid: True)
 
-    wd = PortWatchdog(max_attempts=1, blocker=ProcessBlocker(path=tmp_path / "b.json"))
+    wd = PortWatchdog(
+        max_attempts=1,
+        blocker=ProcessBlocker(path=tmp_path / "b.json"),
+        path=tmp_path / "w.json",
+    )
     wd.add(81, [200])
 
     ports = {81: [LocalPort(81, 201, 'proc', 'http')]}
@@ -63,7 +69,7 @@ def test_watchdog_escalates_to_blocker(monkeypatch, tmp_path):
     monkeypatch.setattr(blocker, 'add_by_pid', lambda pid: blocked.append(pid))
     monkeypatch.setattr(psutil, 'pid_exists', lambda pid: True)
 
-    wd = PortWatchdog(max_attempts=1, blocker=blocker)
+    wd = PortWatchdog(max_attempts=1, blocker=blocker, path=tmp_path / "w.json")
     wd.add(82, [300])
 
     ports = {82: [LocalPort(82, 300, 'proc', 'http')]}
@@ -86,7 +92,7 @@ def test_watchdog_escalates_by_name_when_pid_gone(monkeypatch, tmp_path):
     # Simulate original pid gone but new pid alive
     monkeypatch.setattr(psutil, 'pid_exists', lambda pid: pid == 401)
 
-    wd = PortWatchdog(max_attempts=1, blocker=blocker)
+    wd = PortWatchdog(max_attempts=1, blocker=blocker, path=tmp_path / "w.json")
     wd.add(83, [400], names=['evil'], exes=['/bad'])
 
     ports = {83: [LocalPort(83, 401, 'evil', 'http', '/bad')]}
@@ -102,7 +108,12 @@ def test_watchdog_expiration(monkeypatch, tmp_path):
     monkeypatch.setattr('src.utils.port_watchdog.kill_process_tree', lambda pid, timeout=3.0: killed.append(pid) or True)
     monkeypatch.setattr(psutil, 'pid_exists', lambda pid: False)
 
-    wd = PortWatchdog(max_attempts=5, blocker=ProcessBlocker(path=tmp_path/'b.json'), expiration=0.1)
+    wd = PortWatchdog(
+        max_attempts=5,
+        blocker=ProcessBlocker(path=tmp_path / 'b.json'),
+        expiration=0.1,
+        path=tmp_path / 'w.json',
+    )
     wd.add(90, [900], names=['x'], exes=['/x'])
 
     # No ports open, record should expire after 0.1s
@@ -112,3 +123,12 @@ def test_watchdog_expiration(monkeypatch, tmp_path):
     wd.check({})
     assert 90 not in wd.records
 
+
+def test_watchdog_persistence(tmp_path):
+    path = tmp_path / 'persist.json'
+    wd = PortWatchdog(path=path)
+    wd.add(55, [111])
+    assert path.is_file()
+
+    new_wd = PortWatchdog(path=path)
+    assert 55 in new_wd.records

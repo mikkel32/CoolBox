@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import platform
 from tkinter import messagebox
+import tkinter as tk
 import customtkinter as ctk
 
 from .base_dialog import BaseDialog
@@ -51,15 +52,44 @@ class SecurityDialog(BaseDialog):
             container, "Enable Defender", self.defender_var, 2
         )
 
-        self.ports_box = self.grid_textbox(container, "Listening Ports", 3, height=100)
+        self.tabview = ctk.CTkTabview(container)
+        self.tabview.grid(row=3, column=0, columnspan=2, sticky="nsew")
+
+        open_tab = self.tabview.add("Listeners")
+        blocked_tab = self.tabview.add("Blocked")
+
+        self.ports_box = ctk.CTkTextbox(open_tab, height=150)
+        self.ports_box.pack(fill="both", expand=True, padx=5, pady=5)
         self.ports_box.configure(cursor="hand2")
+        self.ports_box.bind("<Double-1>", lambda e: self._kill_selected())
+        self.ports_box.bind("<Button-3>", self._on_port_right_click)
+
         self.filter_var = ctk.StringVar()
-        filter_entry = ctk.CTkEntry(container, textvariable=self.filter_var)
-        filter_entry.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(5, 0))
+        filter_entry = ctk.CTkEntry(open_tab, textvariable=self.filter_var)
+        filter_entry.pack(fill="x", padx=5)
         filter_entry.bind("<KeyRelease>", lambda e: self._update_list())
         self.port_data: dict[int, list[LocalPort]] = {}
-        self.port_count_lbl = ctk.CTkLabel(container, text="")
-        self.port_count_lbl.grid(row=5, column=0, columnspan=2, sticky="w")
+        self.port_count_lbl = ctk.CTkLabel(open_tab, text="")
+        self.port_count_lbl.pack(anchor="w", padx=5)
+
+        self.blocked_ports_box = ctk.CTkTextbox(blocked_tab, height=120)
+        self.blocked_ports_box.pack(fill="both", expand=True, padx=5, pady=(5, 0))
+        self.blocked_ports_box.configure(cursor="hand2")
+        self.blocked_ports_box.bind("<Double-1>", lambda e: self._unblock_port())
+        self.blocked_ports_box.bind("<Button-3>", self._on_blocked_port_right_click)
+
+        self.blocked_procs_box = ctk.CTkTextbox(blocked_tab, height=120)
+        self.blocked_procs_box.pack(fill="both", expand=True, padx=5, pady=(5, 5))
+        self.blocked_procs_box.configure(cursor="hand2")
+        self.blocked_procs_box.bind("<Double-1>", lambda e: self._unblock_process())
+        self.blocked_procs_box.bind("<Button-3>", self._on_blocked_proc_right_click)
+
+        unblock_frame = ctk.CTkFrame(blocked_tab, fg_color="transparent")
+        unblock_frame.pack(pady=(0, 5))
+        self.grid_button(unblock_frame, "Unblock Port", self._unblock_port, 0, column=0, columnspan=1)
+        self.grid_button(unblock_frame, "Unblock Process", self._unblock_process, 0, column=1, columnspan=1)
+        self.blocked_count_lbl = ctk.CTkLabel(blocked_tab, text="")
+        self.blocked_count_lbl.pack(anchor="w", padx=5)
 
         # Async port scanning helpers
         self._scan_queue: Queue[dict[int, list[LocalPort]]] = Queue(maxsize=1)
@@ -118,6 +148,7 @@ class SecurityDialog(BaseDialog):
         self.firewall_var.set(is_firewall_enabled() or False)
         if system == "Windows":
             self.defender_var.set(is_defender_enabled() or False)
+        self._update_blocked_lists()
 
     def _update_list(self) -> None:
         filt = self.filter_var.get().strip().lower()
@@ -134,6 +165,31 @@ class SecurityDialog(BaseDialog):
                     self.ports_box.insert("end", line + "\n")
         self.ports_box.configure(state="disabled")
         self.port_count_lbl.configure(text=f"{len(self.port_data)} ports")
+
+        self._update_blocked_lists()
+
+    def _update_blocked_lists(self) -> None:
+        """Refresh the blocked port and process views."""
+        self.blocked_ports_box.configure(state="normal")
+        self.blocked_ports_box.delete("1.0", "end")
+        records = self.watchdog.list_records()
+        for port, rec in sorted(records.items()):
+            names = ",".join(sorted(rec.names)) if rec.names else ""
+            self.blocked_ports_box.insert(
+                "end", f"{port:<5} attempts={rec.attempts} {names}\n"
+            )
+        self.blocked_ports_box.configure(state="disabled")
+
+        self.blocked_procs_box.configure(state="normal")
+        self.blocked_procs_box.delete("1.0", "end")
+        targets = self.blocker.list_targets()
+        for name, target in sorted(targets.items()):
+            exes = ",".join(sorted(target.exe_paths)) if target.exe_paths else ""
+            self.blocked_procs_box.insert("end", f"{name} {exes}\n")
+        self.blocked_procs_box.configure(state="disabled")
+        self.blocked_count_lbl.configure(
+            text=f"{len(records)} ports, {len(targets)} processes blocked"
+        )
 
     def _schedule_refresh(self) -> None:
         if getattr(self, "_refresh_job", None):
@@ -181,6 +237,7 @@ class SecurityDialog(BaseDialog):
         self.watchdog.check(self.port_data)
         self.watchdog.expire()
         self.blocker.check()
+        self._update_blocked_lists()
 
     def _auto_step(self) -> None:
         self._refresh()
@@ -206,9 +263,9 @@ class SecurityDialog(BaseDialog):
             names = [e.process for e in entries]
             exes = [e.exe for e in entries if e.exe]
             self.watchdog.add(port, pids, names=names, exes=exes)
-            self._refresh()
         else:
             messagebox.showwarning("Security Center", "Failed to terminate process")
+        self._refresh()
 
     def _kill_filtered(self) -> None:
         text = self.filter_var.get().strip()
@@ -250,6 +307,34 @@ class SecurityDialog(BaseDialog):
                 messagebox.showwarning("Security Center", "Failed to terminate process")
         self._refresh()
 
+    def _unblock_port(self) -> None:
+        line = self.blocked_ports_box.get("insert linestart", "insert lineend").strip()
+        if not line:
+            messagebox.showwarning("Security Center", "Select a blocked port first")
+            return
+        try:
+            port = int(line.split()[0])
+        except Exception:
+            messagebox.showwarning("Security Center", "Failed to parse port")
+            return
+        if self.watchdog.remove(port):
+            messagebox.showinfo("Security Center", f"Unblocked port {port}")
+        else:
+            messagebox.showwarning("Security Center", "Port not found")
+        self._update_blocked_lists()
+
+    def _unblock_process(self) -> None:
+        line = self.blocked_procs_box.get("insert linestart", "insert lineend").strip()
+        if not line:
+            messagebox.showwarning("Security Center", "Select a blocked process first")
+            return
+        name = line.split()[0]
+        if self.blocker.remove(name):
+            messagebox.showinfo("Security Center", f"Unblocked {name}")
+        else:
+            messagebox.showwarning("Security Center", "Process not found")
+        self._update_blocked_lists()
+
     def _apply(self) -> None:
         if not ensure_admin():
             return
@@ -277,3 +362,52 @@ class SecurityDialog(BaseDialog):
             self.after_cancel(self._refresh_job)
             self._refresh_job = None
         super().destroy()
+
+    # ------------------------------------------------------------------
+    # Context menus
+    # ------------------------------------------------------------------
+
+    def _on_port_right_click(self, event) -> None:
+        line = self.ports_box.get("@%d,%d linestart" % (event.x, event.y), "@%d,%d lineend" % (event.x, event.y)).strip()
+        if not line:
+            return
+        try:
+            port = int(line.split()[0])
+        except Exception:
+            return
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Kill", command=lambda: self._kill_port_menu(port))
+        menu.post(event.x_root, event.y_root)
+
+    def _kill_port_menu(self, port: int) -> None:
+        self.filter_var.set(str(port))
+        self._kill_filtered()
+
+    def _on_blocked_port_right_click(self, event) -> None:
+        line = self.blocked_ports_box.get("@%d,%d linestart" % (event.x, event.y), "@%d,%d lineend" % (event.x, event.y)).strip()
+        if not line:
+            return
+        try:
+            port = int(line.split()[0])
+        except Exception:
+            return
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Unblock", command=lambda: self._remove_blocked_port(port))
+        menu.post(event.x_root, event.y_root)
+
+    def _remove_blocked_port(self, port: int) -> None:
+        self.watchdog.remove(port)
+        self._update_blocked_lists()
+
+    def _on_blocked_proc_right_click(self, event) -> None:
+        line = self.blocked_procs_box.get("@%d,%d linestart" % (event.x, event.y), "@%d,%d lineend" % (event.x, event.y)).strip()
+        if not line:
+            return
+        name = line.split()[0]
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Unblock", command=lambda: self._remove_blocked_proc(name))
+        menu.post(event.x_root, event.y_root)
+
+    def _remove_blocked_proc(self, name: str) -> None:
+        self.blocker.remove(name)
+        self._update_blocked_lists()
