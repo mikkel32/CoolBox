@@ -2,6 +2,7 @@ import os
 import shutil
 from pathlib import Path
 from typing import Iterable, List
+import asyncio
 
 try:
     from .process_utils import (
@@ -96,3 +97,22 @@ def launch_vm_debug(
     if skip_deps:
         env["SKIP_DEPS"] = "1"
     run_command([str(root / "scripts" / "run_debug.sh")], timeout=None, env=env)
+
+
+async def async_launch_vm_debug(
+    prefer: str | None = None,
+    *,
+    open_code: bool = False,
+    port: int = 5678,
+    skip_deps: bool = False,
+) -> None:
+    """Asynchronous wrapper for :func:`launch_vm_debug`."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        launch_vm_debug,
+        prefer,
+        open_code,
+        port,
+        skip_deps,
+    )

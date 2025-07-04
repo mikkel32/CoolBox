@@ -88,3 +88,33 @@ def test_blocker_remove(monkeypatch, tmp_path):
     assert "/a" not in blocker.targets["bad"].exe_paths
     assert blocker.remove("bad") is True
     assert "bad" not in blocker.targets
+
+
+def test_blocker_clear(tmp_path):
+    blocker = ProcessBlocker(path=tmp_path / "b.json")
+    blocker.add("a")
+    blocker.add("b", "/x")
+    assert blocker.targets
+    blocker.clear()
+    assert blocker.targets == {}
+    assert (tmp_path / "b.json").is_file()
+
+
+def test_blocker_logging(monkeypatch, tmp_path):
+    events = []
+    monkeypatch.setattr(
+        "src.utils.process_blocker.security_log.add_security_event",
+        lambda c, m: events.append((c, m)),
+    )
+    proc = FakeProc(10, {"pid": 10, "name": "evil", "exe": "/e"})
+    monkeypatch.setattr(psutil, "Process", lambda pid: proc)
+    blocker = ProcessBlocker(path=tmp_path / "b.json")
+    blocker.add_by_pid(10)
+    blocker.add("evil", "/e")
+    blocker.remove("evil", "/e")
+    blocker.add("left")
+    blocker.clear()
+    assert ("block_process_pid", "pid 10") in events
+    assert ("block_process", "evil /e") in events
+    assert ("unblock_process", "evil /e") in events
+    assert ("clear_processes", "all") in events

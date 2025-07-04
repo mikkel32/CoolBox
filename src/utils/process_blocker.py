@@ -6,10 +6,12 @@ from dataclasses import dataclass, field
 
 
 import psutil
+import asyncio
 import json
 from pathlib import Path
 
 from .kill_utils import kill_process_tree
+from . import security_log
 
 
 @dataclass(slots=True)
@@ -31,7 +33,11 @@ class ProcessBlocker:
     """
 
     def __init__(self, path: str | Path | None = None) -> None:
-        self.path = Path(path).expanduser() if path else Path.home() / ".coolbox" / "blocked_processes.json"
+        self.path = (
+            Path(path).expanduser()
+            if path
+            else Path.home() / ".coolbox" / "blocked_processes.json"
+        )
         self.targets: dict[str, BlockTarget] = {}
         self._loaded: bool = False
         self.load()
@@ -74,6 +80,7 @@ class ProcessBlocker:
         except Exception:
             return
         self.add(name, exe)
+        security_log.add_security_event("block_process_pid", f"pid {pid}")
         self.save()
 
     def add(self, name: str, exe: str | None = None) -> None:
@@ -81,6 +88,9 @@ class ProcessBlocker:
         target = self.targets.setdefault(name, BlockTarget(name))
         if exe:
             target.exe_paths.add(exe)
+        security_log.add_security_event(
+            "block_process", name if not exe else f"{name} {exe}"
+        )
         self.save()
 
     def remove(self, name: str, exe: str | None = None) -> bool:
@@ -94,11 +104,15 @@ class ProcessBlocker:
                 if not target.exe_paths:
                     self.targets.pop(name, None)
                 self.save()
+                security_log.add_security_event(
+                    "unblock_process", name if not exe else f"{name} {exe}"
+                )
                 return True
             return False
         else:
             self.targets.pop(name, None)
             self.save()
+            security_log.add_security_event("unblock_process", name)
             return True
 
     # ------------------------------------------------------------------
@@ -120,3 +134,32 @@ class ProcessBlocker:
             if target.exe_paths and exe not in target.exe_paths:
                 continue
             kill_process_tree(proc.info["pid"])
+            security_log.add_security_event(
+                "kill_blocked_process", f"pid {proc.info['pid']}"
+            )
+
+    def clear(self) -> None:
+        """Remove all blocked processes."""
+
+        if not self.targets:
+            return
+        self.targets.clear()
+        self.save()
+        security_log.add_security_event("clear_processes", "all")
+
+    async def async_clear(self) -> None:
+        """Asynchronous wrapper for :func:`clear`."""
+
+        await asyncio.to_thread(self.clear)
+
+    async def async_add_by_pid(self, pid: int) -> None:
+        await asyncio.to_thread(self.add_by_pid, pid)
+
+    async def async_add(self, name: str, exe: str | None = None) -> None:
+        await asyncio.to_thread(self.add, name, exe)
+
+    async def async_remove(self, name: str, exe: str | None = None) -> bool:
+        return await asyncio.to_thread(self.remove, name, exe)
+
+    async def async_check(self) -> None:
+        await asyncio.to_thread(self.check)
