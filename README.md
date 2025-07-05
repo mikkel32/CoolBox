@@ -563,7 +563,9 @@ This requires Docker or Podman to be installed on your system. Like
 ``run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
 Docker environments. Install the ``xvfb`` package to ensure the
-``xvfb-run`` helper is available. Set ``DEBUG_PORT`` to expose a
+``xvfb-run`` helper is available. The Dockerfile now installs
+``python3-tk`` so Tkinter features like the window icon work correctly
+inside the container. Set ``DEBUG_PORT`` to expose a
 specific port (defaults to 5678). If that port is taken the container
 uses the next free one. You may also use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
