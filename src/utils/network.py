@@ -11,6 +11,7 @@ import shutil
 import ssl
 import re
 from pathlib import Path
+from .assets import asset_path
 from typing import (
     Callable,
     List,
@@ -48,9 +49,11 @@ _DEFAULT_PING_CONCURRENCY = int(
 _PING_CACHE_TTL = float(os.environ.get("PING_CACHE_TTL", 30.0))
 
 # Optional OUI database used for MAC vendor lookups
+
 _OUI_FILE = Path(
     os.environ.get(
-        "OUI_FILE", str(Path(__file__).resolve().parent.parent / "assets" / "oui.txt")
+        "OUI_FILE",
+        str(asset_path("oui.txt")),
     )
 )
 

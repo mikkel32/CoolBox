@@ -39,17 +39,7 @@ import sys
 import tempfile
 import ctypes
 
-
-def _assets_path(*parts: str) -> Path:
-    """Return the absolute path to an asset inside the project."""
-    base_env = os.environ.get("COOLBOX_ASSETS")
-    if base_env:
-        base = Path(base_env)
-    elif getattr(sys, "frozen", False):
-        base = Path(getattr(sys, "_MEIPASS"))  # type: ignore[attr-defined]
-    else:
-        base = Path(__file__).resolve().parents[1]
-    return base.joinpath("assets", *parts)
+from .utils.assets import asset_path
 
 from .config import Config
 from .components.sidebar import Sidebar
@@ -118,57 +108,15 @@ class CoolBoxApp:
 
     def _set_app_icon(self) -> None:
         """Set the window and dock icon to the CoolBox logo."""
-        icon_png = _assets_path("images", "coolbox_logo.png")
-        icon_ico = _assets_path("images", "coolbox_logo.ico")
         try:
-            image = None
-            if icon_png.is_file() and Image and ImageTk:
-                image = Image.open(icon_png)
-                self._icon_photo = ImageTk.PhotoImage(image)
-                if hasattr(ctk, "CTkImage"):
-                    self._icon_image = ctk.CTkImage(light_image=image, size=image.size)
-            elif icon_png.is_file():
-                import tkinter as tk
-                self._icon_photo = tk.PhotoImage(file=str(icon_png))  # type: ignore
-                self._icon_image = None
-            else:
-                self._icon_photo = None
-                self._icon_image = None
+            from .utils.icons import set_window_icon
 
-            if self._icon_photo:
-                self.window.iconphoto(True, self._icon_photo)
-
-            if sys.platform.startswith("win"):
-                ico_path = icon_ico if icon_ico.is_file() else None
-                if ico_path is None and image is not None and Image:
-                    try:
-                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ico")
-                        image.save(tmp, format="ICO")
-                        tmp.close()
-                        ico_path = Path(tmp.name)
-                        self._temp_icon = tmp.name
-                    except Exception as exc:  # pragma: no cover - optional feature
-                        log(f"Failed to create temporary icon: {exc}")
-                        ico_path = None
-                if ico_path is not None:
-                    try:
-                        self.window.iconbitmap(str(ico_path))
-                        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CoolBox")
-                    except Exception as exc:  # pragma: no cover - optional feature
-                        log(f"Failed to set taskbar icon: {exc}")
-            
+            photo, ctk_image, tmp = set_window_icon(self.window)
+            self._icon_photo = photo
+            self._icon_image = ctk_image
+            self._temp_icon = tmp
         except Exception as exc:  # pragma: no cover - best effort
             log(f"Failed to set window icon: {exc}")
-
-        if sys.platform == "darwin":
-            try:
-                from AppKit import NSApplication, NSImage
-
-                path = str(icon_ico if icon_ico.is_file() else icon_png)
-                ns_image = NSImage.alloc().initByReferencingFile_(path)
-                NSApplication.sharedApplication().setApplicationIconImage_(ns_image)
-            except Exception as exc:  # pragma: no cover - optional feature
-                log(f"Failed to set dock icon: {exc}")
 
     def get_icon_photo(self):
         """Return the cached application icon if available."""
