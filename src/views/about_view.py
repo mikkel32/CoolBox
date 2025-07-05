@@ -1,6 +1,7 @@
 """
 About view - Application info
 """
+import customtkinter as ctk
 from ..components.widgets import info_label
 from ..utils import open_path
 from .base_view import BaseView
@@ -23,6 +24,11 @@ class AboutView(BaseView):
     def _create_layout(self):
         """Create the about view layout"""
         container = self.create_container()
+
+        # Application logo
+        logo = self.app.get_icon_photo()
+        if logo is not None:
+            ctk.CTkLabel(container, image=logo, text="").pack(pady=(0, 10))
 
         self.add_title(container, "About CoolBox")
 
