@@ -43,13 +43,13 @@ __all__ = ["logo_paths", "set_window_icon"]
 
 
 def _notify(callback, message: str) -> None:
-    """Dispatch *message* to *callback* and the default logger."""
+    """Dispatch *message* to *callback* and optionally log it."""
     if callback:
         try:
             callback(message)
         except Exception:
             pass
-    log(message)
+        log(message)
 
 
 def _search_logo(filename: str, callback=None) -> Path:
@@ -137,7 +137,9 @@ def set_window_icon(window, *, callback=None) -> tuple[object | None, object | N
 
                 photo = tk.PhotoImage(file=str(png))  # type: ignore
             if ctk and hasattr(ctk, "CTkImage") and image is not None:
-                ctk_image = ctk.CTkImage(light_image=image, size=image.size)
+                ctk_image = ctk.CTkImage(
+                    light_image=image, dark_image=image, size=image.size
+                )
             window.iconphoto(True, photo)
 
         if sys.platform.startswith("win"):
