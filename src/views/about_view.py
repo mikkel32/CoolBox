@@ -26,7 +26,9 @@ class AboutView(BaseView):
         container = self.create_container()
 
         # Application logo
-        logo = self.app.get_icon_photo()
+        logo = self.app.get_icon_image()
+        if logo is None:
+            logo = self.app.get_icon_photo()
         if logo is not None:
             ctk.CTkLabel(container, image=logo, text="").pack(pady=(0, 10))
 
