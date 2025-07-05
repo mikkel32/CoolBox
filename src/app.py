@@ -15,12 +15,22 @@ try:
     from PIL import Image, ImageTk  # type: ignore
     if not hasattr(Image, "open"):
         raise ImportError
-except Exception:  # pragma: no cover - pillow not installed
+except Exception:  # pragma: no cover - pillow not installed or stub found
     try:
         from .ensure_deps import ensure_pillow
 
         ensure_pillow()
-        from PIL import Image, ImageTk  # type: ignore
+        import importlib
+        import sys
+
+        for name in list(sys.modules):
+            if name.startswith("PIL"):
+                sys.modules.pop(name)
+        importlib.invalidate_caches()
+        Image = importlib.import_module("PIL.Image")  # type: ignore
+        ImageTk = importlib.import_module("PIL.ImageTk")  # type: ignore
+        if not hasattr(Image, "open"):
+            raise ImportError
     except Exception:
         Image = None  # type: ignore
         ImageTk = None  # type: ignore
@@ -95,7 +105,7 @@ class CoolBoxApp:
 
     def _set_app_icon(self) -> None:
         """Set the window and dock icon to the CoolBox logo."""
-        icon_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "Coolbox_logo.png"
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "coolbox_logo.png"
         try:
             if Image and ImageTk:
                 image = Image.open(icon_path)
