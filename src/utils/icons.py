@@ -18,9 +18,26 @@ except Exception:  # pragma: no cover - optional runtime dep
 
 try:
     from PIL import Image, ImageTk  # type: ignore
-except Exception:  # pragma: no cover - pillow optional
-    Image = None  # type: ignore
-    ImageTk = None  # type: ignore
+    if not hasattr(Image, "open"):
+        raise ImportError
+except Exception:  # pragma: no cover - pillow optional or stub detected
+    try:
+        from ..ensure_deps import ensure_pillow
+
+        ensure_pillow()
+        import importlib
+
+        for name in list(sys.modules):
+            if name.startswith("PIL"):
+                sys.modules.pop(name)
+        importlib.invalidate_caches()
+        Image = importlib.import_module("PIL.Image")  # type: ignore
+        ImageTk = importlib.import_module("PIL.ImageTk")  # type: ignore
+        if not hasattr(Image, "open"):
+            raise ImportError
+    except Exception:
+        Image = None  # type: ignore
+        ImageTk = None  # type: ignore
 
 __all__ = ["logo_paths", "set_window_icon"]
 
