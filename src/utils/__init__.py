@@ -23,6 +23,11 @@ _ATTR_MODULES = {
     "hex_brightness": "helpers",
     "run_with_spinner": "helpers",
     "console": "helpers",
+    # asset helpers
+    "asset_path": "assets",
+    "assets_base": "assets",
+    "logo_paths": "icons",
+    "set_window_icon": "icons",
     # rainbow
     "RainbowBorder": "rainbow",
     "NeonPulseBorder": "rainbow",
