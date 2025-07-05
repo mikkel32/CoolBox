@@ -29,6 +29,29 @@ fi
 # Choose debug port
 DEBUG_PORT=${DEBUG_PORT:-5678}
 
+# Pick a free port starting at DEBUG_PORT
+check_port() {
+    python - "$1" <<'EOF'
+import socket, sys
+port = int(sys.argv[1])
+s = socket.socket()
+try:
+    s.bind(("", port))
+except OSError:
+    sys.exit(1)
+else:
+    s.close()
+    sys.exit(0)
+EOF
+}
+
+for p in $(seq "$DEBUG_PORT" "$((DEBUG_PORT+10))"); do
+    if check_port "$p"; then
+        DEBUG_PORT="$p"
+        break
+    fi
+done
+
 # Terminate any previous debugpy listener on this port
 if command -v pkill >/dev/null 2>&1; then
     pkill -f "debugpy --listen $DEBUG_PORT" 2>/dev/null || true
