@@ -19,6 +19,7 @@ import importlib.machinery
 import importlib.util
 import os
 import site
+import sys
 
 
 def _load_system_ctk() -> ModuleType | None:
@@ -36,6 +37,10 @@ def _load_system_ctk() -> ModuleType | None:
         if spec and spec.origin and spec.origin != __file__:
             module = importlib.util.module_from_spec(spec)
             assert spec.loader
+            # Replace this temporary module entry before executing to avoid
+            # recursion when the package performs relative imports.
+            sys.modules.pop(__name__, None)
+            sys.modules['customtkinter'] = module
             spec.loader.exec_module(module)
             return module
     return None
