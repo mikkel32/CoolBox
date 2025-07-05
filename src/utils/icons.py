@@ -103,7 +103,12 @@ def _load_image(path: Path, callback=None) -> "Image.Image | None":
         return None
     try:
         _notify(callback, f"Loading image from {path}")
-        return Image.open(path)
+        img = Image.open(path)
+        if max(img.size) > 256:
+            orig = img.size
+            img = img.resize((256, 256), Image.LANCZOS)
+            _notify(callback, f"Resized icon from {orig} to {img.size}")
+        return img
     except Exception as exc:  # pragma: no cover - best effort
         _notify(callback, f"Failed to load image {path}: {exc}")
         return None
