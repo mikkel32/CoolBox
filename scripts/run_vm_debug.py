@@ -4,6 +4,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Callable
 from importlib.util import module_from_spec, spec_from_file_location
+import socket
 
 import sys
 
@@ -31,6 +32,19 @@ def _load_launch() -> 'Callable[[str | None, bool, int, bool], None]':
     module = module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[arg-type]
     return getattr(module, "launch_vm_debug")
+
+
+def pick_port(start: int = 5678, count: int = 10) -> int:
+    """Return a free TCP port starting at *start* within *count* attempts."""
+
+    for port in range(start, start + count + 1):
+        with socket.socket() as s:
+            try:
+                s.bind(("", port))
+            except OSError:
+                continue
+            return port
+    return start
 
 
 def parse_args(argv: list[str] | None = None) -> Namespace:
@@ -78,10 +92,13 @@ def main(argv: list[str] | None = None) -> None:
         "Starting debug environment using",
         args.prefer if args.prefer != "auto" else "auto-detected backend",
     )
+    port = pick_port(args.port)
+    if port != args.port:
+        print(f"Debug port {args.port} in use; using {port}")
     launch(
         prefer=args.prefer if args.prefer != "auto" else None,
         open_code=args.code,
-        port=args.port,
+        port=port,
         skip_deps=args.skip_deps,
     )
 

@@ -563,21 +563,26 @@ This requires Docker or Podman to be installed on your system. Like
 ``run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
 Docker environments. Install the ``xvfb`` package to ensure the
-``xvfb-run`` helper is available. You may also use ``./scripts/run_vm_debug.sh`` or
+``xvfb-run`` helper is available. Set ``DEBUG_PORT`` to expose a
+specific port (defaults to 5678). If that port is taken the container
+uses the next free one. You may also use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
 ``run_debug.sh`` so you can still debug locally.
 When this fallback occurs the application waits for a debugger to attach on
-``DEBUG_PORT`` (default ``5678``). Run ``python scripts/run_vm_debug.py --list``
-to verify whether Docker, Podman or Vagrant are available on your system.
+``DEBUG_PORT``. If the selected port is busy the scripts automatically pick the
+next free one. Set ``DEBUG_PORT`` to override the starting port. Run
+``python scripts/run_vm_debug.py --list`` to verify whether Docker, Podman or
+Vagrant are available on your system.
 
 ### Debugging in a Vagrant VM
 
 If you prefer a lightweight virtual machine instead of Docker, a
 `Vagrantfile` is provided. This sets up an Ubuntu VM with all
 dependencies preinstalled and starts CoolBox under `debugpy`.
-The debug server port **5678** is forwarded to the host by default so you can attach
-to `localhost:5678`. Use ``--port`` to choose a custom port:
+The debug server port defaults to **5678** and is forwarded to the host.  If that
+port is unavailable the next free port is used automatically.  Override it by
+setting ``DEBUG_PORT`` or passing ``--port``:
 
 ```bash
 ./scripts/run_vagrant.sh

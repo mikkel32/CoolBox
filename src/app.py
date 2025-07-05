@@ -11,7 +11,19 @@ except ImportError:  # pragma: no cover - runtime dependency check
     ctk = ensure_customtkinter()
 from typing import Dict, Optional, TYPE_CHECKING
 from pathlib import Path
-from PIL import Image, ImageTk
+try:
+    from PIL import Image, ImageTk  # type: ignore
+    if not hasattr(Image, "open"):
+        raise ImportError
+except Exception:  # pragma: no cover - pillow not installed
+    try:
+        from .ensure_deps import ensure_pillow
+
+        ensure_pillow()
+        from PIL import Image, ImageTk  # type: ignore
+    except Exception:
+        Image = None  # type: ignore
+        ImageTk = None  # type: ignore
 import sys
 import tempfile
 import ctypes
@@ -85,11 +97,16 @@ class CoolBoxApp:
         """Set the window and dock icon to the CoolBox logo."""
         icon_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "Coolbox_logo.png"
         try:
-            image = Image.open(icon_path)
-            self._icon_photo = ImageTk.PhotoImage(image)
+            if Image and ImageTk:
+                image = Image.open(icon_path)
+                self._icon_photo = ImageTk.PhotoImage(image)
+            else:
+                import tkinter as tk
+
+                self._icon_photo = tk.PhotoImage(file=str(icon_path))  # type: ignore
             self.window.iconphoto(True, self._icon_photo)
 
-            if sys.platform.startswith("win"):
+            if sys.platform.startswith("win") and Image and ImageTk:
                 try:
                     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ico")
                     image.save(tmp, format="ICO")
