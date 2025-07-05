@@ -110,10 +110,13 @@ class CoolBoxApp:
             if Image and ImageTk:
                 image = Image.open(icon_path)
                 self._icon_photo = ImageTk.PhotoImage(image)
+                if hasattr(ctk, "CTkImage"):
+                    self._icon_image = ctk.CTkImage(light_image=image, size=image.size)
             else:
                 import tkinter as tk
 
                 self._icon_photo = tk.PhotoImage(file=str(icon_path))  # type: ignore
+                self._icon_image = None
             self.window.iconphoto(True, self._icon_photo)
 
             if sys.platform.startswith("win") and Image and ImageTk:
@@ -144,6 +147,10 @@ class CoolBoxApp:
     def get_icon_photo(self):
         """Return the cached application icon if available."""
         return getattr(self, "_icon_photo", None)
+
+    def get_icon_image(self):
+        """Return the CTkImage version of the application icon if available."""
+        return getattr(self, "_icon_image", None)
 
     def _setup_ui(self):
         """Setup the main UI layout"""
