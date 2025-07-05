@@ -171,14 +171,14 @@ class PortWatchdog:
                         security_log.add_security_event("kill_port", f"pid {pid} port {port}")
                     except Exception:
                         pass
-            rec.pids.update(active_pids)
             if killed:
                 rec.attempts += 1
                 rec.last_seen = now
                 changed = True
             if rec.attempts >= self.max_attempts:
                 for pid in rec.pids:
-                    self.blocker.add_by_pid(pid)
+                    if psutil.pid_exists(pid):
+                        self.blocker.add_by_pid(pid)
                 for name in rec.names:
                     if rec.exes:
                         for exe in rec.exes:
@@ -191,6 +191,7 @@ class PortWatchdog:
                     rec.blocked_firewall = True
                     security_log.add_security_event("firewall_block_port", f"port {port}")
                 changed = True
+            rec.pids.update(active_pids)
         if changed:
             self.save()
 
