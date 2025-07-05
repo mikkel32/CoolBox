@@ -4,7 +4,8 @@ Vagrant.configure("2") do |config|
     vb.memory = 2048
   end
   # Forward debugpy port so the host can attach with VS Code
-  config.vm.network "forwarded_port", guest: 5678, host: 5678
+  host_port = ENV.fetch("DEBUG_PORT", "5678").to_i
+  config.vm.network "forwarded_port", guest: 5678, host: host_port
   config.vm.provision "shell", inline: <<-SHELL
     set -e
     apt-get update

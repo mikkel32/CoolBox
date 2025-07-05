@@ -172,6 +172,18 @@ def test_vm_cli_main_launch(monkeypatch):
     assert calls == [("docker", True, 1234, False)]
 
 
+def test_vm_cli_main_auto_port(monkeypatch):
+    calls = []
+
+    def fake_launch(prefer=None, open_code=False, port=5678, skip_deps=False):
+        calls.append(port)
+
+    monkeypatch.setattr(vmcli, "_load_launch", lambda: fake_launch)
+    monkeypatch.setattr(vmcli, "pick_port", lambda p: 6000)
+    vmcli.main([])
+    assert calls == [6000]
+
+
 def test_vm_cli_main_list(monkeypatch, capsys):
     monkeypatch.setattr(vmcli, "available_backends", lambda: ["docker"])
     vmcli.main(["--list"])

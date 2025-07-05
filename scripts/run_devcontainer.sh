@@ -15,12 +15,13 @@ fi
 
 IMAGE_NAME=coolbox-dev
 CONTAINER_NAME=coolbox_dev
+DEBUG_PORT="${DEBUG_PORT:-5678}"
 
 # Build image
 $ENGINE build -f .devcontainer/Dockerfile -t $IMAGE_NAME .
 
 # Run container and start app under debugpy
-RUN_CMD="python -Xfrozen_modules=off -m debugpy --listen 5678 --wait-for-client main.py"
+RUN_CMD="python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client main.py"
 if [ -z "$DISPLAY" ]; then
     if command -v xvfb-run >/dev/null 2>&1; then
         RUN_CMD="xvfb-run -a $RUN_CMD"
@@ -31,6 +32,8 @@ fi
 exec $ENGINE run --rm \
     --name $CONTAINER_NAME \
     -e DISPLAY=$DISPLAY \
+    -e DEBUG_PORT=$DEBUG_PORT \
+    -p $DEBUG_PORT:$DEBUG_PORT \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v "$(pwd)":/workspace \
     -w /workspace \
