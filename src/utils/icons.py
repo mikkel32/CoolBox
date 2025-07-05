@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import ctypes
+import atexit
 
 from .assets import asset_path
 from .helpers import log
@@ -55,12 +56,27 @@ def _notify(callback, message: str) -> None:
 def _search_logo(filename: str, callback=None) -> Path:
     """Attempt to locate *filename* across common directories."""
 
+    xdg_dirs = []
+    xdg_env = os.environ.get("XDG_DATA_DIRS")
+    if xdg_env:
+        xdg_dirs.extend(Path(p) / "icons" for p in xdg_env.split(":"))
+
+    extra_dirs = [
+        Path(os.environ.get("COOLBOX_ICON_DIR", "")),
+        Path("/usr/local/share/icons"),
+        Path("/usr/share/icons"),
+        Path("/usr/share/pixmaps"),
+        Path("/usr/share/icons/hicolor"),
+        Path.home() / ".icons",
+    ] + xdg_dirs
+
     candidates = [
         Path(os.environ.get("COOLBOX_ASSETS", "")) / "assets" / "images",
         Path(__file__).resolve().parents[2] / "assets" / "images",
         Path.cwd(),
         Path(sys.executable).resolve().parent,
-    ]
+        Path.home() / ".local" / "share" / "icons",
+    ] + extra_dirs
 
     for base in candidates:
         p = base / filename
@@ -114,6 +130,28 @@ def _load_image(path: Path, callback=None) -> "Image.Image | None":
         return None
 
 
+def _apply_iconphoto(window, photo, callback=None) -> None:
+    """Apply *photo* to *window* and as the default for new windows."""
+    try:
+        window.tk.call("wm", "iconphoto", window._w, "-default", photo)
+    except Exception as exc:
+        _notify(callback, f"tk.call iconphoto failed: {exc}")
+        try:
+            window.iconphoto(True, photo)
+        except Exception as exc2:  # pragma: no cover - best effort
+            _notify(callback, f"iconphoto failed: {exc2}")
+
+
+def _apply_iconbitmap(window, ico_path: Path, callback=None) -> None:
+    """Apply the bitmap *ico_path* to *window*."""
+    try:
+        window.iconbitmap(str(ico_path))
+        if sys.platform.startswith("win"):
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CoolBox")
+    except Exception as exc:  # pragma: no cover - optional feature
+        _notify(callback, f"iconbitmap failed: {exc}")
+
+
 def set_window_icon(window, *, callback=None) -> tuple[object | None, object | None, str | None]:
     """Set the application icon on *window* and return icon objects.
 
@@ -145,29 +183,21 @@ def set_window_icon(window, *, callback=None) -> tuple[object | None, object | N
                 ctk_image = ctk.CTkImage(
                     light_image=image, dark_image=image, size=image.size
                 )
+            _apply_iconphoto(window, photo, callback)
+
+        ico_path = ico if ico.is_file() else None
+        if ico_path is None and image is not None and Image:
             try:
-                window.iconphoto(True, photo)
-            except Exception as exc:  # pragma: no cover - best effort
-                _notify(callback, f"iconphoto failed: {exc}")
-
-        if sys.platform.startswith("win"):
-            _notify(callback, "Detected Windows platform")
-            ico_path = ico if ico.is_file() else None
-            if ico_path is None and image is not None and Image:
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".ico") as tmp:
-                        image.save(tmp, format="ICO")
-                    ico_path = Path(tmp.name)
-                    tmp_path = tmp.name
-                except Exception:  # pragma: no cover - optional feature
-                    ico_path = None
-            if ico_path is not None:
-                try:
-                    window.iconbitmap(str(ico_path))
-                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CoolBox")
-                except Exception:  # pragma: no cover - optional feature
-                    pass
-
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".ico") as tmp:
+                    image.save(tmp, format="ICO")
+                ico_path = Path(tmp.name)
+                tmp_path = tmp.name
+                atexit.register(lambda p=tmp_path: Path(p).unlink(missing_ok=True))
+            except Exception:  # pragma: no cover - optional feature
+                ico_path = None
+        if ico_path is not None:
+            _apply_iconbitmap(window, ico_path, callback)
+        
     except Exception:  # pragma: no cover - best effort
         _notify(callback, "Failed to set Windows icon")
 
