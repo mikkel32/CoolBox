@@ -140,7 +140,10 @@ def set_window_icon(window, *, callback=None) -> tuple[object | None, object | N
                 ctk_image = ctk.CTkImage(
                     light_image=image, dark_image=image, size=image.size
                 )
-            window.iconphoto(True, photo)
+            try:
+                window.iconphoto(True, photo)
+            except Exception as exc:  # pragma: no cover - best effort
+                _notify(callback, f"iconphoto failed: {exc}")
 
         if sys.platform.startswith("win"):
             _notify(callback, "Detected Windows platform")
