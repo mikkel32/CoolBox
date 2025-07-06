@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
-import os
 import shlex
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from src.utils import launch_vm_debug
 import socket
@@ -26,6 +29,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Debug port to use when launching the environment",
     )
     parser.add_argument("--skip-deps", action="store_true", help="Skip installing dependencies in the VM")
+    parser.add_argument("--quiet", action="store_true", help="Suppress status messages")
+    parser.add_argument("--no-wait", action="store_true", help="Do not wait for debugger attach")
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="Launch VM in the background and return immediately",
+    )
     return parser.parse_args(argv)
 
 
@@ -49,13 +59,18 @@ def main(argv: list[str] | None = None) -> None:
     port = pick_port(args.port)
     if port != args.port:
         print(f"Debug port {args.port} in use; using {port}")
-    launch_vm_debug(
+    ok = launch_vm_debug(
         prefer=None if args.prefer == "auto" else args.prefer,
         open_code=args.code,
         port=port,
         skip_deps=args.skip_deps,
         target=target,
+        print_output=not args.quiet,
+        nowait=args.no_wait,
+        detach=args.detach,
     )
+    if not ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

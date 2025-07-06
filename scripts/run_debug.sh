@@ -62,13 +62,21 @@ fi
 # can initialize correctly.
 TARGET="${DEBUG_TARGET:-main.py}"
 
+ARGS=(python -Xfrozen_modules=off -m debugpy --listen "$DEBUG_PORT")
+if [ "$DEBUG_NOWAIT" = "1" ]; then
+    :
+else
+    ARGS+=(--wait-for-client)
+fi
+ARGS+=("$TARGET")
+
 if [ -z "$DISPLAY" ]; then
     if command -v xvfb-run >/dev/null 2>&1; then
-        exec xvfb-run -a python -Xfrozen_modules=off -m debugpy --listen "$DEBUG_PORT" --wait-for-client $TARGET
+        exec xvfb-run -a "${ARGS[@]}"
     else
         echo "warning: xvfb-run not found; running without virtual display" >&2
-        exec python -Xfrozen_modules=off -m debugpy --listen "$DEBUG_PORT" --wait-for-client $TARGET
+        exec "${ARGS[@]}"
     fi
 else
-    exec python -Xfrozen_modules=off -m debugpy --listen "$DEBUG_PORT" --wait-for-client $TARGET
+    exec "${ARGS[@]}"
 fi
