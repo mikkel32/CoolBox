@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install Tk for CustomTkinter
 RUN apt-get update && \
-    apt-get install -y tk python3-tk git && \
+    apt-get install -y tk git && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
