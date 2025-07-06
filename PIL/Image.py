@@ -4,3 +4,4 @@ class Image:
 
     def resize(self, *args, **kwargs):
         return self
+
