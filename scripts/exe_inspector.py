@@ -15,6 +15,8 @@ sys.path.insert(0, str(ROOT))
 from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
 from rich.prompt import Prompt  # noqa: E402
+from rich.panel import Panel  # noqa: E402
+from rich.text import Text  # noqa: E402
 from typing import Any
 import shlex
 
@@ -45,6 +47,9 @@ import ctypes
 import ctypes.util
 import os
 import re
+import mimetypes
+import math
+from datetime import timedelta
 
 HASHCALC_BIN_DEFAULT = Path(__file__).with_name("hash_calc")
 LIB_EXT = {
@@ -476,6 +481,78 @@ def _extract_strings(path: Path, *, limit: int = 10, min_len: int = 4) -> List[s
     return found
 
 
+def _format_bytes(size: int) -> str:
+    """Return *size* in a human friendly form."""
+    units = ["bytes", "KB", "MB", "GB", "TB"]
+    s = float(size)
+    for unit in units:
+        if s < 1024 or unit == units[-1]:
+            return f"{s:.1f} {unit}" if unit != "bytes" else f"{int(s)} bytes"
+        s /= 1024
+    return f"{size} bytes"
+
+
+def _entropy_rating(entropy: float) -> str:
+    """Return a qualitative rating for *entropy*."""
+    if entropy >= 7.5:
+        return "high"
+    if entropy >= 5.0:
+        return "medium"
+    return "low"
+
+
+def _format_duration(seconds: float) -> str:
+    """Return *seconds* in a human friendly duration string."""
+    parts: list[str] = []
+    units = [
+        ("day", 86400),
+        ("hour", 3600),
+        ("minute", 60),
+        ("second", 1),
+    ]
+    for name, count in units:
+        value = int(seconds // count)
+        if value:
+            parts.append(f"{value} {name}{'s' if value != 1 else ''}")
+            seconds -= value * count
+        if len(parts) == 2:
+            break
+    return ", ".join(parts) if parts else "0 seconds"
+
+
+def _age_rating(seconds: float) -> str:
+    """Return a qualitative rating for file age."""
+    days = seconds / 86400
+    if days < 1:
+        return "new"
+    if days < 30:
+        return "recent"
+    return "old"
+
+
+
+def _file_entropy(path: Path, *, sample_size: int = 1_000_000) -> float | None:
+    """Return approximate Shannon entropy for *path*.
+
+    Reads up to ``sample_size`` bytes. Returns ``None`` if the file can't be read.
+    """
+    try:
+        with path.open("rb") as fh:
+            data = fh.read(sample_size)
+    except Exception:
+        return None
+
+    if not data:
+        return 0.0
+
+    freq = [0] * 256
+    for b in data:
+        freq[b] += 1
+    length = len(data)
+    entropy = -sum((n / length) * math.log2(n / length) for n in freq if n)
+    return round(entropy, 3)
+
+
 def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, str]:
     info: Dict[str, str] = {
         "Path": str(path),
@@ -487,6 +564,9 @@ def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, 
     if target:
         info["Target"] = target
     info["Executable"] = str(os.access(path, os.X_OK))
+    mime, _ = mimetypes.guess_type(str(path))
+    if mime:
+        info["MIME"] = mime
     if path.exists():
         try:
             stat = path.stat()
@@ -496,8 +576,10 @@ def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, 
 
         info.update(
             {
-                "Size": f"{stat.st_size} bytes",
+                "Size": _format_bytes(stat.st_size),
                 "Modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "Age": _format_duration((datetime.datetime.now() - datetime.datetime.fromtimestamp(stat.st_mtime)).total_seconds()),
+                "AgeRating": _age_rating((datetime.datetime.now() - datetime.datetime.fromtimestamp(stat.st_mtime)).total_seconds()),
                 "Accessed": datetime.datetime.fromtimestamp(stat.st_atime).isoformat(),
                 "Created": datetime.datetime.fromtimestamp(stat.st_ctime).isoformat(),
                 "Owner": _file_owner(path) or "unknown",
@@ -505,6 +587,15 @@ def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, 
                 "Mode": _file_mode_text(path) or "unknown",
             }
         )
+
+        entropy = _file_entropy(path)
+        if entropy is not None:
+            info["Entropy"] = f"{entropy}"  # already rounded
+            info["EntropyRating"] = _entropy_rating(entropy)
+
+        procs = _processes_for(path)
+        if procs:
+            info["ProcessCount"] = str(len(procs))
 
         arch = _detect_architecture(path)
         if arch:
@@ -557,6 +648,25 @@ def _ports_for(pids: List[int]) -> Dict[int, List[str]]:
     return result
 
 
+def _style_bool(val: str | bool) -> Text:
+    real = val if isinstance(val, bool) else val.lower() in {"true", "yes", "1"}
+    color = "green" if real else "red"
+    text = "Yes" if real else "No"
+    return Text(text, style=color)
+
+
+def _style_rating(rating: str) -> Text:
+    colors = {
+        "high": "red",
+        "medium": "yellow",
+        "low": "green",
+        "new": "green",
+        "recent": "yellow",
+        "old": "red",
+    }
+    return Text(rating.capitalize(), style=colors.get(rating, "white"))
+
+
 def display(
     info: Dict[str, str],
     procs: List[psutil.Process],
@@ -564,15 +674,20 @@ def display(
     strings: List[str] | None = None,
 ) -> None:
     console = Console()
-    table = Table(title="Executable Info", show_lines=True)
-    table.add_column("Property", style="bold")
-    table.add_column("Value")
+    table = Table(title="Executable Info", show_lines=True, expand=True)
+    table.add_column("Property", style="bold cyan")
+    table.add_column("Value", overflow="fold")
     for k, v in info.items():
-        table.add_row(k, v)
-    console.print(table)
+        if k in {"Exists", "Executable", "IsSymlink"}:
+            table.add_row(k, _style_bool(v))
+        elif k in {"EntropyRating", "AgeRating"}:
+            table.add_row(k, _style_rating(v))
+        else:
+            table.add_row(k, v)
+    console.print(Panel(table, border_style="blue"))
 
     if procs:
-        pt = Table(title="Running Processes", show_lines=True)
+        pt = Table(title="Running Processes", show_lines=True, expand=True)
         pt.add_column("PID", justify="right")
         pt.add_column("Name")
         for p in procs:
@@ -580,22 +695,22 @@ def display(
                 pt.add_row(str(p.pid), p.name())
             except Exception:
                 continue
-        console.print(pt)
+        console.print(Panel(pt, border_style="green"))
 
     if ports:
-        port_table = Table(title="Listening Ports", show_lines=True)
+        port_table = Table(title="Listening Ports", show_lines=True, expand=True)
         port_table.add_column("Port", justify="right")
         port_table.add_column("Process")
         for port, names in ports.items():
             port_table.add_row(str(port), ", ".join(names))
-        console.print(port_table)
+        console.print(Panel(port_table, border_style="magenta"))
 
     if strings:
-        st = Table(title="Strings", show_lines=True)
+        st = Table(title="Strings", show_lines=True, expand=True)
         st.add_column("Text")
         for s in strings:
             st.add_row(s)
-        console.print(st)
+        console.print(Panel(st, border_style="cyan"))
 
 
 class InspectorApp(App):
