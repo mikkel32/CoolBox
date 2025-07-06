@@ -15,6 +15,16 @@ sys.path.insert(0, str(ROOT))
 from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
 from rich.prompt import Prompt  # noqa: E402
+from textual.app import App, ComposeResult  # noqa: E402
+from textual.widgets import (
+    DataTable,
+    Header,
+    Footer,
+    TabPane,
+    TabbedContent,
+    Input,
+)
+from textual.containers import Container  # noqa: E402
 import psutil  # noqa: E402
 
 from src.utils.helpers import calc_hash  # noqa: E402
@@ -202,6 +212,105 @@ def display(info: Dict[str, str], procs: List[psutil.Process], ports: Dict[int, 
         console.print(st)
 
 
+class InspectorApp(App):
+    """Textual application displaying inspection results with refresh and filtering."""
+
+    CSS_PATH = Path(__file__).with_suffix(".tcss")
+
+    BINDINGS = [
+        ("q", "quit", "Quit"),
+        ("r", "refresh", "Refresh"),
+        ("/", "filter_strings", "Filter Strings"),
+    ]
+
+    def __init__(self, info: Dict[str, str], procs: List[psutil.Process], ports: Dict[int, List[str]], strings: List[str] | None) -> None:
+        super().__init__()
+        self.info = info
+        self.procs = procs
+        self.ports = ports
+        self.strings = strings or []
+        self.strings_filter = ""
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Footer()
+
+        self.info_table = DataTable(zebra_stripes=True)
+        self.info_table.add_column("Property")
+        self.info_table.add_column("Value")
+
+        self.procs_table = DataTable(zebra_stripes=True)
+        self.procs_table.add_column("PID", width=6)
+        self.procs_table.add_column("Name")
+
+        self.port_table = DataTable(zebra_stripes=True)
+        self.port_table.add_column("Port", width=6)
+        self.port_table.add_column("Process")
+
+        self.strings_table = DataTable(zebra_stripes=True)
+        self.strings_table.add_column("Strings")
+
+        self.filter_input = Input(placeholder="Filter strings", id="filter-input")
+        self.filter_input.display = False
+
+        tabs = TabbedContent(
+            TabPane(self.info_table, id="info", title="Info"),
+            TabPane(self.procs_table, id="procs", title="Processes"),
+            TabPane(self.port_table, id="ports", title="Ports"),
+            TabPane(self.strings_table, id="strings", title="Strings"),
+        )
+        yield Container(tabs, id="body")
+        yield self.filter_input
+
+    def on_mount(self) -> None:  # pragma: no cover - UI setup
+        self.load_tables()
+
+    def load_tables(self) -> None:
+        """Populate tables from current state."""
+        self.info_table.clear()
+        for k, v in self.info.items():
+            self.info_table.add_row(k, v)
+
+        self.procs_table.clear()
+        for p in self.procs:
+            try:
+                self.procs_table.add_row(str(p.pid), p.name())
+            except Exception:
+                continue
+
+        self.port_table.clear()
+        for port, names in self.ports.items():
+            self.port_table.add_row(str(port), ", ".join(names))
+
+        self._load_strings()
+
+    def _load_strings(self) -> None:
+        self.strings_table.clear()
+        for s in self.filter_strings():
+            self.strings_table.add_row(s)
+
+    def filter_strings(self) -> List[str]:
+        return [s for s in self.strings if self.strings_filter.lower() in s.lower()]
+
+    def action_refresh(self) -> None:
+        path = Path(self.info.get("Path", ""))
+        if path.exists():
+            self.procs = _processes_for(path)
+            self.ports = _ports_for([p.pid for p in self.procs]) if self.procs else {}
+        self.load_tables()
+
+    def action_filter_strings(self) -> None:
+        self.filter_input.display = True
+        self.set_focus(self.filter_input)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:  # pragma: no cover - UI interaction
+        if event.input.id == "filter-input":
+            self.strings_filter = event.value
+            self.filter_input.value = ""
+            self.filter_input.display = False
+            self._load_strings()
+
+
 def main(argv: List[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Inspect an executable file")
     parser.add_argument("exe", nargs="?", help="Path to executable")
@@ -215,6 +324,11 @@ def main(argv: List[str] | None = None) -> None:
         type=int,
         metavar="N",
         help="Display up to N printable strings from the file",
+    )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Launch interactive terminal UI",
     )
     args = parser.parse_args(argv)
 
@@ -231,7 +345,10 @@ def main(argv: List[str] | None = None) -> None:
 
     strings = _extract_strings(exe_path, limit=args.strings) if args.strings else None
 
-    display(info, procs, ports, strings)
+    if args.tui:
+        InspectorApp(info, procs, ports, strings).run()
+    else:
+        display(info, procs, ports, strings)
 
 
 if __name__ == "__main__":

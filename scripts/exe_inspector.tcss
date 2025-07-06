@@ -1,0 +1,11 @@
+#body {
+    padding: 1 2;
+}
+DataTable {
+    height: 1fr;
+    border: round #00eaff;
+}
+Input#filter-input {
+    dock: bottom;
+    width: 100%;
+}
