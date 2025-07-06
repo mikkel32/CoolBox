@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import hashlib
 import datetime
 import stat
+import os
 import pytest
 import sys
 import types
@@ -563,3 +564,69 @@ def test_gather_info_rpath(monkeypatch, tmp_path):
     monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
     info = inspector.gather_info(exe)
     assert info.get("RPATH") == "/opt/lib"
+
+
+def test_gather_info_extra(monkeypatch, tmp_path):
+    exe = tmp_path / "note.txt"
+    exe.write_text("hello world")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+
+    class DummyProc:
+        pid = 1
+    monkeypatch.setattr(inspector, "_processes_for", lambda p: [DummyProc()])
+
+    info = inspector.gather_info(exe)
+    assert info["MIME"] == "text/plain"
+    assert float(info["Entropy"]) > 0
+    assert info["EntropyRating"] == "low"
+    assert info["ProcessCount"] == "1"
+
+
+def test_entropy_empty(tmp_path):
+    f = tmp_path / "empty"
+    f.write_bytes(b"")
+    assert inspector._file_entropy(f) == 0.0
+
+
+def test_format_bytes() -> None:
+    assert inspector._format_bytes(500) == "500 bytes"
+    assert inspector._format_bytes(2048) == "2.0 KB"
+
+
+def test_entropy_rating() -> None:
+    assert inspector._entropy_rating(8.0) == "high"
+    assert inspector._entropy_rating(6.0) == "medium"
+    assert inspector._entropy_rating(3.0) == "low"
+
+
+def test_format_duration() -> None:
+    assert inspector._format_duration(45) == "45 seconds"
+    assert inspector._format_duration(3661) == "1 hour, 1 minute"
+
+
+def test_age_rating() -> None:
+    assert inspector._age_rating(60) == "new"
+    assert inspector._age_rating(86400 * 5) == "recent"
+    assert inspector._age_rating(86400 * 60) == "old"
+
+
+def test_gather_info_age(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    fixed_now = datetime.datetime(2024, 1, 10, 12, 0, 0)
+    mtime = (fixed_now - datetime.timedelta(days=3)).timestamp()
+    os.utime(exe, (mtime, mtime))
+
+    class DummyDT(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return fixed_now
+
+    dummy_module = types.SimpleNamespace(datetime=DummyDT)
+    monkeypatch.setattr(inspector, "datetime", dummy_module)
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+
+    info = inspector.gather_info(exe)
+    assert info["AgeRating"] == "recent"
+    assert info["Age"].startswith("3 day")
