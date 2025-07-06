@@ -89,3 +89,36 @@ def test_extract_strings(tmp_path):
     strings = inspector._extract_strings(exe, limit=5, min_len=4)
     assert "hello" in strings
     assert "world1234" in strings
+
+
+def test_tui_app_init() -> None:
+    info = {"Path": "x"}
+    app = inspector.InspectorApp(info, [], {}, None)
+    assert app.info == info
+
+
+def test_tui_refresh(monkeypatch, tmp_path) -> None:
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    info = {"Path": str(exe)}
+    app = inspector.InspectorApp(info, [], {}, None)
+    dummy = SimpleNamespace(clear=lambda: None, add_row=lambda *a, **k: None)
+    app.info_table = dummy
+    app.procs_table = dummy
+    app.port_table = dummy
+    app.strings_table = dummy
+    monkeypatch.setattr(
+        inspector,
+        "_processes_for",
+        lambda path: [SimpleNamespace(pid=2, name=lambda: "proc")],
+    )
+    monkeypatch.setattr(inspector, "_ports_for", lambda pids: {1234: ["proc"]})
+    app.action_refresh()
+    assert app.ports == {1234: ["proc"]}
+    assert app.procs[0].pid == 2
+
+
+def test_tui_filter() -> None:
+    app = inspector.InspectorApp({"Path": "x"}, [], {}, ["abc", "def", "ghi"])
+    app.strings_filter = "d"
+    assert app.filter_strings() == ["def"]
