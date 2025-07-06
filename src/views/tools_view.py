@@ -690,13 +690,9 @@ class ToolsView(BaseView):
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Launching Exe Inspector...", "info")
         try:
-            subprocess.Popen([
-                sys.executable,
-                "-m",
-                "scripts.exe_inspector",
-                exe,
-                "--tui",
-            ])
+            from .exe_inspector_dialog import ExeInspectorDialog
+
+            ExeInspectorDialog(self.app, exe)
         except Exception as exc:
             messagebox.showerror("Executable Inspector", str(exc))
 
