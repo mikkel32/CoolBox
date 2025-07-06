@@ -60,15 +60,13 @@ fi
 # Launch the application waiting for debugger to attach.  If no display
 # is available, ``xvfb-run`` provides a virtual framebuffer so Tkinter
 # can initialize correctly.
-TARGET="${DEBUG_TARGET:-main.py}"
-
 if [ -z "$DISPLAY" ]; then
     if command -v xvfb-run >/dev/null 2>&1; then
-        exec xvfb-run -a python -Xfrozen_modules=off -m debugpy --listen "$DEBUG_PORT" --wait-for-client $TARGET
+        exec xvfb-run -a python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client main.py
     else
         echo "warning: xvfb-run not found; running without virtual display" >&2
-        exec python -Xfrozen_modules=off -m debugpy --listen "$DEBUG_PORT" --wait-for-client $TARGET
+        exec python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client main.py
     fi
 else
-    exec python -Xfrozen_modules=off -m debugpy --listen "$DEBUG_PORT" --wait-for-client $TARGET
+    exec python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client main.py
 fi
