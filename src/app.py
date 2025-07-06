@@ -111,12 +111,10 @@ class CoolBoxApp:
         try:
             from .utils.icons import set_window_icon
 
-            photo, ctk_image, tmp = set_window_icon(self.window, callback=log)
+            photo, ctk_image, tmp = set_window_icon(self.window)
             self._icon_photo = photo
             self._icon_image = ctk_image
             self._temp_icon = tmp
-            if photo is None:
-                log("Window icon not applied; check logs for details")
         except Exception as exc:  # pragma: no cover - best effort
             log(f"Failed to set window icon: {exc}")
 
