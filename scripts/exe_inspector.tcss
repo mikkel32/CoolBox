@@ -9,3 +9,7 @@ Input#filter-input {
     dock: bottom;
     width: 100%;
 }
+Input#cmd-input {
+    dock: bottom;
+    width: 100%;
+}
