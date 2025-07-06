@@ -37,8 +37,6 @@ import psutil  # noqa: E402
 from src.utils.helpers import calc_hash  # noqa: E402
 from src.utils.process_utils import run_command  # noqa: E402
 from src.utils.security import ensure_admin, is_admin, list_open_ports  # noqa: E402
-import pwd  # noqa: E402
-import grp  # noqa: E402
 import shutil  # noqa: E402
 
 
@@ -107,6 +105,9 @@ def _file_owner(path: Path) -> str | None:
         if platform.system() == "Windows":
             owner = _powershell(f'(Get-Acl \"{path}\").Owner')
             return owner.strip() if owner else None
+        import pwd
+        import grp
+
         stat = path.stat()
         user = pwd.getpwuid(stat.st_uid).pw_name
         group = grp.getgrgid(stat.st_gid).gr_name
