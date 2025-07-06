@@ -21,8 +21,7 @@ DEBUG_PORT="${DEBUG_PORT:-5678}"
 $ENGINE build -f .devcontainer/Dockerfile -t $IMAGE_NAME .
 
 # Run container and start app under debugpy
-TARGET="${DEBUG_TARGET:-main.py}"
-RUN_CMD="python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client $TARGET"
+RUN_CMD="python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client main.py"
 if [ -z "$DISPLAY" ]; then
     if command -v xvfb-run >/dev/null 2>&1; then
         RUN_CMD="xvfb-run -a $RUN_CMD"

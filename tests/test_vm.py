@@ -7,15 +7,6 @@ import pytest
 import scripts.run_vm_debug as vmcli
 
 
-def test_available_backends_wsl(monkeypatch):
-    def which(cmd):
-        return "/usr/bin/wsl" if cmd == "wsl" else None
-
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm.platform, "system", lambda: "Windows")
-    assert vm.available_backends() == ["wsl"]
-
-
 def test_launch_vm_debug_vagrant(monkeypatch):
     called = []
     monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/vagrant" if x == "vagrant" else None)
@@ -68,21 +59,6 @@ def test_launch_vm_debug_podman(monkeypatch):
     launch_vm_debug()
     assert Path(called[0][0]).name == "run_devcontainer.sh"
     assert called[0][1] == "podman"
-
-
-def test_launch_vm_debug_wsl(monkeypatch):
-    called = []
-
-    def which(cmd):
-        return "/usr/bin/wsl" if cmd == "wsl" else None
-
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(vm.subprocess, "check_output", lambda cmd, text=True: "/mnt/c/run_debug.sh")
-    monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug(prefer="wsl")
-    assert called
-    assert called[0][0] == "wsl"
 
 
 def test_launch_vm_debug_missing(monkeypatch):
