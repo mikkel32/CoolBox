@@ -29,6 +29,7 @@ try:  # pragma: no cover - optional dependency
         Input,
     )
     from textual.containers import Container
+
     TEXTUAL_AVAILABLE = True
 except ModuleNotFoundError:  # pragma: no cover - textual is optional
     App = ComposeResult = DataTable = Header = Footer = TabPane = TabbedContent = Input = Container = Any  # type: ignore
@@ -91,7 +92,9 @@ def _openssl_flags() -> list[str]:
     """
 
     flags: list[str] = []
-    cflags = run_command(["pkg-config", "--cflags", "openssl"], capture=True, check=False)
+    cflags = run_command(
+        ["pkg-config", "--cflags", "openssl"], capture=True, check=False
+    )
     libs = run_command(["pkg-config", "--libs", "openssl"], capture=True, check=False)
 
     if cflags:
@@ -173,7 +176,12 @@ def _load_hash_lib() -> ctypes.CDLL | None:
     for cand in candidates:
         try:
             lib = ctypes.CDLL(cand)
-            lib.hash_file.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+            lib.hash_file.argtypes = [
+                ctypes.c_char_p,
+                ctypes.c_char_p,
+                ctypes.c_char_p,
+                ctypes.c_size_t,
+            ]
             lib.hash_file.restype = ctypes.c_int
             _HASH_LIB = lib
             return lib
@@ -184,7 +192,12 @@ def _load_hash_lib() -> ctypes.CDLL | None:
     lib_path = _hashcalc_lib()
     try:
         lib = ctypes.CDLL(str(lib_path))
-        lib.hash_file.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+        lib.hash_file.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_size_t,
+        ]
         lib.hash_file.restype = ctypes.c_int
         _HASH_LIB = lib
         return lib
@@ -216,7 +229,9 @@ def _calc_hash_smart(path: Path, algo: str = "sha256") -> str:
     except Exception as exc:
         if platform.system() == "Windows":
             win_algo = algo.upper()
-            out = run_command(["certutil", "-hashfile", str(path), win_algo], capture=True)
+            out = run_command(
+                ["certutil", "-hashfile", str(path), win_algo], capture=True
+            )
             if out:
                 return out.split()[0]
         else:
@@ -243,28 +258,31 @@ def _calc_hash_smart(path: Path, algo: str = "sha256") -> str:
 
 def _powershell(cmd: str) -> str | None:
     """Run a PowerShell command and return its output."""
-    return run_command([
-        "powershell",
-        "-NoProfile",
-        "-Command",
-        f"{cmd} -ErrorAction SilentlyContinue",
-    ], capture=True)
+    return run_command(
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            f"{cmd} -ErrorAction SilentlyContinue",
+        ],
+        capture=True,
+    )
 
 
 def _windows_details(path: Path, algos: Sequence[str]) -> Dict[str, str]:
     details: Dict[str, str] = {}
     for algo in algos:
         details[algo.upper()] = _calc_hash_smart(path, algo)
-    version = _powershell(f'(Get-Item \"{path}\").VersionInfo.ProductVersion')
+    version = _powershell(f'(Get-Item "{path}").VersionInfo.ProductVersion')
     if version:
         details["Version"] = version.strip()
-    desc = _powershell(f'(Get-Item \"{path}\").VersionInfo.FileDescription')
+    desc = _powershell(f'(Get-Item "{path}").VersionInfo.FileDescription')
     if desc:
         details["Description"] = desc.strip()
-    company = _powershell(f'(Get-Item \"{path}\").VersionInfo.CompanyName')
+    company = _powershell(f'(Get-Item "{path}").VersionInfo.CompanyName')
     if company:
         details["Company"] = company.strip()
-    sig = _powershell(f'$(Get-AuthenticodeSignature \"{path}\").Status')
+    sig = _powershell(f'$(Get-AuthenticodeSignature "{path}").Status')
     if sig:
         details["Signature"] = sig.strip()
     return details
@@ -284,7 +302,7 @@ def _file_owner(path: Path) -> str | None:
     """Return owner of *path*."""
     try:
         if platform.system() == "Windows":
-            owner = _powershell(f'(Get-Acl \"{path}\").Owner')
+            owner = _powershell(f'(Get-Acl "{path}").Owner')
             return owner.strip() if owner else None
         import pwd
         import grp
@@ -297,6 +315,148 @@ def _file_owner(path: Path) -> str | None:
         return None
 
 
+def _file_permissions(path: Path) -> str | None:
+    """Return file permission bits for *path* as an octal string."""
+    try:
+        mode = path.stat().st_mode
+        return oct(mode & 0o777)
+    except Exception:
+        return None
+
+
+def _file_mode_text(path: Path) -> str | None:
+    """Return symbolic permission bits for *path* (e.g. ``-rwxr-xr-x``)."""
+    try:
+        import stat as stat_mod
+
+        return stat_mod.filemode(path.stat().st_mode)
+    except Exception:
+        return None
+
+
+def _symlink_target(path: Path) -> str | None:
+    """Return symlink target for *path* if it is a link."""
+    try:
+        if _is_symlink(path):
+            return os.readlink(path)
+    except Exception:
+        return None
+    return None
+
+
+def _shebang_interpreter(path: Path) -> str | None:
+    """Return interpreter path from a script's shebang line.
+
+    Supports ``#!/usr/bin/env python`` style shebangs by resolving the
+    interpreter with :func:`shutil.which` when possible.
+    """
+    try:
+        with path.open("rb") as fh:
+            first = fh.readline().decode("utf-8", "ignore").strip()
+        if not first.startswith("#!"):
+            return None
+        import shlex
+
+        parts = shlex.split(first[2:].strip())
+        if not parts:
+            return None
+        cmd = parts[0]
+        if Path(cmd).name == "env" and len(parts) > 1:
+            resolved = shutil.which(parts[1])
+            return resolved or parts[1]
+        return cmd
+    except Exception:
+        return None
+    return None
+
+
+def _is_symlink(path: Path) -> bool:
+    """Safely check whether *path* is a symlink."""
+    try:
+        return path.is_symlink()
+    except Exception:
+        return False
+
+
+def _detect_architecture(path: Path) -> str | None:
+    """Return "32-bit" or "64-bit" if *path* looks like a PE or ELF binary."""
+    try:
+        with path.open("rb") as fh:
+            magic = fh.read(0x40)
+        if magic.startswith(b"\x7fELF"):
+            cls = magic[4]
+            return "64-bit" if cls == 2 else "32-bit"
+        if magic.startswith(b"MZ") and len(magic) > 0x3C:
+            offset = int.from_bytes(magic[0x3C:0x40], "little")
+            with path.open("rb") as fh:
+                fh.seek(offset)
+                hdr = fh.read(6)
+            if hdr[:4] != b"PE\0\0" or len(hdr) < 6:
+                return None
+            machine = int.from_bytes(hdr[4:6], "little")
+            if machine in {0x8664, 0x200, 0xaa64}:
+                return "64-bit"
+            if machine in {0x14C, 0x1c0}:
+                return "32-bit"
+    except Exception:
+        return None
+    return None
+
+
+def _linked_libraries(path: Path) -> list[str] | None:
+    """Return a list of dynamic libraries used by *path* if possible."""
+    if platform.system() == "Windows":
+        return None
+    cmd = ["otool", "-L", str(path)] if sys.platform == "darwin" else ["ldd", str(path)]
+    out = run_command(cmd, capture=True, check=False)
+    if not out:
+        return None
+
+    libs: list[str] = []
+    for line in out.splitlines()[1:] if "darwin" in sys.platform else out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if sys.platform == "darwin":
+            libs.append(line.split(" ")[0])
+        else:
+            if "=>" in line:
+                libs.append(line.split("=>")[0].strip())
+            else:
+                libs.append(line.split()[0])
+    return libs if libs else None
+
+
+def _rpath_entries(path: Path) -> list[str] | None:
+    """Return RPATH/RUNPATH entries for *path* if available."""
+    if platform.system() == "Windows":
+        return None
+    if sys.platform == "darwin":
+        out = run_command(["otool", "-l", str(path)], capture=True, check=False)
+        if not out:
+            return None
+        rpaths: list[str] = []
+        lines = out.splitlines()
+        for i, line in enumerate(lines):
+            if "LC_RPATH" in line:
+                for j in range(i + 1, min(i + 5, len(lines))):
+                    m = re.search(r"path (.+?) \(offset", lines[j])
+                    if m:
+                        rpaths.append(m.group(1).strip())
+                        break
+        return rpaths if rpaths else None
+    out = run_command(["readelf", "-d", str(path)], capture=True, check=False)
+    if not out:
+        return None
+    rpaths = []
+    for line in out.splitlines():
+        if "(RPATH)" in line or "(RUNPATH)" in line:
+            m = re.search(r"\[(.*?)\]", line)
+            if m:
+                rpaths.append(m.group(1))
+    return rpaths if rpaths else None
+
+
 def _extract_strings(path: Path, *, limit: int = 10, min_len: int = 4) -> List[str]:
     """Return a list of printable strings found in *path*."""
     try:
@@ -304,6 +464,7 @@ def _extract_strings(path: Path, *, limit: int = 10, min_len: int = 4) -> List[s
     except Exception:
         return []
     import re
+
     pattern = re.compile(rb"[ -~]{%d,}" % min_len)
     found = []
     for match in pattern.finditer(data):
@@ -318,8 +479,14 @@ def _extract_strings(path: Path, *, limit: int = 10, min_len: int = 4) -> List[s
 def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, str]:
     info: Dict[str, str] = {
         "Path": str(path),
+        "Absolute": str(path.resolve(strict=False)),
         "Exists": str(path.exists()),
+        "IsSymlink": str(_is_symlink(path)),
     }
+    target = _symlink_target(path)
+    if target:
+        info["Target"] = target
+    info["Executable"] = str(os.access(path, os.X_OK))
     if path.exists():
         try:
             stat = path.stat()
@@ -331,15 +498,40 @@ def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, 
             {
                 "Size": f"{stat.st_size} bytes",
                 "Modified": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "Accessed": datetime.datetime.fromtimestamp(stat.st_atime).isoformat(),
                 "Created": datetime.datetime.fromtimestamp(stat.st_ctime).isoformat(),
                 "Owner": _file_owner(path) or "unknown",
+                "Permissions": _file_permissions(path) or "unknown",
+                "Mode": _file_mode_text(path) or "unknown",
             }
         )
+
+        arch = _detect_architecture(path)
+        if arch:
+            info["Architecture"] = arch
+
+        interp = _shebang_interpreter(path)
+        if interp:
+            info["Interpreter"] = interp
+
+        libs = _linked_libraries(path)
+        if libs:
+            info["Libraries"] = ", ".join(libs)
+
+        rpaths = _rpath_entries(path)
+        if rpaths:
+            info["RPATH"] = ", ".join(rpaths)
 
         if platform.system() == "Windows":
             info.update(_windows_details(path, algos))
         else:
             info.update(_unix_details(path, algos))
+
+        try:
+            stat = path.stat()
+            info["Accessed"] = datetime.datetime.fromtimestamp(stat.st_atime).isoformat()
+        except Exception:
+            pass
     return info
 
 
@@ -365,7 +557,12 @@ def _ports_for(pids: List[int]) -> Dict[int, List[str]]:
     return result
 
 
-def display(info: Dict[str, str], procs: List[psutil.Process], ports: Dict[int, List[str]], strings: List[str] | None = None) -> None:
+def display(
+    info: Dict[str, str],
+    procs: List[psutil.Process],
+    ports: Dict[int, List[str]],
+    strings: List[str] | None = None,
+) -> None:
     console = Console()
     table = Table(title="Executable Info", show_lines=True)
     table.add_column("Property", style="bold")
@@ -413,7 +610,13 @@ class InspectorApp(App):
         ("c", "toggle_cmd", "Run Command"),
     ]
 
-    def __init__(self, info: Dict[str, str], procs: List[psutil.Process], ports: Dict[int, List[str]], strings: List[str] | None) -> None:
+    def __init__(
+        self,
+        info: Dict[str, str],
+        procs: List[psutil.Process],
+        ports: Dict[int, List[str]],
+        strings: List[str] | None,
+    ) -> None:
         super().__init__()
         self.info = info
         self.procs = procs
@@ -505,7 +708,9 @@ class InspectorApp(App):
         self.cmd_input.display = True
         self.set_focus(self.cmd_input)
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:  # pragma: no cover - UI interaction
+    def on_input_submitted(
+        self, event: Input.Submitted
+    ) -> None:  # pragma: no cover - UI interaction
         if event.input.id == "filter-input":
             self.strings_filter = event.value
             self.filter_input.value = ""
@@ -570,10 +775,12 @@ def main(argv: List[str] | None = None) -> None:
     exe_path = Path(exe_arg).expanduser()
 
     if args.admin and not is_admin():
-        if not ensure_admin("Administrator access is required for process and port information."):
+        if not ensure_admin(
+            "Administrator access is required for process and port information."
+        ):
             sys.exit(1)
 
-    algos = [a.strip().lower() for a in args.hashes.split(',') if a.strip()]
+    algos = [a.strip().lower() for a in args.hashes.split(",") if a.strip()]
     info = gather_info(exe_path, algos=algos)
     procs = _processes_for(exe_path) if exe_path.exists() else []
     ports = _ports_for([p.pid for p in procs]) if procs else {}
@@ -582,7 +789,10 @@ def main(argv: List[str] | None = None) -> None:
 
     if args.tui:
         if not TEXTUAL_AVAILABLE:
-            print("The 'textual' package is required for TUI mode.\n" "Falling back to plain output.")
+            print(
+                "The 'textual' package is required for TUI mode.\n"
+                "Falling back to plain output."
+            )
             display(info, procs, ports, strings)
         else:
             InspectorApp(info, procs, ports, strings).run()
