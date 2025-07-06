@@ -128,6 +128,33 @@ class CoolBoxApp:
         """Return the CTkImage version of the application icon if available."""
         return getattr(self, "_icon_image", None)
 
+    def apply_icon(self, window) -> None:
+        """Apply the cached application icon to *window* if possible."""
+        photo = self.get_icon_photo()
+        if photo is None:
+            return
+        try:
+            window.iconphoto(True, photo)
+        except Exception:
+            pass
+
+    def create_toplevel(
+        self,
+        *,
+        title: str = "",
+        geometry: str | None = None,
+        parent=None,
+    ) -> ctk.CTkToplevel:
+        """Create a ``CTkToplevel`` window with the app icon applied."""
+        master = parent if parent is not None else self.window
+        window = ctk.CTkToplevel(master)
+        if title:
+            window.title(title)
+        if geometry:
+            window.geometry(geometry)
+        self.apply_icon(window)
+        return window
+
     def _setup_ui(self):
         """Setup the main UI layout"""
         # Create main container

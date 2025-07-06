@@ -159,6 +159,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    display = None
+    if "DISPLAY" not in os.environ:
+        try:
+            from pyvirtualdisplay import Display
+
+            display = Display(visible=False, size=(1024, 768))
+            display.start()
+        except Exception:
+            pass
+
     if args.vm_debug:
         launch_vm_debug(
             prefer=None if args.vm_prefer == "auto" else args.vm_prefer,
@@ -170,17 +180,41 @@ def main() -> None:
     if args.debug:
         try:
             import debugpy  # type: ignore
+        except Exception:
+            try:
+                import subprocess
 
-            debugpy.listen(args.debug_port)
-            print(f"Waiting for debugger on port {args.debug_port}...")
-            debugpy.wait_for_client()
-        except Exception as exc:  # pragma: no cover - debug only
-            print(f"Failed to start debugpy: {exc}")
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", "debugpy"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                import importlib
 
-    _run_setup_if_needed()
+                debugpy = importlib.import_module("debugpy")  # type: ignore
+            except Exception as exc:  # pragma: no cover - debug only
+                print(f"Failed to install debugpy: {exc}")
+                debugpy = None  # type: ignore
 
-    app = CoolBoxApp()
-    app.run()
+        if debugpy is not None:  # type: ignore
+            try:
+                debugpy.listen(args.debug_port)
+                print(f"Waiting for debugger on port {args.debug_port}...")
+                debugpy.wait_for_client()
+            except Exception as exc:  # pragma: no cover - debug only
+                print(f"Failed to start debugpy: {exc}")
+
+    try:
+        _run_setup_if_needed()
+
+        app = CoolBoxApp()
+        app.run()
+    finally:
+        if display is not None:
+            try:
+                display.stop()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

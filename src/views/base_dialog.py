@@ -10,11 +10,9 @@ class BaseDialog(ctk.CTkToplevel, UIHelperMixin):
         UIHelperMixin.__init__(self, app)
         if hasattr(app, "register_dialog"):
             app.register_dialog(self)
-        if hasattr(app, "get_icon_photo"):
+        if hasattr(app, "apply_icon"):
             try:
-                icon_photo = app.get_icon_photo()
-                if icon_photo is not None:
-                    self.iconphoto(False, icon_photo)
+                app.apply_icon(self)
             except Exception:
                 pass
         if title:
