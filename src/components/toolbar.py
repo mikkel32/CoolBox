@@ -230,10 +230,9 @@ class Toolbar(ctk.CTkFrame):
                 self.app.status_bar.set_message("No matches found", "warning")
             return
 
-        window = self.app.create_toplevel(
-            title=f"Search results for '{self.search_var.get().strip()}'",
-            geometry="500x400",
-        )
+        window = ctk.CTkToplevel(self)
+        window.title(f"Search results for '{self.search_var.get().strip()}'")
+        window.geometry("500x400")
         ctk.CTkLabel(
             window,
             text=f"Results ({len(results)})",

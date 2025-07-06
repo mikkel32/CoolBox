@@ -337,7 +337,9 @@ class ToolsView(BaseView):
             messagebox.showinfo("Duplicate Finder", "No duplicates found")
             return
 
-        window = self.create_toplevel(title="Duplicate Files", geometry="600x400")
+        window = ctk.CTkToplevel(self)
+        window.title("Duplicate Files")
+        window.geometry("600x400")
 
         frame = ctk.CTkScrollableFrame(window)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -401,7 +403,8 @@ class ToolsView(BaseView):
 
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Opening File Manager...", "info")
-        window = self.create_toplevel(title="File Manager")
+        window = ctk.CTkToplevel(self)
+        window.title("File Manager")
 
         output = ctk.CTkTextbox(window, width=500, height=200)
         output.pack(padx=10, pady=10, fill="both", expand=True)
@@ -513,7 +516,8 @@ class ToolsView(BaseView):
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Opening Process Manager...", "info")
 
-        window = self.create_toplevel(title="Process Manager")
+        window = ctk.CTkToplevel(self)
+        window.title("Process Manager")
 
         text = ctk.CTkTextbox(window, width=600, height=400)
         text.pack(fill="both", expand=True, padx=10, pady=10)
@@ -687,7 +691,8 @@ class ToolsView(BaseView):
         """Open a simple text editor window."""
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Opening Text Editor...", "info")
-        window = self.create_toplevel(title="Text Editor")
+        window = ctk.CTkToplevel(self)
+        window.title("Text Editor")
 
         toolbar = ctk.CTkFrame(window, fg_color="transparent")
         toolbar.pack(fill="x", padx=10, pady=(10, 0))
@@ -732,7 +737,8 @@ class ToolsView(BaseView):
         """Open a small regex testing utility."""
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Opening Regex Tester...", "info")
-        window = self.create_toplevel(title="Regex Tester")
+        window = ctk.CTkToplevel(self)
+        window.title("Regex Tester")
 
         pattern_var = ctk.StringVar()
         ctk.CTkEntry(window, textvariable=pattern_var, width=400).pack(padx=10, pady=10)
@@ -758,7 +764,8 @@ class ToolsView(BaseView):
         """Format JSON in a simple editor."""
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Opening JSON Formatter...", "info")
-        window = self.create_toplevel(title="JSON Formatter")
+        window = ctk.CTkToplevel(self)
+        window.title("JSON Formatter")
         frame = ctk.CTkFrame(window)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
         frame.grid_rowconfigure(0, weight=1)
@@ -779,7 +786,8 @@ class ToolsView(BaseView):
         """Encode or decode Base64 strings."""
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Opening Base64 Tool...", "info")
-        window = self.create_toplevel(title="Base64 Tool")
+        window = ctk.CTkToplevel(self)
+        window.title("Base64 Tool")
 
         frame = ctk.CTkFrame(window)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -811,7 +819,8 @@ class ToolsView(BaseView):
         """Calculate file checksums using various algorithms."""
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Opening Hash Calculator...", "info")
-        window = self.create_toplevel(title="Hash Calculator")
+        window = ctk.CTkToplevel(self)
+        window.title("Hash Calculator")
 
         file_var = ctk.StringVar()
         file_frame = ctk.CTkFrame(window)

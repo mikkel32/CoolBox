@@ -15,10 +15,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Unified Styling**: All views and dialogs inherit from shared base classes
   so fonts and accent colors update instantly when settings change.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
-- **Headless Friendly**: When no display is found the app launches a minimal
-  `pyvirtualdisplay` automatically so Tkinter works in CI and container
-  environments without requiring ``xvfb``.
-- **Custom Icon**: Displays the CoolBox logo in the window title, taskbar and dock. All dialogs use the icon automatically and the macOS dock icon is set when available.
+- **Custom Icon**: Displays the CoolBox logo in the window title, taskbar and dock
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Security Center**: Enhanced firewall controls now support macOS and the dialog lists all listening ports with the owning process for quick audits. Listeners refresh automatically and you can filter them by port or name. Terminate one process or its entire tree with a single click or kill whole port ranges at once. Windows Defender toggling and automatic elevation remain built in so settings always apply successfully. When launched without admin rights, only the Security Center is re-spawned with elevation instead of restarting the entire app.
 - **Aggressive Watchdogs**: Killed ports are tracked and any process reopening them is terminated automatically. If it happens repeatedly the executable is added to a process blocker so future instances are killed instantly. The block list is saved to `~/.coolbox/blocked_processes.json` so offenders remain banned across sessions.
@@ -432,11 +429,11 @@ To start the app and wait for a debugger to attach, use:
 ```
 This script will automatically start the application under ``xvfb`` if no
 display is available, making it convenient to debug in headless
-environments such as CI or containers. When ``xvfb-run`` is unavailable the
-application falls back to ``pyvirtualdisplay`` so a virtual screen is still
-created. Install ``xvfb`` when possible (``sudo apt-get install xvfb`` on
-Debian/Ubuntu). The ``-Xfrozen_modules=off`` option is passed to Python to
-silence warnings when using debugpy with frozen modules.
+environments such as CI or containers. Make sure the ``xvfb`` package is
+installed so the ``xvfb-run`` command exists (``sudo apt-get install xvfb`` on
+Debian/Ubuntu). The ``-Xfrozen_modules=off`` option
+is passed to Python to silence warnings when using debugpy with frozen
+modules.
 
 Alternatively you can launch directly using ``python``:
 
@@ -565,9 +562,8 @@ You can also start the container manually:
 This requires Docker or Podman to be installed on your system. Like
 ``run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
-Docker environments. When ``xvfb-run`` is missing the application uses
-``pyvirtualdisplay`` as a fallback. Install the ``xvfb`` package when
-possible to avoid this fallback. The Dockerfile now installs
+Docker environments. Install the ``xvfb`` package to ensure the
+``xvfb-run`` helper is available. The Dockerfile now installs
 ``python3-tk`` so Tkinter features like the window icon work correctly
 inside the container. Set ``DEBUG_PORT`` to expose a
 specific port (defaults to 5678). If that port is taken the container
