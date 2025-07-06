@@ -23,7 +23,7 @@ def available_backends() -> list[str]:
     return getattr(module, "available_backends")()
 
 
-def _load_launch() -> 'Callable[[str | None, bool, int, bool], None]':
+def _load_launch() -> 'Callable[[str | None, bool, int, bool, str | None, bool, bool, bool], bool]':
     """Load :func:`launch_vm_debug` without importing heavy deps."""
     vm_path = ROOT / "src" / "utils" / "vm.py"
     spec = spec_from_file_location("_coolbox_vm", vm_path)
@@ -77,6 +77,21 @@ def parse_args(argv: list[str] | None = None) -> Namespace:
         action="store_true",
         help="Skip installing Python dependencies in the VM",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress status messages",
+    )
+    parser.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Do not wait for debugger to attach",
+    )
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="Launch VM in the background and return immediately",
+    )
     return parser.parse_args(argv)
 
 
@@ -88,19 +103,25 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     launch = _load_launch()
-    print(
-        "Starting debug environment using",
-        args.prefer if args.prefer != "auto" else "auto-detected backend",
-    )
+    if not args.quiet:
+        print(
+            "Starting debug environment using",
+            args.prefer if args.prefer != "auto" else "auto-detected backend",
+        )
     port = pick_port(args.port)
-    if port != args.port:
+    if port != args.port and not args.quiet:
         print(f"Debug port {args.port} in use; using {port}")
-    launch(
+    success = launch(
         prefer=args.prefer if args.prefer != "auto" else None,
         open_code=args.code,
         port=port,
         skip_deps=args.skip_deps,
+        print_output=not args.quiet,
+        nowait=args.no_wait,
+        detach=args.detach,
     )
+    if not success:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

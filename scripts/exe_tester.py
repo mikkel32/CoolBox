@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import platform
 import sys
@@ -693,10 +694,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--hidden", action="store_true", help="Hide the executable window")
     parser.add_argument("--admin", action="store_true", help="Request admin rights first")
+    parser.add_argument("--no-port-scan", action="store_true", help="Skip open port scanning")
+    parser.add_argument("--refresh", type=int, default=4, help="UI refresh rate")
+    parser.add_argument(
+        "--cooldown", type=float, default=0.0, help="Seconds to wait after each iteration"
+    )
+    parser.add_argument(
+        "--max-fails",
+        type=int,
+        default=0,
+        help="Abort after this many failures (0 = unlimited)",
+    )
     return parser.parse_args(argv)
 
 
-def run_cli(args: argparse.Namespace, *, console: Console | None = None) -> None:
+async def run_cli_async(
+    args: argparse.Namespace, *, console: Console | None = None
+) -> None:
     exe_path = Path(args.exe)
     if not exe_path.is_file():
         raise SystemExit(f"Executable not found: {exe_path}")
@@ -726,67 +740,79 @@ def run_cli(args: argparse.Namespace, *, console: Console | None = None) -> None
     fail_table.add_column("Reason")
     event_history: list[str] = []
 
-    baseline_ports = set(security.list_open_ports().keys())
+    if args.no_port_scan:
+        baseline_ports: set[int] = set()
+    else:
+        baseline_ports = set((await security.async_list_open_ports()).keys())
 
-    with MatrixBorder(console=console), Live(console=console, refresh_per_second=4) as live:
-        task = progress.add_task("testing", total=args.iterations)
-        for i in range(1, args.iterations + 1):
-            security_log.add_event("exe_test", f"Starting iteration {i} for {exe_path}")
-            event_history.append(f"start {i}")
-            if args.ps_before:
-                try:
-                    run_powershell(args.ps_before)
-                except Exception as exc:
-                    security_log.add_event("exe_test", f"ps-before failed: {exc}")
-            proc = smart_launch_exe(exe_path, hidden=args.hidden)
-            if proc is None:
-                security_log.add_event("exe_test", "all launch methods failed")
-                fail_table.add_row(str(i), "launch")
-                continue
-            pmon = None
+    async def run_iteration(index: int) -> None:
+        reason = None
+        security_log.add_event("exe_test", f"Starting iteration {index} for {exe_path}")
+        event_history.append(f"start {index}")
+        if args.ps_before:
             try:
-                import psutil
-                pmon = psutil.Process(proc.pid)
-                pmon.cpu_percent(interval=None)
-            except Exception:
-                pmon = None
-            time.sleep(args.runtime)
-            if proc.poll() is None:
-                ok = smart_terminate(proc)
-                if not ok:
-                    security_log.add_event("exe_test", "terminate via smart_terminate failed")
-                    fail_table.add_row(str(i), "terminate")
-                    try:
-                        security.kill_process_tree(proc.pid)
-                    except Exception as exc:
-                        security_log.add_event("exe_test", f"kill tree failed: {exc}")
-            if args.ps_after:
+                await asyncio.to_thread(run_powershell, args.ps_before)
+            except Exception as exc:
+                security_log.add_event("exe_test", f"ps-before failed: {exc}")
+        proc = smart_launch_exe(exe_path, hidden=args.hidden)
+        if proc is None:
+            security_log.add_event("exe_test", "all launch methods failed")
+            return "launch"
+        pmon = None
+        try:
+            import psutil
+            pmon = psutil.Process(proc.pid)
+            pmon.cpu_percent(interval=None)
+        except Exception:
+            pmon = None
+        try:
+            await asyncio.to_thread(proc.wait, timeout=args.runtime)
+        except Exception:
+            pass
+        if proc.poll() is None:
+            ok = await asyncio.to_thread(smart_terminate, proc)
+            if not ok:
+                security_log.add_event("exe_test", "terminate via smart_terminate failed")
+                reason = "terminate"
                 try:
-                    run_powershell(args.ps_after)
+                    await asyncio.to_thread(security.kill_process_tree, proc.pid)
                 except Exception as exc:
-                    security_log.add_event("exe_test", f"ps-after failed: {exc}")
-            ports = security.list_open_ports()
+                    security_log.add_event("exe_test", f"kill tree failed: {exc}")
+        if args.ps_after:
+            try:
+                await asyncio.to_thread(run_powershell, args.ps_after)
+            except Exception as exc:
+                security_log.add_event("exe_test", f"ps-after failed: {exc}")
+        if args.no_port_scan:
+            ports = {}
+            new_ports: set[int] = set()
+        else:
+            ports = await security.async_list_open_ports()
             new_ports = set(ports.keys()) - baseline_ports
-            cpu_val = "-"
-            mem_val = "-"
-            if pmon is not None:
-                try:
-                    cpu_val = f"{pmon.cpu_percent(interval=None):.1f}"
-                    mem_val = f"{pmon.memory_info().rss / (1024*1024):.1f}"
-                except Exception:
-                    cpu_val = "err"
-                    mem_val = "err"
-            security_log.add_event(
-                "exe_test",
-                f"Finished iteration {i}; open ports: {list(ports.keys())}",
-            )
-            event_history.append(f"end {i}")
-            table.add_row(
-                str(i),
-                ", ".join(map(str, sorted(new_ports))) or "-",
-            )
-            cpu_table.add_row(str(i), cpu_val)
-            mem_table.add_row(str(i), mem_val)
+        cpu_val = "-"
+        mem_val = "-"
+        if pmon is not None:
+            try:
+                cpu_val = f"{pmon.cpu_percent(interval=None):.1f}"
+                mem_val = f"{pmon.memory_info().rss / (1024*1024):.1f}"
+            except Exception:
+                cpu_val = "err"
+                mem_val = "err"
+        security_log.add_event("exe_test", f"Finished iteration {index}; open ports: {list(ports.keys())}")
+        event_history.append(f"end {index}")
+        table.add_row(str(index), ", ".join(map(str, sorted(new_ports))) or "-")
+        cpu_table.add_row(str(index), cpu_val)
+        mem_table.add_row(str(index), mem_val)
+        return reason
+
+    with MatrixBorder(console=console), Live(console=console, refresh_per_second=args.refresh) as live:
+        task = progress.add_task("testing", total=args.iterations, start=True)
+        fails = 0
+        for i in range(1, args.iterations + 1):
+            reason = await run_iteration(i)
+            if reason:
+                fail_table.add_row(str(i), reason)
+                fails += 1
             while len(event_history) > 5:
                 event_history.pop(0)
             log_table = Table(title="Events", expand=True)
@@ -794,9 +820,12 @@ def run_cli(args: argparse.Namespace, *, console: Console | None = None) -> None
             for ev in event_history:
                 log_table.add_row(ev)
             progress.update(task, advance=1)
-            live.update(
-                Group(progress, table, cpu_table, mem_table, fail_table, log_table)
-            )
+            live.update(Group(progress, table, cpu_table, mem_table, fail_table, log_table))
+            if args.max_fails and fails >= args.max_fails:
+                event_history.append("aborted")
+                break
+            if args.cooldown:
+                await asyncio.sleep(args.cooldown)
 
     console.print(table)
     console.print(cpu_table)
@@ -815,6 +844,11 @@ def run_cli(args: argparse.Namespace, *, console: Console | None = None) -> None
     for cat, cnt in sorted(counts.items()):
         count_table.add_row(cat, str(cnt))
     console.print(count_table)
+
+
+def run_cli(args: argparse.Namespace, *, console: Console | None = None) -> None:
+    """Synchronous wrapper for :func:`run_cli_async`."""
+    asyncio.run(run_cli_async(args, console=console))
 
 
 def main(argv: list[str] | None = None) -> None:

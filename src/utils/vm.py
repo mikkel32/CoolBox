@@ -53,7 +53,10 @@ def launch_vm_debug(
     port: int = 5678,
     skip_deps: bool = False,
     target: str | None = None,
-) -> None:
+    print_output: bool = True,
+    nowait: bool = False,
+    detach: bool = False,
+) -> bool:
     """Launch CoolBox inside a VM or fall back to local debugging.
 
     Parameters
@@ -84,13 +87,16 @@ def launch_vm_debug(
     detected = available_backends()
     for name in _pick_backend(backend):
         if name in detected:
-            print(f"Launching CoolBox in {name} for debugging...")
+            if print_output:
+                print(f"Launching CoolBox in {name} for debugging...")
             env = os.environ.copy()
             env["DEBUG_PORT"] = str(port)
             if target:
                 env["DEBUG_TARGET"] = target
             if skip_deps:
                 env["SKIP_DEPS"] = "1"
+            if nowait:
+                env["DEBUG_NOWAIT"] = "1"
             if name in {"docker", "podman"}:
                 script = root / "scripts" / "run_devcontainer.sh"
                 cmd = [str(script), name]
@@ -109,20 +115,43 @@ def launch_vm_debug(
             else:
                 script = root / "scripts" / "run_vagrant.sh"
                 cmd = [str(script)]
-            _out, code = run_command_ex(cmd, timeout=None, check=False, env=env)
-            if code == 0:
-                return
-            print(f"{name} failed with code {code}; trying next backend")
+            if detach:
+                if run_command_background(cmd, env=env, start_new_session=True):
+                    return True
+                code = 1
+            else:
+                _out, code = run_command_ex(cmd, timeout=None, check=False, env=env)
+                if code == 0:
+                    return True
+            if print_output:
+                print(f"{name} failed with code {code}; trying next backend")
             continue
 
-    print("No VM backend available; detected none. Launching locally under debugpy.")
+    if print_output:
+        print(
+            "No VM backend available; detected none. Launching locally under debugpy."
+        )
     env = os.environ.copy()
     env["DEBUG_PORT"] = str(port)
     if target:
         env["DEBUG_TARGET"] = target
     if skip_deps:
         env["SKIP_DEPS"] = "1"
-    run_command([str(root / "scripts" / "run_debug.sh")], timeout=None, env=env)
+    if nowait:
+        env["DEBUG_NOWAIT"] = "1"
+    if detach:
+        return run_command_background(
+            [str(root / "scripts" / "run_debug.sh")],
+            env=env,
+            start_new_session=True,
+        )
+    _out, code = run_command_ex(
+        [str(root / "scripts" / "run_debug.sh")],
+        timeout=None,
+        check=False,
+        env=env,
+    )
+    return code == 0
 
 
 async def async_launch_vm_debug(
@@ -132,10 +161,19 @@ async def async_launch_vm_debug(
     port: int = 5678,
     skip_deps: bool = False,
     target: str | None = None,
-) -> None:
-    """Asynchronous wrapper for :func:`launch_vm_debug`."""
+    print_output: bool = True,
+    nowait: bool = False,
+    detach: bool = False,
+) -> bool:
+    """Asynchronous wrapper for :func:`launch_vm_debug`.
+
+    Returns
+    -------
+    bool
+        ``True`` if the environment started successfully, otherwise ``False``.
+    """
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(
+    return await loop.run_in_executor(
         None,
         launch_vm_debug,
         prefer,
@@ -143,4 +181,7 @@ async def async_launch_vm_debug(
         port,
         skip_deps,
         target,
+        print_output,
+        nowait,
+        detach,
     )

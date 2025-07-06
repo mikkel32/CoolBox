@@ -19,6 +19,7 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Expanded Utilities**: File and directory copy/move helpers, an enhanced file manager, a threaded port scanner, a flexible hash calculator with optional disk caching, a multi-threaded duplicate finder that persists file hashes for lightning fast rescans, a screenshot capture tool, and a built-in process manager that auto-refreshes and sorts by CPU usage. The system info viewer now reports CPU cores and memory usage.
 - **Security Center**: Enhanced firewall controls now support macOS and the dialog lists all listening ports with the owning process for quick audits. Listeners refresh automatically and you can filter them by port or name. Terminate one process or its entire tree with a single click or kill whole port ranges at once. Windows Defender toggling and automatic elevation remain built in so settings always apply successfully. When launched without admin rights, only the Security Center is re-spawned with elevation instead of restarting the entire app.
 - **Aggressive Watchdogs**: Killed ports are tracked and any process reopening them is terminated automatically. If it happens repeatedly the executable is added to a process blocker so future instances are killed instantly. The block list is saved to `~/.coolbox/blocked_processes.json` so offenders remain banned across sessions.
+- **Executable Tester**: Stress-test binaries with automatic relaunching and detailed CPU, memory and port monitoring. Supply PowerShell commands to run before and after each iteration, skip port scans, control the refresh rate, insert cooldown delays and abort after a number of failures. The tester can launch inside a VM debug environment for reliable troubleshooting.
 - **Persistent Port Blocks**: Blocked ports are now stored in `~/.coolbox/blocked_ports.json` so attempts continue to be tracked after restarting the app.
 - **Smart Expiration**: Blocked ports remain on the watch list for a short period so rapid restarts are caught, then expire automatically. Blocked processes can also be removed manually from the persistent list.
 - **Kill by Click CLI**: `scripts/kill_by_click.py` opens the crosshair overlay
@@ -454,8 +455,9 @@ on ``--vm-prefer`` (or auto-detection when omitted). ``--open-code`` opens
 Visual Studio Code once the environment starts and ``--debug-port`` sets the
 debug server port. If no backend is available the app runs locally under
 ``debugpy``.
-An asynchronous wrapper ``async_launch_vm_debug`` is also available for
-integrations that rely on ``asyncio``.
+Both ``launch_vm_debug`` and its asynchronous counterpart
+``async_launch_vm_debug`` return ``True`` when the environment starts
+successfully so callers can handle failures.
 
 ### Network Scanner CLI
 
@@ -571,6 +573,9 @@ uses the next free one. You may also use ``./scripts/run_vm_debug.sh`` or
 ``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
 ``run_debug.sh`` so you can still debug locally.
+Both ``run_devcontainer.sh`` and ``run_vagrant.sh`` now forward ``SKIP_DEPS`` and
+``DEBUG_NOWAIT`` to ``run_debug.sh`` so you can reuse existing packages or skip
+waiting for the debugger when launching inside the VM or container.
 When this fallback occurs the application waits for a debugger to attach on
 ``DEBUG_PORT``. If the selected port is busy the scripts automatically pick the
 next free one. Set ``DEBUG_PORT`` to override the starting port. Run
@@ -602,6 +607,11 @@ Python script so all command line options like ``--prefer`` ``--code`` and
 available on both Unix and Windows.
 Use the ``--code`` flag to open Visual Studio Code before launching the
 environment so it's ready to attach to the debug server.
+Pass ``--no-wait`` to launch ``debugpy`` without waiting for the debugger,
+useful for automated scripts.
+Use ``--detach`` to start the VM or container in the background and return
+immediately.
+Pass ``--quiet`` to suppress status messages when integrating with other tools.
 Run ``python scripts/run_vm_debug.py --list`` to display the backends
 detected on your system.
 ``run_vm_debug.ps1`` accepts the same options including ``--list`` for Windows users.
