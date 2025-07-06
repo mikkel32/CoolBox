@@ -535,7 +535,8 @@ class SettingsView(BaseView):
 
     def _edit_config_file(self) -> None:
         """Edit the configuration file inside CoolBox."""
-        window = self.create_toplevel(title="Edit Config File")
+        window = ctk.CTkToplevel(self)
+        window.title("Edit Config File")
 
         textbox = ctk.CTkTextbox(window, width=600, height=400)
         textbox.pack(fill="both", expand=True, padx=10, pady=10)
