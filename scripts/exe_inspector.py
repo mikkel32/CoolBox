@@ -15,16 +15,23 @@ sys.path.insert(0, str(ROOT))
 from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
 from rich.prompt import Prompt  # noqa: E402
-from textual.app import App, ComposeResult  # noqa: E402
-from textual.widgets import (
-    DataTable,
-    Header,
-    Footer,
-    TabPane,
-    TabbedContent,
-    Input,
-)
-from textual.containers import Container  # noqa: E402
+from typing import Any
+
+try:  # pragma: no cover - optional dependency
+    from textual.app import App, ComposeResult  # type: ignore
+    from textual.widgets import (
+        DataTable,
+        Header,
+        Footer,
+        TabPane,
+        TabbedContent,
+        Input,
+    )
+    from textual.containers import Container
+    TEXTUAL_AVAILABLE = True
+except ModuleNotFoundError:  # pragma: no cover - textual is optional
+    App = ComposeResult = DataTable = Header = Footer = TabPane = TabbedContent = Input = Container = Any  # type: ignore
+    TEXTUAL_AVAILABLE = False
 import psutil  # noqa: E402
 
 from src.utils.helpers import calc_hash  # noqa: E402
@@ -328,7 +335,7 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument(
         "--tui",
         action="store_true",
-        help="Launch interactive terminal UI",
+        help="Launch interactive terminal UI (requires 'textual')",
     )
     args = parser.parse_args(argv)
 
@@ -346,7 +353,11 @@ def main(argv: List[str] | None = None) -> None:
     strings = _extract_strings(exe_path, limit=args.strings) if args.strings else None
 
     if args.tui:
-        InspectorApp(info, procs, ports, strings).run()
+        if not TEXTUAL_AVAILABLE:
+            print("The 'textual' package is required for TUI mode.\n" "Falling back to plain output.")
+            display(info, procs, ports, strings)
+        else:
+            InspectorApp(info, procs, ports, strings).run()
     else:
         display(info, procs, ports, strings)
 
