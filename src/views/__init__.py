@@ -14,7 +14,6 @@ from .click_overlay import ClickOverlay
 from .system_info_dialog import SystemInfoDialog
 from .recent_files_dialog import RecentFilesDialog
 from .security_dialog import SecurityDialog
-from .exe_tester_dialog import ExeTesterDialog
 
 __all__ = [
     "BaseView",
@@ -31,5 +30,4 @@ __all__ = [
     "SystemInfoDialog",
     "RecentFilesDialog",
     "SecurityDialog",
-    "ExeTesterDialog",
 ]
