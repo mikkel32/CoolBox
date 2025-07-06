@@ -1,19 +1,19 @@
-from importlib import import_module, machinery, util
 import sys
-from pathlib import Path
+from importlib import import_module, util
 
 module = None
-root = str(Path(__file__).resolve().parent)
-paths = [p for p in sys.path if Path(p).resolve() != Path(root).resolve()]
-previous = sys.modules.pop('psutil', None)
-spec = machinery.PathFinder().find_spec('psutil', paths)
-if spec and getattr(spec, 'origin', None) != __file__:
-    module = util.module_from_spec(spec)
-    sys.modules['psutil'] = module
-    spec.loader.exec_module(module)
-else:
-    if previous is not None:
-        sys.modules['psutil'] = previous
+try:
+    sys.modules.pop('psutil', None)
+    path0 = sys.path.pop(0)
+    module = import_module('psutil')
+    sys.path.insert(0, path0)
+    if getattr(module, '__file__', '') == __file__:
+        module = None
+except Exception:
+    sys.path.insert(0, path0)
+    module = None
+
+if module is None:
     module = import_module('src.psutil')
 
 for name in getattr(module, '__all__', dir(module)):
