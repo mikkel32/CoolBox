@@ -16,6 +16,7 @@ from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
 from rich.prompt import Prompt  # noqa: E402
 from typing import Any
+import shlex
 
 try:  # pragma: no cover - optional dependency
     from textual.app import App, ComposeResult  # type: ignore
@@ -35,7 +36,7 @@ except ModuleNotFoundError:  # pragma: no cover - textual is optional
 import psutil  # noqa: E402
 
 from src.utils.helpers import calc_hash  # noqa: E402
-from src.utils.process_utils import run_command  # noqa: E402
+from src.utils.process_utils import run_command, run_command_ex  # noqa: E402
 from src.utils.security import ensure_admin, is_admin, list_open_ports  # noqa: E402
 import shutil  # noqa: E402
 
@@ -229,6 +230,7 @@ class InspectorApp(App):
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("/", "filter_strings", "Filter Strings"),
+        ("c", "toggle_cmd", "Run Command"),
     ]
 
     def __init__(self, info: Dict[str, str], procs: List[psutil.Process], ports: Dict[int, List[str]], strings: List[str] | None) -> None:
@@ -258,6 +260,12 @@ class InspectorApp(App):
         self.strings_table = DataTable(zebra_stripes=True)
         self.strings_table.add_column("Strings")
 
+        self.cmd_table = DataTable(zebra_stripes=True)
+        self.cmd_table.add_column("Output")
+
+        self.cmd_input = Input(placeholder="Shell command", id="cmd-input")
+        self.cmd_input.display = False
+
         self.filter_input = Input(placeholder="Filter strings", id="filter-input")
         self.filter_input.display = False
 
@@ -266,9 +274,11 @@ class InspectorApp(App):
             TabPane(self.procs_table, id="procs", title="Processes"),
             TabPane(self.port_table, id="ports", title="Ports"),
             TabPane(self.strings_table, id="strings", title="Strings"),
+            TabPane(self.cmd_table, id="shell", title="Shell"),
         )
         yield Container(tabs, id="body")
         yield self.filter_input
+        yield self.cmd_input
 
     def on_mount(self) -> None:  # pragma: no cover - UI setup
         self.load_tables()
@@ -311,12 +321,43 @@ class InspectorApp(App):
         self.filter_input.display = True
         self.set_focus(self.filter_input)
 
+    def action_toggle_cmd(self) -> None:
+        self.cmd_input.display = True
+        self.set_focus(self.cmd_input)
+
     def on_input_submitted(self, event: Input.Submitted) -> None:  # pragma: no cover - UI interaction
         if event.input.id == "filter-input":
             self.strings_filter = event.value
             self.filter_input.value = ""
             self.filter_input.display = False
             self._load_strings()
+        elif event.input.id == "cmd-input":
+            self._run_shell_command(event.value)
+            self.cmd_input.value = ""
+            self.cmd_input.display = False
+
+    def _run_shell_command(self, command: str) -> None:
+        """Execute *command* and render its output in the table."""
+        if command.strip().lower() in {"clear", "cls"}:
+            self.cmd_table.clear()
+            return
+
+        ts = datetime.datetime.now().strftime("[%H:%M:%S] $ ")
+        self.cmd_table.add_row(ts + command)
+
+        out, rc = run_command_ex(shlex.split(command), capture=True, check=False)
+        if out is None:
+            self.cmd_table.add_row("<error>")
+            return
+
+        lines = out.splitlines()
+        if not lines:
+            self.cmd_table.add_row("<no output>")
+        else:
+            for line in lines:
+                self.cmd_table.add_row(line)
+        if rc is not None:
+            self.cmd_table.add_row(f"[exit {rc}]")
 
 
 def main(argv: List[str] | None = None) -> None:

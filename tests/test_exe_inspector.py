@@ -122,3 +122,67 @@ def test_tui_filter() -> None:
     app = inspector.InspectorApp({"Path": "x"}, [], {}, ["abc", "def", "ghi"])
     app.strings_filter = "d"
     assert app.filter_strings() == ["def"]
+
+
+def test_tui_command(monkeypatch) -> None:
+    called = []
+    app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
+    app.cmd_table = SimpleNamespace(add_row=lambda text: called.append(text))
+    app.cmd_input = SimpleNamespace(value="", display=False)
+    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd")
+    monkeypatch.setattr(
+        inspector,
+        "run_command_ex",
+        lambda cmd, capture=False, check=False: ("out", 0),
+    )
+    app.on_input_submitted(dummy_event)
+    assert called[0].endswith("$ cmd")
+    assert called[1:] == ["out", "[exit 0]"]
+
+
+def test_tui_command_no_output(monkeypatch) -> None:
+    called = []
+    app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
+    app.cmd_table = SimpleNamespace(add_row=lambda text: called.append(text))
+    app.cmd_input = SimpleNamespace(value="", display=False)
+    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd")
+    monkeypatch.setattr(
+        inspector,
+        "run_command_ex",
+        lambda cmd, capture=False, check=False: ("", 0),
+    )
+    app.on_input_submitted(dummy_event)
+    assert called[0].endswith("$ cmd")
+    assert called[1:] == ["<no output>", "[exit 0]"]
+
+
+def test_tui_command_error(monkeypatch) -> None:
+    called = []
+    app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
+    app.cmd_table = SimpleNamespace(add_row=lambda text: called.append(text))
+    app.cmd_input = SimpleNamespace(value="", display=False)
+    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd")
+    monkeypatch.setattr(
+        inspector,
+        "run_command_ex",
+        lambda cmd, capture=False, check=False: (None, None),
+    )
+    app.on_input_submitted(dummy_event)
+    assert called[0].endswith("$ cmd")
+    assert called[1:] == ["<error>"]
+
+
+def test_tui_command_clear(monkeypatch) -> None:
+    events = []
+    app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
+    app.cmd_table = SimpleNamespace(add_row=lambda text: events.append(text),
+                                   clear=lambda: events.append("CLEAR"))
+    app.cmd_input = SimpleNamespace(value="", display=False)
+    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="clear")
+
+    def fail(*args, **kwargs):
+        raise AssertionError("command should not run")
+
+    monkeypatch.setattr(inspector, "run_command_ex", fail)
+    app.on_input_submitted(dummy_event)
+    assert events == ["CLEAR"]
