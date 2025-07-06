@@ -3,6 +3,9 @@ class Console:
         pass
     def log(self, *a, **k):
         pass
+    def clear(self):
+        import os
+        os.system('cls' if os.name == 'nt' else 'clear')
 
 class Control:
     def __init__(self, *a, **k):
