@@ -13,6 +13,7 @@ import base64
 from pathlib import Path
 import re
 import threading
+import sys
 from PIL import ImageGrab
 from .base_view import BaseView
 from ..components.widgets import info_label
@@ -148,6 +149,11 @@ class ToolsView(BaseView):
                 "Launch VM Debug",
                 "Run CoolBox in a VM and wait for debugger",
                 self._launch_vm_debug,
+            ),
+            (
+                "Executable Inspector",
+                "Inspect an executable file",
+                self._exe_inspector,
             ),
             (
                 "Security Center",
@@ -671,6 +677,28 @@ class ToolsView(BaseView):
                     self.app.window.after(0, self.app.status_bar.hide_progress)
 
         threading.Thread(target=run, daemon=True).start()
+
+    def _exe_inspector(self) -> None:
+        """Launch the executable inspector."""
+        exe = filedialog.askopenfilename(
+            parent=self,
+            title="Select Executable",
+            filetypes=[("Executables", "*.exe"), ("All files", "*.*")],
+        )
+        if not exe:
+            return
+        if self.app.status_bar is not None:
+            self.app.status_bar.set_message("Launching Exe Inspector...", "info")
+        try:
+            subprocess.Popen([
+                sys.executable,
+                "-m",
+                "scripts.exe_inspector",
+                exe,
+                "--tui",
+            ])
+        except Exception as exc:
+            messagebox.showerror("Executable Inspector", str(exc))
 
     def _security_center(self) -> None:
         """Open the Security Center dialog."""
