@@ -50,6 +50,32 @@ class UIHelperMixin:
         container.pack(fill="both", expand=True, padx=self.padx, pady=self.pady)
         return container
 
+    def create_toplevel(
+        self,
+        *,
+        title: str = "",
+        geometry: str | None = None,
+    ) -> ctk.CTkToplevel:
+        """Create a ``CTkToplevel`` window with the app icon applied."""
+        if hasattr(self, "app") and hasattr(self.app, "create_toplevel"):
+            try:
+                return self.app.create_toplevel(
+                    title=title, geometry=geometry, parent=self
+                )
+            except Exception:
+                pass
+        window = ctk.CTkToplevel(self)
+        if title:
+            window.title(title)
+        if geometry:
+            window.geometry(geometry)
+        if hasattr(self.app, "apply_icon"):
+            try:
+                self.app.apply_icon(window)
+            except Exception:
+                pass
+        return window
+
     def add_title(self, parent, text: str, *, use_pack: bool = True):
         """Return a title label and optionally pack it."""
         label = ctk.CTkLabel(parent, text=text, font=self.title_font)
