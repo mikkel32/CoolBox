@@ -31,9 +31,11 @@ _ATTR_MODULES = {
     # rainbow
     "RainbowBorder": "rainbow",
     "NeonPulseBorder": "rainbow",
+    "MatrixBorder": "rainbow",
     # vm
     "launch_vm_debug": "vm",
     "async_launch_vm_debug": "vm",
+    "available_backends": "vm",
     # file manager
     "read_text": "file_manager",
     "write_text": "file_manager",
