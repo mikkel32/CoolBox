@@ -1,7 +1,10 @@
 import platform
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 import hashlib
+import datetime
+import stat
 import pytest
 import sys
 import types
@@ -11,7 +14,9 @@ utils = types.ModuleType("src.utils")
 helpers = types.ModuleType("src.utils.helpers")
 process_utils = types.ModuleType("src.utils.process_utils")
 security = types.ModuleType("src.utils.security")
-helpers.calc_hash = lambda p, algo="sha256": hashlib.sha256(Path(p).read_bytes()).hexdigest()
+helpers.calc_hash = lambda p, algo="sha256": hashlib.sha256(
+    Path(p).read_bytes()
+).hexdigest()
 process_utils.run_command = lambda *a, **kw: ""
 process_utils.run_command_ex = lambda *a, **kw: ("", 0)
 security.ensure_admin = lambda *a, **kw: True
@@ -100,7 +105,9 @@ def test_cpp_used(monkeypatch, tmp_path):
     exe = tmp_path / "bin"
     exe.write_text("x")
     called = []
-    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: called.append(a) or "ok")
+    monkeypatch.setattr(
+        inspector, "_calc_hash_cpp", lambda p, a: called.append(a) or "ok"
+    )
     digest = inspector._calc_hash_smart(exe, "sha256")
     assert digest == "ok"
     assert called == ["sha256"]
@@ -127,7 +134,9 @@ def test_compile_uses_pkgconfig(monkeypatch, tmp_path):
     monkeypatch.setattr(inspector, "HASHCALC_SRC", src)
     monkeypatch.setenv("EXE_HASH_BIN", str(bin_path))
     monkeypatch.setenv("EXE_HASH_LIB", str(lib_path))
-    monkeypatch.setattr(inspector.shutil, "which", lambda x: "/usr/bin/g++" if x == "g++" else None)
+    monkeypatch.setattr(
+        inspector.shutil, "which", lambda x: "/usr/bin/g++" if x == "g++" else None
+    )
 
     assert inspector._compile_hash_calc()
     assert any(cmd[0] == "pkg-config" for cmd in calls)
@@ -184,7 +193,9 @@ def test_compile_extra_flags(monkeypatch, tmp_path):
     monkeypatch.setenv("EXE_HASH_BIN", str(bin_path))
     monkeypatch.setenv("EXE_HASH_LIB", str(lib_path))
     monkeypatch.setenv("EXE_HASH_CXXFLAGS", "-O3 -march=native")
-    monkeypatch.setattr(inspector.shutil, "which", lambda x: "/usr/bin/g++" if x == "g++" else None)
+    monkeypatch.setattr(
+        inspector.shutil, "which", lambda x: "/usr/bin/g++" if x == "g++" else None
+    )
 
     assert inspector._compile_hash_calc()
     gxx_calls = [c for c in calls if Path(c[0]).name == "g++"]
@@ -204,7 +215,9 @@ def test_openssl_flags_fallback(monkeypatch):
         return ""
 
     monkeypatch.setattr(inspector, "run_command", fake_run)
-    monkeypatch.setattr(inspector.ctypes.util, "find_library", lambda x: "/opt/ssl/lib/libcrypto.so")
+    monkeypatch.setattr(
+        inspector.ctypes.util, "find_library", lambda x: "/opt/ssl/lib/libcrypto.so"
+    )
 
     flags = inspector._openssl_flags()
     assert "-I/opt/ssl/include" in flags
@@ -270,6 +283,98 @@ def test_gather_info_algos(monkeypatch, tmp_path):
     info = inspector.gather_info(exe, algos=["md5", "sha1"])
     assert info["MD5"] == "md5"
     assert info["SHA1"] == "sha1"
+
+
+def test_gather_info_permissions(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(exe)
+    assert info["Permissions"].startswith("0o")
+
+
+def test_gather_info_mode(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    exe.chmod(0o754)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(exe)
+    assert info["Mode"] == stat.filemode(exe.stat().st_mode)
+    assert info["Executable"] == "True"
+
+
+def test_gather_info_accessed(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(exe)
+    expected = datetime.datetime.fromtimestamp(exe.stat().st_atime).isoformat()
+    assert info["Accessed"] == expected
+
+
+def test_gather_info_symlink(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    link = tmp_path / "lnk"
+    link.symlink_to(exe)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(link)
+    assert info["IsSymlink"] == "True"
+    assert info["Target"].endswith("bin")
+
+
+def test_gather_info_interpreter(monkeypatch, tmp_path):
+    script = tmp_path / "tool"
+    script.write_text("#!/bin/bash\necho hi\n")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(script)
+    assert info["Interpreter"] == "/bin/bash"
+
+
+def test_gather_info_interpreter_env(monkeypatch, tmp_path):
+    script = tmp_path / "tool_env"
+    script.write_text("#!/usr/bin/env python\nprint('hi')\n")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(script)
+    expected = shutil.which("python") or "python"
+    assert info["Interpreter"] == expected
+
+
+def _write_pe(path: Path, machine: int) -> None:
+    data = bytearray(256)
+    data[0:2] = b"MZ"
+    data[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    data.extend(b"\x00" * (0x80 - len(data)))
+    data[0x80:0x84] = b"PE\0\0"
+    data[0x84:0x86] = machine.to_bytes(2, "little")
+    path.write_bytes(data)
+
+
+def test_detect_architecture_pe(tmp_path):
+    exe = tmp_path / "app.exe"
+    _write_pe(exe, 0x8664)
+    assert inspector._detect_architecture(exe) == "64-bit"
+
+
+def test_detect_architecture_elf(tmp_path):
+    exe = tmp_path / "app"
+    exe.write_bytes(b"\x7fELF\x02" + b"\x00" * 10)
+    assert inspector._detect_architecture(exe) == "64-bit"
+
+
+def test_gather_info_arch(monkeypatch, tmp_path):
+    exe = tmp_path / "app"
+    exe.write_bytes(b"\x7fELF\x02" + b"\x00" * 10)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(exe)
+    assert info["Architecture"] == "64-bit"
 
 
 def test_gather_info_denied(monkeypatch, tmp_path):
@@ -388,8 +493,9 @@ def test_tui_command_error(monkeypatch) -> None:
 def test_tui_command_clear(monkeypatch) -> None:
     events = []
     app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
-    app.cmd_table = SimpleNamespace(add_row=lambda text: events.append(text),
-                                   clear=lambda: events.append("CLEAR"))
+    app.cmd_table = SimpleNamespace(
+        add_row=lambda text: events.append(text), clear=lambda: events.append("CLEAR")
+    )
     app.cmd_input = SimpleNamespace(value="", display=False)
     dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="clear")
 
@@ -399,3 +505,61 @@ def test_tui_command_clear(monkeypatch) -> None:
     monkeypatch.setattr(inspector, "run_command_ex", fail)
     app.on_input_submitted(dummy_event)
     assert events == ["CLEAR"]
+
+
+def test_linked_libraries(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        inspector,
+        "run_command",
+        lambda cmd, capture=False, check=True: "libc.so => /lib/libc.so\n" if capture else "",
+    )
+    libs = inspector._linked_libraries(exe)
+    assert libs == ["libc.so"]
+
+
+def test_gather_info_libraries(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(inspector, "run_command", lambda *a, **k: "libc.so => /lib/libc.so\n")
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(exe)
+    assert "libc.so" in info.get("Libraries", "")
+
+
+def test_rpath_entries(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+
+    def fake_run(cmd, capture=False, check=True):
+        if cmd[0] == "readelf":
+            return "0x000000000000001d (RUNPATH)            Library runpath: [/opt/lib]"
+        return ""
+
+    monkeypatch.setattr(inspector, "run_command", fake_run)
+    rpaths = inspector._rpath_entries(exe)
+    assert rpaths == ["/opt/lib"]
+
+
+def test_gather_info_rpath(monkeypatch, tmp_path):
+    exe = tmp_path / "bin"
+    exe.write_text("x")
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+
+    def fake_run(cmd, capture=False, check=True):
+        if cmd[0] == "readelf":
+            return "0x000000000000001d (RPATH)            Library rpath: [/opt/lib]"
+        if cmd[0] == "ldd":
+            return ""
+        if cmd[0] == "file":
+            return ""
+        return ""
+
+    monkeypatch.setattr(inspector, "run_command", fake_run)
+    monkeypatch.setattr(inspector, "_calc_hash_cpp", lambda p, a: None)
+    info = inspector.gather_info(exe)
+    assert info.get("RPATH") == "/opt/lib"
