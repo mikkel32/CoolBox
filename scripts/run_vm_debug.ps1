@@ -4,10 +4,7 @@ param(
     [switch]$Code,
     [int]$Port = 5678,
     [switch]$List,
-    [switch]$SkipDeps,
-    [switch]$Quiet,
-    [switch]$NoWait,
-    [switch]$Detach
+    [switch]$SkipDeps
 )
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -19,8 +16,5 @@ if ($Code) { $ArgsList += '--code' }
 if ($Port -ne 5678) { $ArgsList += '--port'; $ArgsList += $Port }
 if ($List) { $ArgsList += '--list' }
 if ($SkipDeps) { $ArgsList += '--skip-deps' }
-if ($Quiet) { $ArgsList += '--quiet' }
-if ($NoWait) { $ArgsList += '--no-wait' }
-if ($Detach) { $ArgsList += '--detach' }
 
 python $PythonScript @ArgsList

@@ -16,22 +16,24 @@ fi
 IMAGE_NAME=coolbox-dev
 CONTAINER_NAME=coolbox_dev
 DEBUG_PORT="${DEBUG_PORT:-5678}"
-SKIP_DEPS="${SKIP_DEPS:-}"
-DEBUG_NOWAIT="${DEBUG_NOWAIT:-}"
 
 # Build image
 $ENGINE build -f .devcontainer/Dockerfile -t $IMAGE_NAME .
 
-# Run container and launch application using run_debug.sh
+# Run container and start app under debugpy
 TARGET="${DEBUG_TARGET:-main.py}"
-RUN_CMD="./scripts/run_debug.sh"
+RUN_CMD="python -Xfrozen_modules=off -m debugpy --listen $DEBUG_PORT --wait-for-client $TARGET"
+if [ -z "$DISPLAY" ]; then
+    if command -v xvfb-run >/dev/null 2>&1; then
+        RUN_CMD="xvfb-run -a $RUN_CMD"
+    else
+        echo "warning: xvfb-run not found; running without virtual display" >&2
+    fi
+fi
 exec $ENGINE run --rm \
     --name $CONTAINER_NAME \
     -e DISPLAY=$DISPLAY \
     -e DEBUG_PORT=$DEBUG_PORT \
-    -e DEBUG_TARGET="$TARGET" \
-    -e SKIP_DEPS=$SKIP_DEPS \
-    -e DEBUG_NOWAIT=$DEBUG_NOWAIT \
     -p $DEBUG_PORT:$DEBUG_PORT \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v "$(pwd)":/workspace \
