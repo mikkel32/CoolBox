@@ -6,3 +6,5 @@ __pycache__/
 __pycache__/
 .pytest_cache/
 io_test.tmp
+scripts/hash_calc
+scripts/hash_calc.*

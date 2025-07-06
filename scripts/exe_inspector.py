@@ -7,7 +7,7 @@ import datetime
 import platform
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -39,23 +39,201 @@ from src.utils.helpers import calc_hash  # noqa: E402
 from src.utils.process_utils import run_command, run_command_ex  # noqa: E402
 from src.utils.security import ensure_admin, is_admin, list_open_ports  # noqa: E402
 import shutil  # noqa: E402
+import hashlib
+import ctypes
+import ctypes.util
+import os
+import re
+
+HASHCALC_BIN_DEFAULT = Path(__file__).with_name("hash_calc")
+LIB_EXT = {
+    "win32": ".dll",
+    "darwin": ".dylib",
+}.get(sys.platform, ".so")
+HASHCALC_LIB_DEFAULT = Path(__file__).with_name("hash_calc" + LIB_EXT)
+HASHCALC_SRC = Path(__file__).with_name("hash_calc.cpp")
+_HASH_LIB = None
 
 
-def _calc_hash_smart(path: Path) -> str:
-    """Return SHA256 hash of *path* using fallbacks if direct reading fails."""
+def _cxx() -> str | None:
+    """Return the C++ compiler to use, honoring the CXX environment variable."""
+    env = os.getenv("CXX")
+    if env:
+        return env
+    for c in ("g++", "clang++"):
+        path = shutil.which(c)
+        if path:
+            return path
+    return None
+
+
+def _hashcalc_bin() -> Path:
+    env = os.getenv("EXE_HASH_BIN")
+    return Path(env) if env else HASHCALC_BIN_DEFAULT
+
+
+def _hashcalc_lib() -> Path:
+    env = os.getenv("EXE_HASH_LIB")
+    return Path(env) if env else HASHCALC_LIB_DEFAULT
+
+
+def _extra_cxxflags() -> list[str]:
+    """Return additional C++ flags from the ``EXE_HASH_CXXFLAGS`` env var."""
+    env = os.getenv("EXE_HASH_CXXFLAGS")
+    return shlex.split(env) if env else []
+
+
+def _openssl_flags() -> list[str]:
+    """Return compiler/linker flags for OpenSSL.
+
+    Tries ``pkg-config`` first and falls back to ``openssl version`` and
+    :func:`ctypes.util.find_library` when pkg-config is unavailable.
+    """
+
+    flags: list[str] = []
+    cflags = run_command(["pkg-config", "--cflags", "openssl"], capture=True, check=False)
+    libs = run_command(["pkg-config", "--libs", "openssl"], capture=True, check=False)
+
+    if cflags:
+        flags.extend(shlex.split(cflags))
+    else:
+        out = run_command(["openssl", "version", "-d"], capture=True, check=False)
+        if out:
+            m = re.search(r'"([^"]+)"', out)
+            if m:
+                inc = Path(m.group(1)) / "include"
+                flags.append(f"-I{inc}")
+
+    if libs:
+        flags.extend(shlex.split(libs))
+    else:
+        lib = ctypes.util.find_library("crypto")
+        if lib and "/" in lib:
+            flags.append(f"-L{Path(lib).resolve().parent}")
+        flags.append("-lcrypto")
+
+    return flags
+
+
+def _compile_hash_calc() -> bool:
+    """Compile the C++ hash library/CLI if needed."""
+    compiler = _cxx()
+    if not compiler or not HASHCALC_SRC.exists():
+        return False
+
+    flags = _openssl_flags()
+    extra = _extra_cxxflags()
+
+    dest_lib = _hashcalc_lib()
+    dest_bin = _hashcalc_bin()
+    newer = lambda p: not p.exists() or p.stat().st_mtime < HASHCALC_SRC.stat().st_mtime
+    if newer(dest_lib):
+        cmd = [
+            compiler,
+            "-std=c++17",
+            "-shared",
+            "-fPIC",
+            str(HASHCALC_SRC),
+            "-o",
+            str(dest_lib),
+            *flags,
+            *extra,
+        ]
+        run_command(cmd, capture=False)
+
+    if newer(dest_bin):
+        cmd = [
+            compiler,
+            "-std=c++17",
+            "-DBUILD_CLI",
+            str(HASHCALC_SRC),
+            "-o",
+            str(dest_bin),
+            *flags,
+            *extra,
+        ]
+        run_command(cmd, capture=False)
+
+    return dest_lib.exists()
+
+
+def _load_hash_lib() -> ctypes.CDLL | None:
+    """Load the compiled hash library if available."""
+    global _HASH_LIB
+    if _HASH_LIB is not None:
+        return _HASH_LIB
+    lib_path = _hashcalc_lib()
+    candidates: list[str] = []
+    if lib_path.exists():
+        candidates.append(str(lib_path))
+    else:
+        found = ctypes.util.find_library("hash_calc")
+        if found:
+            candidates.append(found)
+    for cand in candidates:
+        try:
+            lib = ctypes.CDLL(cand)
+            lib.hash_file.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+            lib.hash_file.restype = ctypes.c_int
+            _HASH_LIB = lib
+            return lib
+        except Exception:
+            continue
+    if not _compile_hash_calc():
+        return None
+    lib_path = _hashcalc_lib()
     try:
-        return calc_hash(str(path), "sha256")
+        lib = ctypes.CDLL(str(lib_path))
+        lib.hash_file.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t]
+        lib.hash_file.restype = ctypes.c_int
+        _HASH_LIB = lib
+        return lib
+    except Exception:
+        return None
+
+
+def _calc_hash_cpp(path: Path, algo: str) -> str | None:
+    """Return hash using the C++ helper if available."""
+    lib = _load_hash_lib()
+    if lib:
+        buf = ctypes.create_string_buffer(129)
+        res = lib.hash_file(algo.encode(), str(path).encode(), buf, len(buf))
+        if res == 0:
+            return buf.value.decode()
+    if not _compile_hash_calc():
+        return None
+    out = run_command([str(_hashcalc_bin()), algo, str(path)], capture=True)
+    return out.strip() if out else None
+
+
+def _calc_hash_smart(path: Path, algo: str = "sha256") -> str:
+    """Return hash of *path* using *algo* with several fallbacks."""
+    cpp = _calc_hash_cpp(path, algo)
+    if cpp:
+        return cpp
+    try:
+        return calc_hash(str(path), algo)
     except Exception as exc:
         if platform.system() == "Windows":
-            out = run_command(["certutil", "-hashfile", str(path), "SHA256"], capture=True)
+            win_algo = algo.upper()
+            out = run_command(["certutil", "-hashfile", str(path), win_algo], capture=True)
             if out:
                 return out.split()[0]
         else:
-            tool = shutil.which("sha256sum") or shutil.which("shasum")
+            tool = None
+            if algo == "md5":
+                tool = shutil.which("md5sum") or shutil.which("md5")
+            elif algo == "sha1":
+                tool = shutil.which("sha1sum") or shutil.which("shasum")
+            elif algo == "sha256":
+                tool = shutil.which("sha256sum") or shutil.which("shasum")
             if tool:
                 cmd = [tool]
-                if Path(tool).name == "shasum":
-                    cmd += ["-a", "256"]
+                if Path(tool).name == "shasum" and algo != "md5":
+                    if algo == "sha1":
+                        cmd += ["-a", "1"]
+                    elif algo == "sha256":
+                        cmd += ["-a", "256"]
                 cmd.append(str(path))
                 out = run_command(cmd, capture=True)
                 if out:
@@ -73,9 +251,10 @@ def _powershell(cmd: str) -> str | None:
     ], capture=True)
 
 
-def _windows_details(path: Path) -> Dict[str, str]:
+def _windows_details(path: Path, algos: Sequence[str]) -> Dict[str, str]:
     details: Dict[str, str] = {}
-    details["SHA256"] = _calc_hash_smart(path)
+    for algo in algos:
+        details[algo.upper()] = _calc_hash_smart(path, algo)
     version = _powershell(f'(Get-Item \"{path}\").VersionInfo.ProductVersion')
     if version:
         details["Version"] = version.strip()
@@ -91,9 +270,10 @@ def _windows_details(path: Path) -> Dict[str, str]:
     return details
 
 
-def _unix_details(path: Path) -> Dict[str, str]:
+def _unix_details(path: Path, algos: Sequence[str]) -> Dict[str, str]:
     details: Dict[str, str] = {}
-    details["SHA256"] = _calc_hash_smart(path)
+    for algo in algos:
+        details[algo.upper()] = _calc_hash_smart(path, algo)
     file_type = run_command(["file", "-b", str(path)], capture=True)
     if file_type:
         details["Type"] = file_type.strip()
@@ -135,7 +315,7 @@ def _extract_strings(path: Path, *, limit: int = 10, min_len: int = 4) -> List[s
     return found
 
 
-def gather_info(path: Path) -> Dict[str, str]:
+def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, str]:
     info: Dict[str, str] = {
         "Path": str(path),
         "Exists": str(path.exists()),
@@ -157,9 +337,9 @@ def gather_info(path: Path) -> Dict[str, str]:
         )
 
         if platform.system() == "Windows":
-            info.update(_windows_details(path))
+            info.update(_windows_details(path, algos))
         else:
-            info.update(_unix_details(path))
+            info.update(_unix_details(path, algos))
     return info
 
 
@@ -375,6 +555,11 @@ def main(argv: List[str] | None = None) -> None:
         help="Display up to N printable strings from the file",
     )
     parser.add_argument(
+        "--hashes",
+        default="sha256",
+        help="Comma-separated list of hash algorithms to compute",
+    )
+    parser.add_argument(
         "--tui",
         action="store_true",
         help="Launch interactive terminal UI (requires 'textual')",
@@ -388,7 +573,8 @@ def main(argv: List[str] | None = None) -> None:
         if not ensure_admin("Administrator access is required for process and port information."):
             sys.exit(1)
 
-    info = gather_info(exe_path)
+    algos = [a.strip().lower() for a in args.hashes.split(',') if a.strip()]
+    info = gather_info(exe_path, algos=algos)
     procs = _processes_for(exe_path) if exe_path.exists() else []
     ports = _ports_for([p.pid for p in procs]) if procs else {}
 
