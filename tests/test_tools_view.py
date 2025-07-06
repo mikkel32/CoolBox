@@ -1,6 +1,5 @@
 import os
 import unittest
-import subprocess
 from tkinter import filedialog
 from unittest.mock import patch
 from src.app import CoolBoxApp
@@ -41,19 +40,15 @@ class TestToolsView(unittest.TestCase):
 
         self.assertTrue(called["open"])
 
-    def test_exe_inspector_invokes_popen(self) -> None:
+    def test_exe_inspector_opens_dialog(self) -> None:
         with patch.object(filedialog, "askopenfilename", return_value="app.exe"), \
-             patch.object(subprocess, "Popen") as popen:
+             patch("src.views.exe_inspector_dialog.ExeInspectorDialog") as dlg:
             dummy_app = type("DummyApp", (), {"status_bar": None})()
             dummy = type("Dummy", (), {"app": dummy_app})()
 
             ToolsView._exe_inspector(dummy)
 
-            popen.assert_called_once()
-            args = popen.call_args[0][0]
-            self.assertEqual(
-                args[1:], ["-m", "scripts.exe_inspector", "app.exe", "--tui"]
-            )
+            dlg.assert_called_once_with(dummy_app, "app.exe")
 
 
 if __name__ == "__main__":
