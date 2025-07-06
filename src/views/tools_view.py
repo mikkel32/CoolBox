@@ -154,6 +154,11 @@ class ToolsView(BaseView):
                 "Toggle Firewall and Defender",
                 self._security_center,
             ),
+            (
+                "Executable Tester",
+                "Stress test executables",
+                self._exe_tester,
+            ),
         ]
 
         for name, desc, func in tools:
@@ -675,6 +680,12 @@ class ToolsView(BaseView):
     def _security_center(self) -> None:
         """Open the Security Center dialog."""
         self.app.open_security_center()
+
+    def _exe_tester(self) -> None:
+        """Launch the executable tester dialog."""
+        from .exe_tester_dialog import ExeTesterDialog
+
+        ExeTesterDialog(self.app)
 
     def _text_editor(self):
         """Open a simple text editor window."""
