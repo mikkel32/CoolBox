@@ -77,6 +77,13 @@ from .network import (
     clear_ping_cache,
     clear_arp_cache,
 )
+from .geolocation import (
+    GeoInfo,
+    get_geo_info,
+    async_get_geo_info,
+    queue_geo_lookup,
+    shutdown_worker,
+)
 
 from .ui import center_window
 from .kill_utils import kill_process, kill_process_tree
@@ -180,6 +187,11 @@ __all__ = [
     "clear_ping_cache",
     "clear_arp_cache",
     "async_collect_http_info",
+    "GeoInfo",
+    "get_geo_info",
+    "async_get_geo_info",
+    "queue_geo_lookup",
+    "shutdown_worker",
     "TOP_PORTS",
     "PortInfo",
     "file_manager",
