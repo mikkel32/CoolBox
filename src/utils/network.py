@@ -32,7 +32,6 @@ import ipaddress
 import psutil
 
 from .cache import CacheManager
-from .geolocation import GeoInfo, queue_geo_lookup
 
 # Default worker and timeout values can be tuned via environment variables so
 # large scans can be optimized without code changes.
@@ -275,7 +274,6 @@ class AutoScanInfo:
     vendor: str | None = None
     http_info: Dict[int, HTTPInfo] | None = None
     device_type: str | None = None
-    geo: GeoInfo | None = None
     _risk_score: int | None = field(default=None, init=False, repr=False)
 
     @property
@@ -1300,7 +1298,6 @@ async def async_auto_scan_iter(
     with_http_info: bool = False,
     with_device_type: bool = False,
     with_risk_score: bool = False,
-    with_geo: bool = False,
     http_concurrency: int = _DEFAULT_HTTP_CONCURRENCY,
     include_arp: bool = True,
     cancel_event: Any | None = None,
@@ -1473,8 +1470,6 @@ async def async_auto_scan_iter(
             info.device_type = _guess_device_type(info)
         if with_risk_score:
             info.compute_risk_score()
-        if with_geo:
-            queue_geo_lookup(host, lambda gi, i=info: setattr(i, "geo", gi))
         return host, info
 
     host_q: asyncio.Queue[str] = asyncio.Queue()
@@ -1547,7 +1542,6 @@ async def async_auto_scan(
     with_http_info: bool = False,
     with_device_type: bool = False,
     with_risk_score: bool = False,
-    with_geo: bool = False,
     http_concurrency: int = _DEFAULT_HTTP_CONCURRENCY,
     include_arp: bool = True,
     cancel_event: Any | None = None,
@@ -1600,7 +1594,6 @@ async def async_auto_scan(
         with_http_info=with_http_info,
         with_device_type=with_device_type,
         with_risk_score=with_risk_score,
-        with_geo=with_geo,
         http_concurrency=http_concurrency,
         include_arp=include_arp,
         cancel_event=cancel_event,
@@ -1638,7 +1631,6 @@ async def async_scan_hosts_iter(
     with_http_info: bool = False,
     with_device_type: bool = False,
     with_risk_score: bool = False,
-    with_geo: bool = False,
     http_concurrency: int = _DEFAULT_HTTP_CONCURRENCY,
     cancel_event: Any | None = None,
 ) -> AsyncIterator[
@@ -1804,8 +1796,6 @@ async def async_scan_hosts_iter(
             info.device_type = _guess_device_type(info)
         if with_risk_score:
             info.compute_risk_score()
-        if with_geo:
-            queue_geo_lookup(host, lambda gi, i=info: setattr(i, "geo", gi))
         return host, info
 
     host_q: asyncio.Queue[str] = asyncio.Queue()
@@ -1880,7 +1870,6 @@ async def async_scan_hosts_detailed(
     with_http_info: bool = False,
     with_device_type: bool = False,
     with_risk_score: bool = False,
-    with_geo: bool = False,
     http_concurrency: int = _DEFAULT_HTTP_CONCURRENCY,
     cancel_event: Any | None = None,
 ) -> Dict[str, AutoScanInfo]:
@@ -2062,9 +2051,6 @@ async def async_scan_hosts_detailed(
     if with_risk_score:
         for info in detailed.values():
             info.compute_risk_score()
-    if with_geo:
-        for host, info in detailed.items():
-            queue_geo_lookup(host, lambda gi, i=info: setattr(i, "geo", gi))
 
     return detailed
 
