@@ -9,7 +9,13 @@ from src.utils import (
 )
 from src.utils.cache import CacheManager
 from src.utils.helpers import adjust_color, hex_brightness, lighten_color
-from src.utils.helpers import darken_color, run_with_spinner
+from src.utils.helpers import (
+    darken_color,
+    run_with_spinner,
+    slugify,
+    strip_ansi,
+    calc_data_hash,
+)
 import io
 
 
@@ -18,6 +24,14 @@ def test_calc_hash(tmp_path):
     file.write_text("hello")
     assert calc_hash(file) == "5d41402abc4b2a76b9719d911017c592"
     assert calc_hash(file, "sha1") == "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+
+
+def test_calc_data_hash():
+    assert calc_data_hash("hello") == "5d41402abc4b2a76b9719d911017c592"
+    assert (
+        calc_data_hash(b"hello", "sha1")
+        == "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
+    )
 
 
 def test_open_path(monkeypatch):
@@ -106,21 +120,40 @@ def test_adjust_color_and_brightness() -> None:
     assert hex_brightness("#fff") == 1
 
 
+def test_slugify():
+    assert slugify("Hello World!") == "hello_world"
+    assert slugify("foo-bar_baz") == "foo_bar_baz"
+    assert slugify("Hello World!", sep="-") == "hello-world"
+
+
+def test_strip_ansi():
+    text = "\x1b[31mred\x1b[0m"
+    assert strip_ansi(text) == "red"
+
+
 def test_run_with_spinner(monkeypatch):
     """Ensure ``run_with_spinner`` streams output and checks return codes."""
 
     class DummyProc:
         def __init__(self):
             self.stdout = io.StringIO("hello\n")
+            self.wait_called = False
 
-        def wait(self):
+        def wait(self, timeout=None):
+            self.wait_called = timeout == 5
             return 0
 
     captured = {}
 
-    def fake_popen(cmd, stdout=None, stderr=None, text=None, bufsize=None):
+    last = {}
+
+    def fake_popen(cmd, stdout=None, stderr=None, text=None, bufsize=None, env=None, cwd=None):
+        proc = DummyProc()
         captured["cmd"] = cmd
-        return DummyProc()
+        captured["env"] = env
+        captured["cwd"] = cwd
+        last["proc"] = proc
+        return proc
 
     class DummyProgress:
         def __init__(self, *args, **kwargs):
@@ -138,5 +171,11 @@ def test_run_with_spinner(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr("src.utils.helpers.Progress", DummyProgress)
 
-    run_with_spinner(["echo", "hi"], message="test")
+    result = run_with_spinner(
+        ["echo", "hi"], message="test", timeout=5, capture_output=True, env={"F": "1"}, cwd="/tmp"
+    )
     assert captured["cmd"] == ["echo", "hi"]
+    assert last["proc"].wait_called
+    assert captured["env"] == {"F": "1"}
+    assert captured["cwd"] == "/tmp"
+    assert result == "hello\n"
