@@ -1,9 +1,13 @@
 """Utility helpers and file management."""
 
+import os
+
 from .helpers import (
     log,
     open_path,
     slugify,
+    strip_ansi,
+    calc_data_hash,
     calc_hash,
     calc_hash_cached,
     calc_hashes,
@@ -21,6 +25,16 @@ from .vm import launch_vm_debug
 from .file_manager import (
     read_text,
     write_text,
+    read_lines,
+    write_lines,
+    read_bytes,
+    write_bytes,
+    read_json,
+    write_json,
+    atomic_write,
+    atomic_write_bytes,
+    ensure_dir,
+    touch_file,
     pick_file,
     copy_file,
     move_file,
@@ -78,7 +92,11 @@ from .network import (
     clear_arp_cache,
 )
 
-from .ui import center_window
+if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
+    from .ui import center_window
+else:  # pragma: no cover - testing without UI deps
+    def center_window(*_a: object, **_k: object) -> None:
+        pass
 from .kill_utils import kill_process, kill_process_tree
 from .win_console import (
     hide_console,
@@ -114,6 +132,16 @@ __all__ = [
     "log",
     "read_text",
     "write_text",
+    "read_lines",
+    "write_lines",
+    "read_bytes",
+    "write_bytes",
+    "read_json",
+    "write_json",
+    "atomic_write",
+    "atomic_write_bytes",
+    "ensure_dir",
+    "touch_file",
     "pick_file",
     "copy_file",
     "move_file",
@@ -124,6 +152,8 @@ __all__ = [
     "delete_dir",
     "open_path",
     "slugify",
+    "strip_ansi",
+    "calc_data_hash",
     "calc_hash",
     "calc_hash_cached",
     "calc_hashes",

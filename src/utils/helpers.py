@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import re
 import subprocess
 from typing import Literal, Dict, Any, Iterable, Callable
 from pathlib import Path
@@ -38,14 +39,25 @@ def open_path(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
-def run_with_spinner(cmd: Iterable[str], *, message: str = "Working") -> None:
-    """Run *cmd* while displaying an animated spinner and streaming output."""
+def run_with_spinner(
+    cmd: Iterable[str], *, message: str = "Working", timeout: float | None = None,
+    capture_output: bool = False, env: dict[str, str] | None = None,
+    cwd: str | None = None
+) -> str | None:
+    """Run *cmd* while displaying an animated spinner and streaming output.
+
+    If ``capture_output`` is ``True`` the process output is returned as a single
+    string. Additional environment variables can be supplied via ``env``.
+    The process can be run in a different directory using ``cwd``.
+    """
     proc = subprocess.Popen(
         list(cmd),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        env=env,
+        cwd=cwd,
     )
     with Progress(
         SpinnerColumn(style="bold blue"),
@@ -56,18 +68,52 @@ def run_with_spinner(cmd: Iterable[str], *, message: str = "Working") -> None:
     ) as progress:
         progress.add_task(message, start=True)
         assert proc.stdout is not None
+        captured: list[str] = []
         for line in proc.stdout:
             progress.console.print(line.rstrip())
-        code = proc.wait()
+            if capture_output:
+                captured.append(line)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise
         if code:
             raise subprocess.CalledProcessError(code, list(cmd))
+    return "".join(captured) if capture_output else None
 
 
-def slugify(text: str) -> str:
-    """Return *text* lowercased with non-alphanumerics replaced by underscores."""
-    return "_".join(
-        filter(None, ["".join(ch.lower() if ch.isalnum() else "" for ch in part) for part in text.split()])
-    )
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def slugify(text: str, sep: str = "_") -> str:
+    """Return *text* normalized for filenames or URLs.
+
+    Parameters
+    ----------
+    sep:
+        Character used to replace non-alphanumeric sequences.
+    """
+    text = text.lower()
+    text = _SLUG_RE.sub(sep, text)
+    return text.strip(sep)
+
+
+def strip_ansi(text: str) -> str:
+    """Return *text* without ANSI escape sequences."""
+    return _ANSI_RE.sub("", text)
+
+
+def calc_data_hash(
+    data: bytes | str, algo: Literal["md5", "sha1", "sha256"] = "md5"
+) -> str:
+    """Return the hexadecimal hash of *data* using *algo*."""
+    if isinstance(data, str):
+        data = data.encode()
+    hash_func = getattr(hashlib, algo)()
+    hash_func.update(data)
+    return hash_func.hexdigest()
 
 
 def calc_hash(path: str, algo: Literal["md5", "sha1", "sha256"] = "md5") -> str:

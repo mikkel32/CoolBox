@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Generic, TypeVar, Iterable
+from typing import Dict, Generic, TypeVar, Iterable, Callable
+
+from .file_manager import atomic_write
 import json
 import time
 import threading
@@ -78,7 +80,7 @@ class CacheManager(Generic[T]):
             for k, c in self._cache.items()
         }
         try:
-            self.file.write_text(json.dumps(raw))
+            atomic_write(self.file, json.dumps(raw))
         except Exception:
             pass
 
@@ -147,6 +149,12 @@ class CacheManager(Generic[T]):
         with self._lock:
             return {"hits": self.hits, "misses": self.misses}
 
+    def reset_stats(self) -> None:
+        """Reset hit/miss counters to zero."""
+        with self._lock:
+            self.hits = 0
+            self.misses = 0
+
     def get_many(self, keys: Iterable[str], ttl: float | None = None) -> Dict[str, T]:
         """Return mapping of keys to cached values, dropping expired ones."""
         self._check_reload()
@@ -171,3 +179,56 @@ class CacheManager(Generic[T]):
             if expired:
                 self._save()
         return results
+
+    def exists(self, key: str, ttl: float | None = None) -> bool:
+        """Return ``True`` if *key* exists and is not expired."""
+        return self.get(key, ttl) is not None
+
+    def __contains__(self, key: str) -> bool:  # pragma: no cover - simple
+        """Return ``True`` if *key* is present and not expired."""
+        return self.exists(key)
+
+    def get_or_set(self, key: str, default: Callable[[], T], ttl: float) -> T:
+        """Return cached value for *key*, setting it via *default* if missing."""
+        value = self.get(key, ttl)
+        if value is not None:
+            return value
+        value = default()
+        self.set(key, value, ttl)
+        return value
+
+    def delete(self, key: str) -> None:
+        """Remove *key* from the cache if present."""
+        self._check_reload()
+        with self._lock:
+            if key in self._cache:
+                self._cache.pop(key, None)
+                self._save()
+
+    def pop(self, key: str, ttl: float | None = None) -> T | None:
+        """Remove and return the cached value for *key* if present."""
+        value = self.get(key, ttl)
+        if value is not None:
+            with self._lock:
+                self._cache.pop(key, None)
+                self._save()
+        return value
+
+    def keys(self, ttl: float | None = None) -> list[str]:
+        """Return a list of valid keys, dropping expired ones."""
+        data = self.get_many(list(self._cache.keys()), ttl)
+        return list(data.keys())
+
+    def values(self, ttl: float | None = None) -> list[T]:
+        """Return a list of cached values, ignoring expired entries."""
+        data = self.get_many(list(self._cache.keys()), ttl)
+        return list(data.values())
+
+    def items(self, ttl: float | None = None) -> list[tuple[str, T]]:
+        """Return ``(key, value)`` pairs for valid entries."""
+        data = self.get_many(list(self._cache.keys()), ttl)
+        return list(data.items())
+
+    def __iter__(self):  # pragma: no cover - simple
+        """Iterate over valid keys."""
+        return iter(self.keys())

@@ -1,7 +1,10 @@
 """File management utilities."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any, Iterable
+import tempfile
+import os
+import json
 from tkinter import filedialog
 import shutil
 
@@ -13,14 +16,68 @@ _DEFAULT_FILETYPES = [
 ]
 
 
-def read_text(path: str) -> str:
-    return Path(path).read_text()
+def read_text(path: str | Path, encoding: str = "utf-8") -> str:
+    """Return text from *path* decoded using *encoding*."""
+    return Path(path).read_text(encoding=encoding)
 
 
-def write_text(path: str, data: str) -> None:
+def write_text(path: str | Path, data: str, encoding: str = "utf-8") -> None:
+    """Write *data* to *path* using *encoding*."""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(data)
+    p.write_text(data, encoding=encoding)
+
+
+def read_lines(path: str | Path, encoding: str = "utf-8") -> list[str]:
+    """Return list of lines from *path* without trailing newlines."""
+    return read_text(path, encoding=encoding).splitlines()
+
+
+def write_lines(path: str | Path, lines: Iterable[str], encoding: str = "utf-8") -> None:
+    """Write each item of *lines* joined by newline to *path*."""
+    write_text(path, "\n".join(lines), encoding=encoding)
+
+
+def read_bytes(path: str | Path) -> bytes:
+    """Return binary data from *path*."""
+    return Path(path).read_bytes()
+
+
+def write_bytes(path: str | Path, data: bytes) -> None:
+    """Write binary *data* to *path* creating directories if needed."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(data)
+
+
+def read_json(path: str | Path, encoding: str = "utf-8") -> Any:
+    """Return parsed JSON from *path* using *encoding*."""
+    return json.loads(read_text(path, encoding=encoding))
+
+
+def write_json(path: str | Path, obj: Any, encoding: str = "utf-8") -> None:
+    """Write *obj* as JSON to *path* atomically using *encoding*."""
+    atomic_write(path, json.dumps(obj, indent=2), encoding=encoding)
+
+
+def atomic_write(path: str | Path, data: str, encoding: str = "utf-8") -> None:
+    """Atomically write *data* to *path* using *encoding*."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w", encoding=encoding, delete=False, dir=p.parent
+    ) as fh:
+        fh.write(data)
+    os.replace(fh.name, p)
+
+
+def atomic_write_bytes(path: str | Path, data: bytes) -> None:
+    """Atomically write binary *data* to *path*."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("wb", delete=False, dir=p.parent) as fh:
+        fh.write(data)
+    os.replace(fh.name, p)
 
 
 def pick_file() -> Optional[str]:
@@ -102,3 +159,18 @@ def move_dir(src: str, dest: str, overwrite: bool = False) -> Path:
 def delete_dir(path: str) -> None:
     """Recursively delete *path* if it exists."""
     shutil.rmtree(path, ignore_errors=True)
+
+
+def ensure_dir(path: str) -> Path:
+    """Create directory *path* if needed and return ``Path`` object."""
+    p = Path(path)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def touch_file(path: str, exist_ok: bool = True) -> Path:
+    """Create or update file *path* and return ``Path`` object."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.touch(exist_ok=exist_ok)
+    return p
