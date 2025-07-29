@@ -1,7 +1,11 @@
 import importlib
 from types import ModuleType
 
-from src.ensure_deps import require_package, ensure_customtkinter
+from src.ensure_deps import (
+    require_package,
+    ensure_customtkinter,
+    ensure_psutil,
+)
 
 
 def test_require_package_installs(monkeypatch):
@@ -35,3 +39,17 @@ def test_ensure_customtkinter_calls_require(monkeypatch):
     mod = ensure_customtkinter("5.0")
     assert mod.__name__ == "customtkinter"
     assert called == {"name": "customtkinter", "version": "5.0"}
+
+
+def test_ensure_psutil_calls_require(monkeypatch):
+    called = {}
+
+    def fake_require(name, version=None):
+        called["name"] = name
+        called["version"] = version
+        return ModuleType(name)
+
+    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    mod = ensure_psutil("5.9.0")
+    assert mod.__name__ == "psutil"
+    assert called == {"name": "psutil", "version": "5.9.0"}

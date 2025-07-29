@@ -29,7 +29,12 @@ from .process_utils import (
 )
 import time
 import ipaddress
-import psutil
+try:
+    import psutil
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_psutil
+
+    psutil = ensure_psutil()
 
 from .cache import CacheManager
 
