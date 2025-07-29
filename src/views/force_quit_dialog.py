@@ -24,7 +24,12 @@ from tkinter import messagebox, filedialog
 from tkinter import ttk
 
 import customtkinter as ctk
-import psutil
+try:
+    import psutil
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_psutil
+
+    psutil = ensure_psutil()
 from src.utils.process_monitor import ProcessEntry, ProcessWatcher
 from .base_dialog import BaseDialog
 from src.utils.helpers import (

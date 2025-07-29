@@ -5,7 +5,12 @@ from __future__ import annotations
 import os
 import shutil
 
-import psutil
+try:
+    import psutil
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_psutil
+
+    psutil = ensure_psutil()
 from .process_utils import run_command
 
 

@@ -1,6 +1,11 @@
 import json
 
-import psutil
+try:
+    import psutil
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_psutil
+
+    psutil = ensure_psutil()
 import customtkinter as ctk
 import pyperclip
 import tkinter as tk

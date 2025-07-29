@@ -12,6 +12,7 @@ from .utils.helpers import log
 
 
 _DEF_VERSION = "5.2.2"
+_DEF_PSUTIL = "5.9.0"
 
 
 def require_package(name: str, version: Optional[str] = None) -> ModuleType:
@@ -41,3 +42,9 @@ def ensure_customtkinter(version: str = _DEF_VERSION) -> ModuleType:
     """Return the ``customtkinter`` module, installing it if needed."""
 
     return require_package("customtkinter", version)
+
+
+def ensure_psutil(version: str = _DEF_PSUTIL) -> ModuleType:
+    """Return the ``psutil`` module, installing it if needed."""
+
+    return require_package("psutil", version)

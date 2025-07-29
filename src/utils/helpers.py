@@ -11,7 +11,12 @@ from typing import Literal, Dict, Any, Iterable, Callable
 from pathlib import Path
 
 from .cache import CacheManager
-import psutil
+try:
+    import psutil
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_psutil
+
+    psutil = ensure_psutil()
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 from rich.progress import (

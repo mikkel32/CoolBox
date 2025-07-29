@@ -14,7 +14,12 @@ from pathlib import Path
 import sys
 import socket
 from dataclasses import dataclass
-import psutil
+try:
+    import psutil
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_psutil
+
+    psutil = ensure_psutil()
 from .win_console import hidden_creation_flags
 from .process_utils import run_command as _run, run_command_background
 from .kill_utils import kill_process, kill_process_tree
