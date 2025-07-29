@@ -8,7 +8,16 @@ import sys
 from types import ModuleType
 from typing import Optional
 
-from .utils.helpers import log
+try:  # Avoid circular imports when utils.helpers requires ensure_deps
+    from .utils.helpers import log
+except Exception:  # pragma: no cover - fallback logger
+    import logging
+
+    logging.basicConfig(level=logging.INFO)
+
+    def log(message: str) -> None:
+        """Fallback logger used during early imports."""
+        logging.info(message)
 
 
 _DEF_VERSION = "5.2.2"
