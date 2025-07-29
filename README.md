@@ -107,7 +107,9 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   ``KILL_BY_CLICK_HEATMAP_RES`` sets the resolution of a decaying heatmap that
   records cursor dwell time across the screen. ``KILL_BY_CLICK_HEATMAP_DECAY``
   controls how quickly old heat fades while ``KILL_BY_CLICK_HEATMAP_WEIGHT``
-  biases selection toward windows covering the hottest regions. When the same
+  biases selection toward windows covering the hottest regions. When
+  ``KILL_BY_CLICK_HEATMAP_WEIGHT`` is ``0`` the heatmap isn't used for
+  scoring and its updates are skipped to save CPU. When the same
   PID remains under the cursor across consecutive samples the overlay adds a
   ``KILL_BY_CLICK_STREAK_WEIGHT`` multiplier to reward consistent hovering,
   ensuring foreground windows dominate momentary background flashes.

@@ -111,6 +111,13 @@ class CursorHeatmap:
         self.grid = [[0.0 for _ in range(self.w)] for _ in range(self.h)]
 
     def update(self, x: int, y: int) -> None:
+        """Decay the heat-map and bump the cell under ``(x, y)``.
+
+        When ``tuning.heatmap_weight`` is zero the heat-map is not used for
+        scoring so we skip the work entirely.
+        """
+        if self.tuning.heatmap_weight <= 0:
+            return
         gx = min(int(x / self.res), self.w - 1)
         gy = min(int(y / self.res), self.h - 1)
         for row in self.grid:

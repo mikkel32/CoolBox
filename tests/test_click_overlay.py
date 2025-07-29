@@ -411,11 +411,11 @@ class TestClickOverlay(unittest.TestCase):
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
-        overlay._queue_update = unittest.mock.Mock()
+        overlay.after_idle = unittest.mock.Mock()
         overlay._on_move(55, 66)
 
-        self.assertEqual((overlay._cursor_x, overlay._cursor_y), (55, 66))
-        overlay._queue_update.assert_called_once()
+        overlay.after_idle.assert_called_once_with(overlay._handle_move)
+        self.assertEqual(overlay._pending_move[:2], (55, 66))
 
         overlay.destroy()
         root.destroy()
@@ -787,9 +787,11 @@ class TestClickOverlay(unittest.TestCase):
         overlay._last_move_pos = (0, 0)
         overlay._last_move_time = 0.0
 
+        overlay.after_idle = lambda cb: cb()
+
         with (
             patch("src.views.click_overlay.time.time", side_effect=[0.1, 0.2]),
-            patch("src.views.click_overlay.VELOCITY_SMOOTH", 0.5),
+            patch("src.utils.scoring_engine.tuning.velocity_smooth", 0.5),
         ):
             overlay._on_move(10, 0)
             first = overlay._velocity

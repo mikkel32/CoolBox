@@ -72,7 +72,7 @@ class ClickOverlay(tk.Toplevel):
         parent: tk.Misc,
         *,
         highlight: str = DEFAULT_HIGHLIGHT,
-        probe_attempts: int = 5,
+        probe_attempts: int = 3,
         timeout: float | None = None,
         interval: float = KILL_BY_CLICK_INTERVAL,
         min_interval: float | None = None,
@@ -175,6 +175,8 @@ class ClickOverlay(tk.Toplevel):
         self._path_history: deque[tuple[int, int]] = deque(maxlen=tuning.path_history)
         self._last_move_time = time.time()
         self._last_move_pos = (0, 0)
+        self._move_scheduled = False
+        self._pending_move: tuple[int, int, float] | None = None
         self._pid_stability: dict[int, int] = {}
         self._pid_history = deque(maxlen=tuning.pid_history_size)
         self._info_history = deque(maxlen=tuning.pid_history_size)
@@ -290,7 +292,26 @@ class ClickOverlay(tk.Toplevel):
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
-        now = time.time()
+        """Record a mouse move from the pynput hook.
+
+        The listener runs in an OS thread so heavy work is deferred to the
+        Tk event loop using :meth:`after_idle`.
+        """
+        self._pending_move = (x, y, time.time())
+        if not self._move_scheduled:
+            self._move_scheduled = True
+            try:
+                self.after_idle(self._handle_move)
+            except Exception:
+                self._move_scheduled = False
+
+    def _handle_move(self) -> None:
+        """Process the latest pending move on the Tk thread."""
+        self._move_scheduled = False
+        if not self._pending_move:
+            return
+        x, y, now = self._pending_move
+        self._pending_move = None
         dx = x - self._last_move_pos[0]
         dy = y - self._last_move_pos[1]
         dt = now - self._last_move_time
@@ -303,7 +324,8 @@ class ClickOverlay(tk.Toplevel):
         self._last_move_time = now
         self._last_move_pos = (x, y)
         self._path_history.append((x, y))
-        self.engine.heatmap.update(x, y)
+        if self.engine.tuning.heatmap_weight > 0:
+            self.engine.heatmap.update(x, y)
         self._cursor_x = x
         self._cursor_y = y
         self._queue_update()
