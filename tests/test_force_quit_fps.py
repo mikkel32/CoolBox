@@ -4,6 +4,7 @@ import unittest
 from src.app import CoolBoxApp
 from src.views.force_quit_dialog import ForceQuitDialog
 
+
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
 class TestForceQuitFPS(unittest.TestCase):
     def test_frame_delay_uses_refresh_rate(self):
@@ -29,6 +30,7 @@ class TestForceQuitFPS(unittest.TestCase):
         finally:
             os.environ.pop("FORCE_QUIT_FPS", None)
             app.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
