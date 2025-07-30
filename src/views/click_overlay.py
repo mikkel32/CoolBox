@@ -84,7 +84,8 @@ class ClickOverlay(tk.Toplevel):
         on_hover: Callable[[int | None, str | None], None] | None = None,
     ) -> None:
         super().__init__(parent)
-        # Start fully transparent to prevent a brief black flash
+        # Hide until fully configured to avoid a brief black flash
+        self.withdraw()
         try:
             self.attributes("-alpha", 0.0)
         except Exception:
@@ -124,6 +125,8 @@ class ClickOverlay(tk.Toplevel):
         )
         # Fade in now that the window is fully configured
         try:
+            self.update_idletasks()
+            self.deiconify()
             self.attributes("-alpha", 1.0)
         except Exception:
             pass
