@@ -93,10 +93,12 @@ from .network import (
 )
 
 if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
-    from .ui import center_window
+    from .ui import center_window, get_screen_refresh_rate
 else:  # pragma: no cover - testing without UI deps
     def center_window(*_a: object, **_k: object) -> None:
         pass
+    def get_screen_refresh_rate(*_a: object, **_k: object) -> int:
+        return 60
 from .kill_utils import kill_process, kill_process_tree
 from .win_console import (
     hide_console,
@@ -216,6 +218,7 @@ __all__ = [
     "ProcessEntry",
     "ProcessWatcher",
     "center_window",
+    "get_screen_refresh_rate",
     "kill_process",
     "kill_process_tree",
     "hide_console",

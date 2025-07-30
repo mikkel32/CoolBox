@@ -13,6 +13,7 @@ from src.utils.window_utils import (
     has_cursor_window_support,
 )
 from src.utils.kill_utils import kill_process, kill_process_tree
+from src.utils import get_screen_refresh_rate
 
 import re
 import time
@@ -81,6 +82,12 @@ class ForceQuitDialog(BaseDialog):
         self._changed_tags: dict[int, int] = {}
         self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue(maxsize=1)
         self.paused = False
+        fps_env = os.getenv("FORCE_QUIT_FPS")
+        if fps_env and fps_env.isdigit():
+            self.target_fps = int(fps_env)
+        else:
+            self.target_fps = get_screen_refresh_rate()
+        self.frame_delay = max(1, int(1000 / max(1, self.target_fps)))
         if reverse_env is not None:
             self.sort_reverse = reverse_env.lower() in {"1", "true", "yes"}
         else:
@@ -2203,10 +2210,10 @@ class ForceQuitDialog(BaseDialog):
             return
         if not hasattr(self, "search_var"):
             # Dialog not fully initialized yet
-            self._after_id = self.after(1000, self._auto_refresh)
+            self._after_id = self.after(self.frame_delay, self._auto_refresh)
             return
         if self.paused:
-            self._after_id = self.after(1000, self._auto_refresh)
+            self._after_id = self.after(self.frame_delay, self._auto_refresh)
             return
         self._drain_queue()
         key = self._current_filter_key()
@@ -2226,9 +2233,13 @@ class ForceQuitDialog(BaseDialog):
                 self._snapshot_changed = True
         self._snapshot_changed = False
         try:
-            delay = int(float(self.interval_var.get()) * 1000)
+            interval_ms = int(float(self.interval_var.get()) * 1000)
         except Exception:
-            delay = int(self._watcher.interval * 1000)
+            interval_ms = int(self._watcher.interval * 1000)
+        if not self.process_snapshot:
+            delay = self.frame_delay
+        else:
+            delay = max(self.frame_delay, interval_ms)
         self._after_id = self.after(delay, self._auto_refresh)
 
     def _on_close(self) -> None:

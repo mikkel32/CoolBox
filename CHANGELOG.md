@@ -6,4 +6,7 @@
 - **Efficiency:** Heat-map decay is skipped when `KILL_BY_CLICK_HEATMAP_WEIGHT` is zero, avoiding unnecessary loops.
 - **Defaults:** Reduced window probe attempts from 5 to 3 for faster detection.
 - **Tuning:** Refresh interval remains configurable via `KILL_BY_CLICK_INTERVAL`, `KILL_BY_CLICK_MIN_INTERVAL`, `KILL_BY_CLICK_MAX_INTERVAL` and `KILL_BY_CLICK_DELAY_SCALE`.
+- **UI:** Force Quit dialog adapts its refresh delay to the detected screen refresh rate for smoother updates and no initial black window.
+- **UI:** Initial refresh now loops at display frame rate until the first snapshot
+  arrives, preventing visible blank states.
 
