@@ -9,4 +9,6 @@
 - **UI:** Force Quit dialog adapts its refresh delay to the detected screen refresh rate for smoother updates and no initial black window.
 - **UI:** Initial refresh now loops at display frame rate until the first snapshot
   arrives, preventing visible blank states.
+- **UI:** Click overlay matches the screen refresh rate and starts transparent to
+  avoid the brief black flash.
 
