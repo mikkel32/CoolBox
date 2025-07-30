@@ -11,7 +11,14 @@ except ImportError:  # pragma: no cover - runtime dependency check
     ctk = ensure_customtkinter()
 from typing import Dict, Optional, TYPE_CHECKING
 from pathlib import Path
-from PIL import Image, ImageTk
+try:
+    from PIL import Image, ImageTk
+except ImportError:  # pragma: no cover - runtime dependency check
+    from .ensure_deps import ensure_pillow
+
+    pil = ensure_pillow()
+    Image = pil.Image  # type: ignore[attr-defined]
+    ImageTk = pil.ImageTk  # type: ignore[attr-defined]
 import sys
 import tempfile
 import ctypes

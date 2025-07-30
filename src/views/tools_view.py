@@ -14,7 +14,13 @@ from pathlib import Path
 import re
 import threading
 import sys
-from PIL import ImageGrab
+try:
+    from PIL import ImageGrab
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_pillow
+
+    pil = ensure_pillow()
+    ImageGrab = pil.ImageGrab  # type: ignore[attr-defined]
 from .base_view import BaseView
 from ..components.widgets import info_label
 

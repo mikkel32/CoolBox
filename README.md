@@ -395,6 +395,8 @@ python setup.py --dev
 This script installs all packages from `requirements.txt` and optional
 development extras like `debugpy` and `flake8` while displaying a
 pulsing neon border and real-time progress.
+It also sets `COOLBOX_LIGHTWEIGHT=1` so the setup script can run even
+when GUI libraries like Pillow are missing.
 
 For a development environment with debugging tools, run:
 ```bash

@@ -18,6 +18,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
+os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 from src.utils.helpers import log, get_system_info, run_with_spinner, console
 from src.utils.rainbow import NeonPulseBorder
 
