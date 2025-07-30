@@ -22,6 +22,7 @@ from src.utils.window_utils import (
     list_windows_at,
     make_window_clickthrough,
     remove_window_clickthrough,
+    set_window_colorkey,
     WindowInfo,
 )
 from src.utils.mouse_listener import capture_mouse, is_supported
@@ -105,6 +106,8 @@ class ClickOverlay(tk.Toplevel):
 
         if is_supported():
             make_window_clickthrough(self)
+        else:
+            set_window_colorkey(self)
 
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself

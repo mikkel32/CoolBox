@@ -464,3 +464,43 @@ def remove_window_clickthrough(win: Any) -> bool:
         return True
     except Exception:
         return False
+
+
+def set_window_colorkey(win: Any) -> bool:
+    """Set a transparent color key for ``win`` without changing event handling."""
+
+    try:
+        if sys.platform.startswith("win"):
+            hwnd = wintypes.HWND(int(win.winfo_id()))
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x80000
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            style |= WS_EX_LAYERED
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            try:
+                r, g, b = (c >> 8 for c in win.winfo_rgb(win.cget("bg")))
+            except Exception:
+                r, g, b = 0, 0, 0
+            colorref = b << 16 | g << 8 | r
+            ctypes.windll.user32.SetLayeredWindowAttributes(
+                hwnd, colorref, 255, 0x1
+            )
+            return True
+
+        if sys.platform == "darwin":
+            try:
+                import objc
+                from Cocoa import NSWindow, NSColor
+
+                ns_win = objc.objc_object(c_void_p=win.winfo_id())
+                NSWindow(ns_win).setOpaque_(False)
+                NSWindow(ns_win).setBackgroundColor_(NSColor.clearColor())
+                return True
+            except Exception:
+                return False
+
+        win.attributes("-transparentcolor", win.cget("bg"))
+        win.update_idletasks()
+        return True
+    except Exception:
+        return False
