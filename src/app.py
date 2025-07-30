@@ -3,6 +3,7 @@ CoolBox Application Class
 Manages the main application window and navigation
 """
 from __future__ import annotations
+
 try:
     import customtkinter as ctk
 except ImportError:  # pragma: no cover - runtime dependency check

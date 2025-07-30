@@ -18,13 +18,25 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     psutil = ensure_psutil()
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from rich.console import Console
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
+try:
+    from rich.console import Console
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        TimeElapsedColumn,
+    )
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_rich
+
+    ensure_rich()
+    from rich.console import Console
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        TextColumn,
+        TimeElapsedColumn,
+    )
 
 console = Console()
 

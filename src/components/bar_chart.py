@@ -1,6 +1,13 @@
 import customtkinter as ctk
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+try:
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_matplotlib
+
+    ensure_matplotlib()
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class BarChart(ctk.CTkFrame):

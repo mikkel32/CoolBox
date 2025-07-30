@@ -37,6 +37,7 @@ from src.utils.helpers import (
     lighten_color,
     darken_color,
 )
+
 import importlib
 
 # Preload the click overlay module so its heavy dependencies are
