@@ -11,4 +11,6 @@
   arrives, preventing visible blank states.
 - **UI:** Click overlay matches the screen refresh rate and starts transparent to
   avoid the brief black flash.
+- **Fix:** Click overlay sets a transparent color key even when using
+  click-through hooks so it's fully invisible on all platforms.
 

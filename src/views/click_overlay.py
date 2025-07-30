@@ -106,8 +106,10 @@ class ClickOverlay(tk.Toplevel):
 
         if is_supported():
             make_window_clickthrough(self)
-        else:
-            set_window_colorkey(self)
+
+        # Ensure the overlay background itself is invisible so only the
+        # drawn crosshair and rectangle remain visible.
+        set_window_colorkey(self)
 
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself

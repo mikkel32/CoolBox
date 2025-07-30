@@ -48,6 +48,22 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_uses_color_key_with_hooks(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=True),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=True),
+        ):
+            overlay = ClickOverlay(root)
+        try:
+            key = overlay.attributes("-transparentcolor")
+        except Exception:
+            key = None
+        self.assertEqual(key, overlay.cget("bg"))
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_click_falls_back_to_last_info(self) -> None:
         root = tk.Tk()
         with (
