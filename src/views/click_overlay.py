@@ -26,14 +26,16 @@ from src.utils.window_utils import (
 )
 from src.utils.mouse_listener import capture_mouse, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
+from src.utils import get_screen_refresh_rate
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
 
 # Allow the refresh interval to be configured via an environment
 # variable. Falling back to the tuning default keeps behaviour
 # consistent for tests while providing an easy knob for users.
+DEFAULT_INTERVAL = 1 / get_screen_refresh_rate()
 KILL_BY_CLICK_INTERVAL = float(
-    os.getenv("KILL_BY_CLICK_INTERVAL", str(tuning.interval))
+    os.getenv("KILL_BY_CLICK_INTERVAL", str(DEFAULT_INTERVAL))
 )
 
 
@@ -82,6 +84,11 @@ class ClickOverlay(tk.Toplevel):
         on_hover: Callable[[int | None, str | None], None] | None = None,
     ) -> None:
         super().__init__(parent)
+        # Start fully transparent to prevent a brief black flash
+        try:
+            self.attributes("-alpha", 0.0)
+        except Exception:
+            pass
         # Configure fullscreen before enabling override-redirect to avoid
         # "can't set fullscreen attribute" errors on some platforms.
         self.attributes("-topmost", True)
@@ -115,6 +122,11 @@ class ClickOverlay(tk.Toplevel):
             text="",
             font=("TkDefaultFont", 10, "bold"),
         )
+        # Fade in now that the window is fully configured
+        try:
+            self.attributes("-alpha", 1.0)
+        except Exception:
+            pass
         self.probe_attempts = probe_attempts
         self.timeout = timeout
         self.interval = interval
