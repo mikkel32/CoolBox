@@ -13,4 +13,6 @@
   avoid the brief black flash.
 - **Fix:** Click overlay sets a transparent color key even when using
   click-through hooks so it's fully invisible on all platforms.
+- **Fix:** Overlay stays invisible when transparency isn't supported,
+  preventing a black fullscreen window.
 

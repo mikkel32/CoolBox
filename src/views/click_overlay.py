@@ -107,9 +107,9 @@ class ClickOverlay(tk.Toplevel):
         if is_supported():
             make_window_clickthrough(self)
 
-        # Ensure the overlay background itself is invisible so only the
-        # drawn crosshair and rectangle remain visible.
-        set_window_colorkey(self)
+        # Apply a transparent color key so only the drawn crosshair remains
+        # visible. If this fails we'll keep the overlay fully transparent.
+        self._has_colorkey = set_window_colorkey(self)
 
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself
@@ -128,11 +128,14 @@ class ClickOverlay(tk.Toplevel):
             text="",
             font=("TkDefaultFont", 10, "bold"),
         )
-        # Fade in now that the window is fully configured
+        # Fade in now that the window is fully configured. If the color key
+        # could not be set keep the window fully transparent to avoid a black
+        # flash on platforms lacking this feature.
         try:
             self.update_idletasks()
             self.deiconify()
-            self.attributes("-alpha", 1.0)
+            if self._has_colorkey:
+                self.attributes("-alpha", 1.0)
         except Exception:
             pass
         self.probe_attempts = probe_attempts
