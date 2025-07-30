@@ -28,6 +28,29 @@ def test_require_package_installs(monkeypatch):
     assert calls
 
 
+def test_require_package_install_fallback(monkeypatch):
+    calls = []
+
+    def fake_import(name):
+        if not calls:
+            raise ImportError
+        return ModuleType(name)
+
+    def fake_check_call(args):
+        calls.append(args)
+        if len(calls) == 1:
+            raise Exception("fail")
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr("subprocess.check_call", fake_check_call)
+
+    mod = require_package("missing", "1.0")
+    assert isinstance(mod, ModuleType)
+    assert len(calls) == 2
+    assert calls[0][-1] == "missing==1.0"
+    assert calls[1][-1] == "missing"
+
+
 def test_ensure_customtkinter_calls_require(monkeypatch):
     called = {}
 
@@ -65,6 +88,6 @@ def test_ensure_pillow_calls_require(monkeypatch):
         return ModuleType("PIL")
 
     monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
-    mod = ensure_pillow("10.0.0")
+    mod = ensure_pillow("11.0.0")
     assert mod.__name__ == "PIL"
-    assert called == {"name": "Pillow", "version": "10.0.0"}
+    assert called == {"name": "Pillow", "version": "11.0.0"}
