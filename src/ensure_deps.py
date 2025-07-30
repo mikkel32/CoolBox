@@ -22,6 +22,7 @@ except Exception:  # pragma: no cover - fallback logger
 
 _DEF_VERSION = "5.2.2"
 _DEF_PSUTIL = "5.9.0"
+_DEF_PILLOW = "10.0.0"
 
 
 def require_package(name: str, version: Optional[str] = None) -> ModuleType:
@@ -57,3 +58,10 @@ def ensure_psutil(version: str = _DEF_PSUTIL) -> ModuleType:
     """Return the ``psutil`` module, installing it if needed."""
 
     return require_package("psutil", version)
+
+
+def ensure_pillow(version: str = _DEF_PILLOW) -> ModuleType:
+    """Return the ``PIL`` module, installing Pillow if needed."""
+
+    require_package("Pillow", version)
+    return importlib.import_module("PIL")
