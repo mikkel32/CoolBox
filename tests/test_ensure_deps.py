@@ -6,6 +6,10 @@ from src.ensure_deps import (
     ensure_customtkinter,
     ensure_psutil,
     ensure_pillow,
+    ensure_pyperclip,
+    ensure_rich,
+    ensure_matplotlib,
+    ensure_import,
 )
 
 
@@ -59,7 +63,17 @@ def test_ensure_customtkinter_calls_require(monkeypatch):
         called["version"] = version
         return ModuleType(name)
 
+    imports = {"count": 0}
+
+    def fake_import(name):
+        imports["count"] += 1
+        if imports["count"] == 1:
+            raise ImportError
+        return ModuleType(name)
+
     monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+
     mod = ensure_customtkinter("5.0")
     assert mod.__name__ == "customtkinter"
     assert called == {"name": "customtkinter", "version": "5.0"}
@@ -73,7 +87,17 @@ def test_ensure_psutil_calls_require(monkeypatch):
         called["version"] = version
         return ModuleType(name)
 
+    imports = {"count": 0}
+
+    def fake_import(name):
+        imports["count"] += 1
+        if imports["count"] == 1:
+            raise ImportError
+        return ModuleType(name)
+
     monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+
     mod = ensure_psutil("5.9.0")
     assert mod.__name__ == "psutil"
     assert called == {"name": "psutil", "version": "5.9.0"}
@@ -117,3 +141,95 @@ def test_ensure_pillow_no_require_when_present(monkeypatch):
     mod = ensure_pillow("11.0.0")
     assert mod.__name__ == "PIL"
     assert called == {}
+
+
+def test_ensure_pyperclip_calls_require(monkeypatch):
+    called = {}
+
+    def fake_require(name, version=None):
+        called["name"] = name
+        called["version"] = version
+        return ModuleType(name)
+
+    imports = {"count": 0}
+
+    def fake_import(name):
+        imports["count"] += 1
+        if imports["count"] == 1:
+            raise ImportError
+        return ModuleType(name)
+
+    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+
+    mod = ensure_pyperclip("1.8.2")
+    assert mod.__name__ == "pyperclip"
+    assert called == {"name": "pyperclip", "version": "1.8.2"}
+
+
+def test_ensure_import_installs(monkeypatch):
+    calls = {}
+    imports = {"count": 0}
+
+    def fake_import(name):
+        imports["count"] += 1
+        if imports["count"] == 1:
+            raise ImportError
+        return ModuleType(name)
+
+    def fake_require(name, version=None):
+        calls["name"] = name
+        calls["version"] = version
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+
+    mod = ensure_import("mod", package="pkg", version="1")
+    assert mod.__name__ == "mod"
+    assert calls == {"name": "pkg", "version": "1"}
+
+
+def test_ensure_rich_calls_require(monkeypatch):
+    called = {}
+    imports = {"count": 0}
+
+    def fake_import(name):
+        imports["count"] += 1
+        if imports["count"] == 1:
+            raise ImportError
+        return ModuleType(name)
+
+    def fake_require(name, version=None):
+        called["name"] = name
+        called["version"] = version
+        return ModuleType(name)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+
+    mod = ensure_rich("13.0.0")
+    assert mod.__name__ == "rich"
+    assert called == {"name": "rich", "version": "13.0.0"}
+
+
+def test_ensure_matplotlib_calls_require(monkeypatch):
+    called = {}
+    imports = {"count": 0}
+
+    def fake_import(name):
+        imports["count"] += 1
+        if imports["count"] == 1:
+            raise ImportError
+        return ModuleType(name)
+
+    def fake_require(name, version=None):
+        called["name"] = name
+        called["version"] = version
+        return ModuleType(name)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+
+    mod = ensure_matplotlib("3.7.0")
+    assert mod.__name__ == "matplotlib"
+    assert called == {"name": "matplotlib", "version": "3.7.0"}

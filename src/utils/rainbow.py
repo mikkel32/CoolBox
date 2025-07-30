@@ -7,8 +7,15 @@ import threading
 import time
 from typing import Iterable, Tuple
 
-from rich.console import Console, Control
-from rich.text import Text
+try:
+    from rich.console import Console, Control
+    from rich.text import Text
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_rich
+
+    ensure_rich()
+    from rich.console import Console, Control
+    from rich.text import Text
 
 
 THEMES: dict[str, list[str]] = {

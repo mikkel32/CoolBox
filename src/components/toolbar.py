@@ -7,7 +7,12 @@ from tkinter import filedialog
 
 from ..utils import file_manager, open_path
 from ..utils.ui import center_window
-import pyperclip
+try:
+    import pyperclip
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_pyperclip
+
+    pyperclip = ensure_pyperclip()
 from .tooltip import Tooltip
 
 

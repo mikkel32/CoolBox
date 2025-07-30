@@ -10,17 +10,29 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-from rich.text import Text
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    BarColumn,
-    TimeElapsedColumn,
-)
+try:
+    from rich.text import Text
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        BarColumn,
+        TimeElapsedColumn,
+    )
+except ImportError:  # pragma: no cover - runtime dependency check
+    from src.ensure_deps import ensure_rich
 
-os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
-from src.utils.helpers import log, get_system_info, run_with_spinner, console
-from src.utils.rainbow import NeonPulseBorder
+    ensure_rich()
+    from rich.text import Text
+    from rich.progress import (
+        Progress,
+        SpinnerColumn,
+        BarColumn,
+        TimeElapsedColumn,
+    )
+
+os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")  # noqa: E402
+from src.utils.helpers import log, get_system_info, run_with_spinner, console  # noqa: E402
+from src.utils.rainbow import NeonPulseBorder  # noqa: E402
 
 
 MIN_PYTHON = (3, 10)

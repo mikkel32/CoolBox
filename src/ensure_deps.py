@@ -23,6 +23,21 @@ except Exception:  # pragma: no cover - fallback logger
 _DEF_VERSION = "5.2.2"
 _DEF_PSUTIL = "5.9.0"
 _DEF_PILLOW = "11.0.0"
+_DEF_PYPERCLIP = "1.8.2"
+_DEF_RICH = "13.0.0"
+_DEF_MATPLOTLIB = "3.7.0"
+
+
+def ensure_import(
+    module: str, package: str | None = None, version: str | None = None
+) -> ModuleType:
+    """Import *module* installing *package* if needed."""
+
+    try:
+        return importlib.import_module(module)
+    except ImportError:
+        require_package(package or module, version)
+        return importlib.import_module(module)
 
 
 def require_package(name: str, version: Optional[str] = None) -> ModuleType:
@@ -55,20 +70,34 @@ def require_package(name: str, version: Optional[str] = None) -> ModuleType:
 def ensure_customtkinter(version: str = _DEF_VERSION) -> ModuleType:
     """Return the ``customtkinter`` module, installing it if needed."""
 
-    return require_package("customtkinter", version)
+    return ensure_import("customtkinter", version=version)
 
 
 def ensure_psutil(version: str = _DEF_PSUTIL) -> ModuleType:
     """Return the ``psutil`` module, installing it if needed."""
 
-    return require_package("psutil", version)
+    return ensure_import("psutil", version=version)
 
 
 def ensure_pillow(version: str = _DEF_PILLOW) -> ModuleType:
     """Return the ``PIL`` module, installing Pillow if needed."""
 
-    try:
-        return importlib.import_module("PIL")
-    except ImportError:
-        require_package("Pillow", version)
-        return importlib.import_module("PIL")
+    return ensure_import("PIL", package="Pillow", version=version)
+
+
+def ensure_pyperclip(version: str = _DEF_PYPERCLIP) -> ModuleType:
+    """Return the ``pyperclip`` module, installing it if needed."""
+
+    return ensure_import("pyperclip", version=version)
+
+
+def ensure_rich(version: str = _DEF_RICH) -> ModuleType:
+    """Return the ``rich`` module, installing it if needed."""
+
+    return ensure_import("rich", version=version)
+
+
+def ensure_matplotlib(version: str = _DEF_MATPLOTLIB) -> ModuleType:
+    """Return the ``matplotlib`` module, installing it if needed."""
+
+    return ensure_import("matplotlib", version=version)

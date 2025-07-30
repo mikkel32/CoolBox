@@ -7,9 +7,20 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     psutil = ensure_psutil()
 import customtkinter as ctk
-import pyperclip
+try:
+    import pyperclip
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_pyperclip
+
+    pyperclip = ensure_pyperclip()
 import tkinter as tk
-from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+try:
+    from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+except ImportError:  # pragma: no cover - runtime dependency check
+    from ..ensure_deps import ensure_matplotlib
+
+    ensure_matplotlib()
+    from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 
 from ..utils import get_system_info, get_system_metrics
 from ..components import LineChart, Gauge, BarChart
