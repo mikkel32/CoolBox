@@ -67,5 +67,8 @@ def ensure_psutil(version: str = _DEF_PSUTIL) -> ModuleType:
 def ensure_pillow(version: str = _DEF_PILLOW) -> ModuleType:
     """Return the ``PIL`` module, installing Pillow if needed."""
 
-    require_package("Pillow", version)
-    return importlib.import_module("PIL")
+    try:
+        return importlib.import_module("PIL")
+    except ImportError:
+        require_package("Pillow", version)
+        return importlib.import_module("PIL")

@@ -79,15 +79,41 @@ def test_ensure_psutil_calls_require(monkeypatch):
     assert called == {"name": "psutil", "version": "5.9.0"}
 
 
-def test_ensure_pillow_calls_require(monkeypatch):
+def test_ensure_pillow_calls_require_when_missing(monkeypatch):
     called = {}
+    imports = {"count": 0}
+
+    def fake_import(name):
+        imports["count"] += 1
+        if imports["count"] == 1:
+            raise ImportError
+        return ModuleType("PIL")
 
     def fake_require(name, version=None):
         called["name"] = name
         called["version"] = version
         return ModuleType("PIL")
 
+    monkeypatch.setattr(importlib, "import_module", fake_import)
     monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+
     mod = ensure_pillow("11.0.0")
     assert mod.__name__ == "PIL"
     assert called == {"name": "Pillow", "version": "11.0.0"}
+
+
+def test_ensure_pillow_no_require_when_present(monkeypatch):
+    called = {}
+
+    def fake_import(name):
+        return ModuleType("PIL")
+
+    def fake_require(name, version=None):
+        called["name"] = name
+
+    monkeypatch.setattr(importlib, "import_module", fake_import)
+    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+
+    mod = ensure_pillow("11.0.0")
+    assert mod.__name__ == "PIL"
+    assert called == {}
