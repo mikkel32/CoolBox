@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - fallback logger
 
 _DEF_VERSION = "5.2.2"
 _DEF_PSUTIL = "5.9.0"
-_DEF_PILLOW = "10.0.0"
+_DEF_PILLOW = "11.0.0"
 
 
 def require_package(name: str, version: Optional[str] = None) -> ModuleType:
@@ -33,18 +33,22 @@ def require_package(name: str, version: Optional[str] = None) -> ModuleType:
     except ImportError:
         pkg = f"{name}=={version}" if version else name
         log(f"Package '{name}' missing, attempting install of {pkg}...")
+        cmd = [sys.executable, "-m", "pip", "install", pkg]
         try:
-            subprocess.check_call([
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                pkg,
-            ])
-        except Exception as exc:  # pragma: no cover - install step may fail
-            raise ImportError(
-                f"{name} is required. Install dependencies with 'python setup.py' or 'pip install -r requirements.txt'."
-            ) from exc
+            subprocess.check_call(cmd)
+        except Exception as exc:
+            if version:
+                log(f"Failed to install {pkg}, trying latest version...")
+                try:
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", name])
+                except Exception as exc2:  # pragma: no cover - install step may fail
+                    raise ImportError(
+                        f"{name} is required. Install dependencies with 'python setup.py' or 'pip install -r requirements.txt'."
+                    ) from exc2
+            else:
+                raise ImportError(
+                    f"{name} is required. Install dependencies with 'python setup.py' or 'pip install -r requirements.txt'."
+                ) from exc
         return importlib.import_module(name)
 
 
