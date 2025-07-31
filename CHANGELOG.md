@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.22 - 2025-08-03
+
+- **Perf:** Use a persistent X11 connection for window enumeration with
+  cached subprocess fallback.
+
 ## 1.0.21 - 2025-08-03
 
 - **Perf:** Click overlay revalidates its transparent color key periodically

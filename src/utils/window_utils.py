@@ -7,10 +7,24 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from ctypes import wintypes
 from typing import List
 from typing import Any
+
+try:  # pragma: no cover - optional dependency
+    from Xlib import X, Xatom, display as xlib_display
+
+    _X_DISPLAY = xlib_display.Display()
+    _X_ROOT = _X_DISPLAY.screen().root
+    _NET_CLIENT_LIST_STACKING = _X_DISPLAY.intern_atom("_NET_CLIENT_LIST_STACKING")
+    _WM_PID = _X_DISPLAY.intern_atom("_NET_WM_PID")
+    _WM_NAME = _X_DISPLAY.intern_atom("WM_NAME")
+except Exception:  # noqa: F401
+    _X_DISPLAY = None
+
+_SUBPROC_CACHE: dict[str, Any] = {"time": 0.0, "coords": None, "results": []}
 
 
 @dataclass(frozen=True)
@@ -276,6 +290,83 @@ def get_window_at(x: int, y: int) -> WindowInfo:
     return info
 
 
+def _list_windows_x11(x: int, y: int) -> List[WindowInfo]:
+    """Return windows at ``(x, y)`` using a persistent X11 connection."""
+
+    root = _X_ROOT
+    prop = root.get_full_property(_NET_CLIENT_LIST_STACKING, Xatom.WINDOW)
+    ids = list(prop.value) if prop else []
+    results: List[WindowInfo] = []
+    for wid in reversed(ids):  # front to back
+        win = _X_DISPLAY.create_resource_object("window", wid)
+        geom = win.get_geometry()
+        abs_pos = win.translate_coords(root, 0, 0)
+        wx, wy = abs_pos.x, abs_pos.y
+        ww, wh = geom.width, geom.height
+        if not (wx <= x <= wx + ww and wy <= y <= wy + wh):
+            continue
+        pid_prop = win.get_full_property(_WM_PID, Xatom.CARDINAL)
+        pid = int(pid_prop.value[0]) if pid_prop and pid_prop.value else None
+        name_prop = win.get_full_property(_WM_NAME, X.AnyPropertyType)
+        title = None
+        if name_prop and name_prop.value:
+            try:
+                title = name_prop.value.decode("utf-8", "ignore")
+            except Exception:  # pragma: no cover - defensive
+                title = None
+        results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+    return results
+
+
+def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
+    """Subprocess-based X11 enumeration with simple caching."""
+
+    global _SUBPROC_CACHE
+    now = time.time()
+    if (
+        _SUBPROC_CACHE.get("coords") == (x, y)
+        and now - _SUBPROC_CACHE.get("time", 0.0) < 0.5
+    ):
+        return list(_SUBPROC_CACHE.get("results", []))
+    try:
+        stacking = subprocess.check_output(
+            ["xprop", "-root", "_NET_CLIENT_LIST_STACKING"], text=True
+        )
+        ids = [w.strip() for w in stacking.split("#", 1)[1].split()] if "#" in stacking else []
+        results: List[WindowInfo] = []
+        for wid in ids:
+            geom_out = subprocess.check_output(["xwininfo", "-id", wid], text=True)
+            gx = re.search(r"Absolute upper-left X:\s+(\d+)", geom_out)
+            gy = re.search(r"Absolute upper-left Y:\s+(\d+)", geom_out)
+            gw = re.search(r"Width:\s+(\d+)", geom_out)
+            gh = re.search(r"Height:\s+(\d+)", geom_out)
+            if not (gx and gy and gw and gh):
+                continue
+            wx = int(gx.group(1))
+            wy = int(gy.group(1))
+            ww = int(gw.group(1))
+            wh = int(gh.group(1))
+            if not (wx <= x <= wx + ww and wy <= y <= wy + wh):
+                continue
+            pid_line = subprocess.check_output(["xprop", "-id", wid, "_NET_WM_PID"], text=True)
+            match = re.search(r"= (\d+)", pid_line)
+            pid = int(match.group(1)) if match else None
+            title_out = subprocess.check_output(["xprop", "-id", wid, "WM_NAME"], text=True)
+            title_match = re.search(r'"(.*)"', title_out)
+            title = title_match.group(1) if title_match else None
+            results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+        if not results:
+            info = get_window_at(x, y)
+            results = [info] if info.pid is not None else []
+        _SUBPROC_CACHE = {"time": now, "coords": (x, y), "results": results}
+        return results
+    except Exception:
+        info = get_window_at(x, y)
+        results = [info] if info.pid is not None else []
+        _SUBPROC_CACHE = {"time": now, "coords": (x, y), "results": results}
+        return results
+
+
 def list_windows_at(x: int, y: int) -> List[WindowInfo]:
     """Return windows at ``(x, y)`` ordered from front to back."""
 
@@ -331,40 +422,16 @@ def list_windows_at(x: int, y: int) -> List[WindowInfo]:
         except Exception:
             return [get_window_at(x, y)]
 
-    # X11: attempt to use _NET_CLIENT_LIST_STACKING for z-order information
-    try:
-        stacking = subprocess.check_output(
-            ["xprop", "-root", "_NET_CLIENT_LIST_STACKING"], text=True
-        )
-        ids = [w.strip() for w in stacking.split("#", 1)[1].split()] if "#" in stacking else []
-        results: List[WindowInfo] = []
-        for wid in ids:
-            geom_out = subprocess.check_output(["xwininfo", "-id", wid], text=True)
-            gx = re.search(r"Absolute upper-left X:\s+(\d+)", geom_out)
-            gy = re.search(r"Absolute upper-left Y:\s+(\d+)", geom_out)
-            gw = re.search(r"Width:\s+(\d+)", geom_out)
-            gh = re.search(r"Height:\s+(\d+)", geom_out)
-            if not (gx and gy and gw and gh):
-                continue
-            wx = int(gx.group(1))
-            wy = int(gy.group(1))
-            ww = int(gw.group(1))
-            wh = int(gh.group(1))
-            if not (wx <= x <= wx + ww and wy <= y <= wy + wh):
-                continue
-            pid_line = subprocess.check_output(["xprop", "-id", wid, "_NET_WM_PID"], text=True)
-            match = re.search(r"= (\d+)", pid_line)
-            pid = int(match.group(1)) if match else None
-            title_out = subprocess.check_output(["xprop", "-id", wid, "WM_NAME"], text=True)
-            title_match = re.search(r'"(.*)"', title_out)
-            title = title_match.group(1) if title_match else None
-            results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
-        return results
-    except Exception:
-        pass
-
-    info = get_window_at(x, y)
-    return [info] if info.pid is not None else []
+    # X11 path
+    if _X_DISPLAY is not None:
+        try:
+            results = _list_windows_x11(x, y)
+            if results:
+                return results
+        except Exception:
+            pass
+    # Fallback to cached subprocess enumeration
+    return _fallback_list_windows_at(x, y)
 
 
 def make_window_clickthrough(win: Any) -> bool:
