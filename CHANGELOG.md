@@ -16,3 +16,24 @@
 - **Fix:** Overlay stays invisible when transparency isn't supported,
   preventing a black fullscreen window.
 
+## 1.0.11 - 2025-07-30
+
+- **Fix:** Click overlay now verifies its transparent color key and remains
+  invisible when ignored, preventing a black fullscreen window on some systems.
+
+## 1.0.12 - 2025-07-31
+
+- **Fix:** Overlay rechecks its transparent color key after mapping so the UI
+  stays visible even if the key is dropped.
+
+## 1.0.13 - 2025-07-31
+
+- **Fix:** Overlay now continually verifies and restores its transparent color
+  key, falling back to full transparency when unavailable to prevent any black
+  fullscreen flash.
+
+## 1.0.14 - 2025-07-31
+
+- **Fix:** Normalize overlay background colors to hex so the transparent color
+  key is honored, avoiding a persistent black overlay.
+

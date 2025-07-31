@@ -98,18 +98,26 @@ class ClickOverlay(tk.Toplevel):
         self.overrideredirect(True)
         self.configure(cursor="crosshair")
 
-        # use a unique background color that can be made transparent. this is
-        # applied before enabling click-through so the color key matches the
-        # actual background when ``make_window_clickthrough`` is called.
-        bg_color = parent.cget("bg") if isinstance(parent, tk.Widget) else "#000001"
+        # use a unique background color that can be made transparent. normalize
+        # to a hex string so the value matches across ``configure`` and
+        # ``-transparentcolor``; some platforms don't recognize symbolic color
+        # names which results in a black overlay.
+        bg_color = "#000001"
+        if isinstance(parent, tk.Widget):
+            try:
+                r, g, b = parent.winfo_rgb(parent.cget("bg"))
+                bg_color = f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
+            except Exception:
+                pass
         self.configure(bg=bg_color)
 
         if is_supported():
             make_window_clickthrough(self)
-
-        # Apply a transparent color key so only the drawn crosshair remains
-        # visible. If this fails we'll keep the overlay fully transparent.
-        self._has_colorkey = set_window_colorkey(self)
+        # Keep track of whether the transparent color key is active. This is
+        # validated and restored as needed to avoid a fullscreen black window
+        # if the system drops support for the color key.
+        self._has_colorkey = False
+        self._ensure_colorkey()
 
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself
@@ -134,8 +142,7 @@ class ClickOverlay(tk.Toplevel):
         try:
             self.update_idletasks()
             self.deiconify()
-            if self._has_colorkey:
-                self.attributes("-alpha", 1.0)
+            self._ensure_colorkey()
         except Exception:
             pass
         self.probe_attempts = probe_attempts
@@ -221,8 +228,32 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_y = self.winfo_pointery()
         except Exception:
             self._cursor_x = 0
-        self._cursor_y = 0
+            self._cursor_y = 0
         self._last_move_pos = (self._cursor_x, self._cursor_y)
+
+    def _ensure_colorkey(self) -> None:
+        """Ensure the overlay background remains fully transparent.
+
+        The method verifies that the window's transparent color key matches the
+        configured background color and attempts to restore it if missing. When
+        the color key cannot be set the entire window is kept invisible to
+        avoid flashing a fullscreen black surface.
+        """
+        try:
+            if not self._has_colorkey:
+                self._has_colorkey = set_window_colorkey(self)
+            key = self.attributes("-transparentcolor")
+            if key != self.cget("bg"):
+                self._has_colorkey = set_window_colorkey(self)
+                key = self.attributes("-transparentcolor")
+                if key != self.cget("bg"):
+                    self._has_colorkey = False
+        except Exception:
+            self._has_colorkey = False
+        try:
+            self.attributes("-alpha", 1.0 if self._has_colorkey else 0.0)
+        except Exception:
+            pass
 
     def _flash_highlight(self) -> None:
         """Temporarily thicken the highlight rectangle when the target changes."""
@@ -470,6 +501,7 @@ class ClickOverlay(tk.Toplevel):
         return info
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
+        self._ensure_colorkey()
         if info is None:
             info = self._query_window()
         if not getattr(self, "_raised", False):
