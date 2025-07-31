@@ -31,6 +31,7 @@ from src.utils.window_utils import (
 from src.utils.mouse_listener import capture_mouse, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
 from src.utils import get_screen_refresh_rate
+from src.utils.helpers import log
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
 
@@ -290,6 +291,11 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_x = 0
             self._cursor_y = 0
         self._last_move_pos = (self._cursor_x, self._cursor_y)
+        self._frame_times: deque[float] = deque(maxlen=60)
+        self.avg_frame_ms = 0.0
+        self._last_frame_start = 0.0
+        self._last_frame_end = 0.0
+        self._frame_count = 0
     def _worker_loop(self) -> None:
         """Process queued scoring tasks in a background thread."""
         while True:
@@ -452,6 +458,8 @@ class ClickOverlay(tk.Toplevel):
         # cursor movements speed up updates without sudden jumps.
         scale = 1.0 / (1.0 + self._velocity / self.delay_scale)
         delay = base_ms * scale
+        if self.avg_frame_ms:
+            delay -= self.avg_frame_ms
         delay = max(min(delay, max_ms), min_ms)
         return int(delay)
 
@@ -462,7 +470,17 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_y = self.winfo_pointery()
         except Exception:
             pass
+        start = time.perf_counter()
+        self._last_frame_start = start
         self._update_rect()
+        end = time.perf_counter()
+        self._last_frame_end = end
+        frame_ms = (end - start) * 1000.0
+        self._frame_times.append(frame_ms)
+        self.avg_frame_ms = sum(self._frame_times) / len(self._frame_times)
+        self._frame_count += 1
+        if self._frame_count % self._frame_times.maxlen == 0:
+            log(f"ClickOverlay avg frame {self.avg_frame_ms:.2f}ms")
         now = time.monotonic()
         if now - self._last_active_query >= self.interval:
             active = get_active_window().pid
