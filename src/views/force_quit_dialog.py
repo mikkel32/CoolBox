@@ -2116,6 +2116,7 @@ class ForceQuitDialog(BaseDialog):
         try:
             overlay.update_idletasks()
             overlay.wait_visibility()
+            overlay.lift()
         except Exception:
             pass
         try:

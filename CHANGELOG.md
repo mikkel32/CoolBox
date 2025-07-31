@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.19 - 2025-08-01
+
+- **Fix:** Kill-by-Click overlay now raises itself to ensure the crosshair
+  is visible immediately.
+
 ## 1.0.18 - 2025-07-31
 
 - **Performance:** Kill-by-Click overlay no longer computes velocity and heat-map updates in the mouse hook thread. Movement is buffered and processed on the Tkinter main loop, preventing input lag.
