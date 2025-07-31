@@ -113,6 +113,7 @@ class ClickOverlay(tk.Toplevel):
 
         if is_supported():
             make_window_clickthrough(self)
+            self._restore_cursor()
         # Keep track of whether the transparent color key is active. This is
         # validated and restored as needed to avoid a fullscreen black window
         # if the system drops support for the color key.
@@ -252,6 +253,13 @@ class ClickOverlay(tk.Toplevel):
             self._has_colorkey = False
         try:
             self.attributes("-alpha", 1.0 if self._has_colorkey else 0.0)
+        except Exception:
+            pass
+
+    def _restore_cursor(self) -> None:
+        """Reapply the crosshair cursor after window style changes."""
+        try:
+            self.configure(cursor="crosshair")
         except Exception:
             pass
 
@@ -443,6 +451,7 @@ class ClickOverlay(tk.Toplevel):
             finally:
                 if was_click:
                     remove_window_clickthrough(self)
+                    self._restore_cursor()
 
         choice, ratio, prob = self.engine.weighted_confidence(
             samples,
@@ -704,11 +713,7 @@ class ClickOverlay(tk.Toplevel):
                 on_move=self._on_move,
                 on_click=self._click,
             ) as listener:
-                if listener is None:
-                    use_hooks = False
-                    remove_window_clickthrough(self)
-                    self.state = OverlayState.POLLING
-                else:
+                if listener is not None:
                     self.state = OverlayState.HOOKED
                     self._queue_update()
                     if self.timeout is not None:
@@ -717,14 +722,16 @@ class ClickOverlay(tk.Toplevel):
                         )
                     self.wait_window()
                     return self.pid, self.title_text
+                use_hooks = False
 
         if not use_hooks:
             remove_window_clickthrough(self)
+            self._restore_cursor()
             self.state = OverlayState.POLLING
-        self.bind("<Motion>", self._queue_update)
-        self.bind("<Button-1>", self._click_event)
-        self._queue_update()
-        if self.timeout is not None:
-            self._timeout_id = self.after(int(self.timeout * 1000), self.close)
-        self.wait_window()
+            self.bind("<Motion>", self._queue_update)
+            self.bind("<Button-1>", self._click_event)
+            self._queue_update()
+            if self.timeout is not None:
+                self._timeout_id = self.after(int(self.timeout * 1000), self.close)
+            self.wait_window()
         return self.pid, self.title_text

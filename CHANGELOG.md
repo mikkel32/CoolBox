@@ -15,6 +15,8 @@
   click-through hooks so it's fully invisible on all platforms.
 - **Fix:** Overlay stays invisible when transparency isn't supported,
   preventing a black fullscreen window.
+- **Fix:** Click overlay restores the crosshair cursor after toggling
+  click-through so the pointer remains visible.
 
 ## 1.0.11 - 2025-07-30
 

@@ -181,6 +181,26 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_cursor_visible_after_clickthrough(self) -> None:
+        root = tk.Tk()
+
+        def fake_clickthrough(win):
+            win.configure(cursor="arrow")
+            return True
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=True),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough",
+                side_effect=fake_clickthrough,
+            ),
+        ):
+            overlay = ClickOverlay(root)
+        self.assertEqual(overlay.cget("cursor"), "crosshair")
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_click_falls_back_to_last_info(self) -> None:
         root = tk.Tk()
         with (
