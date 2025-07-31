@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.0.18 - 2025-07-31
+
 - **Performance:** Kill-by-Click overlay no longer computes velocity and heat-map updates in the mouse hook thread. Movement is buffered and processed on the Tkinter main loop, preventing input lag.
 - **Efficiency:** Heat-map decay is skipped when `KILL_BY_CLICK_HEATMAP_WEIGHT` is zero, avoiding unnecessary loops.
 - **Defaults:** Reduced window probe attempts from 5 to 3 for faster detection.
@@ -15,6 +17,7 @@
   click-through hooks so it's fully invisible on all platforms.
 - **Fix:** Overlay stays invisible when transparency isn't supported,
   preventing a black fullscreen window.
+- **Fix:** Overlay canvas now uses a crosshair cursor so the pointer remains visible during Kill by Click.
 
 ## 1.0.11 - 2025-07-30
 

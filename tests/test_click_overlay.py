@@ -94,6 +94,16 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_uses_crosshair_cursor(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        cursor = overlay.canvas.cget("cursor")
+        self.assertEqual(cursor, "crosshair")
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_invisible_when_color_key_missing(self) -> None:
         root = tk.Tk()
         with (
