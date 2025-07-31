@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.20 - 2025-08-02
+
+- **Fix:** Click overlay uses a semi-transparent fallback and warns when the
+  transparency color key cannot be set.
+
 ## 1.0.19 - 2025-08-01
 
 - **Fix:** Kill-by-Click overlay now raises itself to ensure the crosshair

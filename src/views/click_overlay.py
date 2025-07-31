@@ -40,6 +40,10 @@ KILL_BY_CLICK_INTERVAL = float(
     os.getenv("KILL_BY_CLICK_INTERVAL", str(DEFAULT_INTERVAL))
 )
 
+# Alpha used when a transparent color key cannot be applied. This keeps the
+# overlay visible instead of fully hiding it.
+FALLBACK_ALPHA = float(os.getenv("KILL_BY_CLICK_FALLBACK_ALPHA", "0.3"))
+
 
 _COLOR_CACHE: dict[str, str] = {}
 
@@ -153,6 +157,7 @@ class ClickOverlay(tk.Toplevel):
         # validated and restored as needed to avoid a fullscreen black window
         # if the system drops support for the color key.
         self._has_colorkey = False
+        self._colorkey_warning_shown = False
         self._ensure_colorkey()
 
         # Using an empty string for the canvas background causes a TclError on
@@ -175,8 +180,8 @@ class ClickOverlay(tk.Toplevel):
             font=("TkDefaultFont", 10, "bold"),
         )
         # Fade in now that the window is fully configured. If the color key
-        # could not be set keep the window fully transparent to avoid a black
-        # flash on platforms lacking this feature.
+        # cannot be applied the overlay remains semi-transparent so the user
+        # can still see the screen.
         try:
             self.update_idletasks()
             self.deiconify()
@@ -274,8 +279,8 @@ class ClickOverlay(tk.Toplevel):
 
         The method verifies that the window's transparent color key matches the
         configured background color and attempts to restore it if missing. When
-        the color key cannot be set the entire window is kept invisible to
-        avoid flashing a fullscreen black surface.
+        the color key cannot be set the overlay falls back to a semi-transparent
+        window instead of remaining fully invisible.
         """
         try:
             if not self._has_colorkey:
@@ -290,7 +295,15 @@ class ClickOverlay(tk.Toplevel):
         except Exception:
             self._has_colorkey = False
         try:
-            self.attributes("-alpha", 1.0 if self._has_colorkey else 0.0)
+            if self._has_colorkey:
+                self.attributes("-alpha", 1.0)
+            else:
+                self.attributes("-alpha", FALLBACK_ALPHA)
+                if not self._colorkey_warning_shown:
+                    print(
+                        "warning: transparency color key unavailable; using fallback alpha"
+                    )
+                    self._colorkey_warning_shown = True
         except Exception:
             pass
 
