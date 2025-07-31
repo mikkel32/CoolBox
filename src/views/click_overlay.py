@@ -158,7 +158,9 @@ class ClickOverlay(tk.Toplevel):
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself
         # becomes transparent via the color key.
-        self.canvas = tk.Canvas(self, bg=self._bg_color, highlightthickness=0)
+        self.canvas = tk.Canvas(
+            self, bg=self._bg_color, highlightthickness=0, cursor="crosshair"
+        )
         self.canvas.pack(fill="both", expand=True)
         self.rect = self.canvas.create_rectangle(0, 0, 1, 1, outline=highlight, width=2)
         # crosshair lines spanning the entire screen for precise selection
