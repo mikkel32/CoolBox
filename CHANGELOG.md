@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.21 - 2025-08-03
+
+- **Perf:** Click overlay revalidates its transparent color key periodically
+  instead of on every update, avoiding redundant system calls.
+
 ## 1.0.20 - 2025-08-02
 
 - **Fix:** Click overlay uses a semi-transparent fallback and warns when the

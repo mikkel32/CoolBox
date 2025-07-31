@@ -44,6 +44,11 @@ KILL_BY_CLICK_INTERVAL = float(
 # overlay visible instead of fully hiding it.
 FALLBACK_ALPHA = float(os.getenv("KILL_BY_CLICK_FALLBACK_ALPHA", "0.3"))
 
+# Minimum time between colorkey validations in milliseconds
+COLORKEY_RECHECK_MS = int(
+    os.getenv("KILL_BY_CLICK_COLORKEY_RECHECK_MS", "1000")
+)
+
 
 _COLOR_CACHE: dict[str, str] = {}
 
@@ -158,7 +163,10 @@ class ClickOverlay(tk.Toplevel):
         # if the system drops support for the color key.
         self._has_colorkey = False
         self._colorkey_warning_shown = False
-        self._ensure_colorkey()
+        self._colorkey_last_check = 0.0
+        self._colorkey_last_key = ""
+        self._colorkey_last_bg = self._bg_color
+        self._maybe_ensure_colorkey(force=True)
 
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself
@@ -185,7 +193,7 @@ class ClickOverlay(tk.Toplevel):
         try:
             self.update_idletasks()
             self.deiconify()
-            self._ensure_colorkey()
+            self._maybe_ensure_colorkey(force=True)
         except Exception:
             pass
         self.probe_attempts = probe_attempts
@@ -303,9 +311,28 @@ class ClickOverlay(tk.Toplevel):
                     print(
                         "warning: transparency color key unavailable; using fallback alpha"
                     )
-                    self._colorkey_warning_shown = True
+            self._colorkey_warning_shown = True
         except Exception:
             pass
+
+    def _maybe_ensure_colorkey(self, *, force: bool = False) -> None:
+        """Revalidate the transparent color key when necessary."""
+        now = time.monotonic()
+        try:
+            key = _normalize_color(self, self.attributes("-transparentcolor"))
+        except Exception:
+            key = ""
+        bg = self._bg_color
+        if (
+            force
+            or key != self._colorkey_last_key
+            or bg != self._colorkey_last_bg
+            or (now - self._colorkey_last_check) * 1000 >= COLORKEY_RECHECK_MS
+        ):
+            self._ensure_colorkey()
+            self._colorkey_last_key = key
+            self._colorkey_last_bg = bg
+            self._colorkey_last_check = now
 
     def _flash_highlight(self) -> None:
         """Temporarily thicken the highlight rectangle when the target changes."""
@@ -553,7 +580,7 @@ class ClickOverlay(tk.Toplevel):
         return info
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
-        self._ensure_colorkey()
+        self._maybe_ensure_colorkey()
         if info is None:
             info = self._query_window()
         if not getattr(self, "_raised", False):
