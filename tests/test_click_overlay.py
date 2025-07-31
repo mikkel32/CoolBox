@@ -4,7 +4,7 @@ import unittest
 import tkinter as tk
 from unittest.mock import patch
 
-from src.views.click_overlay import ClickOverlay, WindowInfo
+from src.views.click_overlay import ClickOverlay, WindowInfo, COLORKEY_RECHECK_MS
 
 
 class TestClickOverlay(unittest.TestCase):
@@ -162,6 +162,27 @@ class TestClickOverlay(unittest.TestCase):
         self.assertEqual(alpha, 1.0)
         overlay.destroy()
         root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_colorkey_revalidation_throttled(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            overlay._colorkey_last_check = time.monotonic()
+            with patch.object(overlay, "_ensure_colorkey") as mock:
+                overlay._maybe_ensure_colorkey()
+                mock.assert_not_called()
+                overlay._bg_color = "#123456"
+                overlay._maybe_ensure_colorkey()
+                mock.assert_called_once()
+                mock.reset_mock()
+                overlay._colorkey_last_check -= (COLORKEY_RECHECK_MS + 1) / 1000
+                overlay._maybe_ensure_colorkey()
+                mock.assert_called_once()
+        finally:
+            overlay.destroy()
+            root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_accepts_shorthand_color_key(self) -> None:
