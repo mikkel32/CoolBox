@@ -37,3 +37,19 @@
 - **Fix:** Normalize overlay background colors to hex so the transparent color
   key is honored, avoiding a persistent black overlay.
 
+## 1.0.15 - 2025-07-31
+
+- **Fix:** Accept uppercase transparent color keys so the click overlay
+  remains visible on platforms that canonicalize colour values.
+
+## 1.0.16 - 2025-07-31
+
+- **Fix:** Canonicalize transparent color keys to hex, keeping the overlay
+  visible even when the system returns shorthand codes.
+
+## 1.0.17 - 2025-07-31
+
+- **Perf:** Cache normalized colors to avoid repeated conversions.
+- **Fix:** Parse hex color strings without consulting Tk, ensuring reliable
+  transparent color keys.
+
