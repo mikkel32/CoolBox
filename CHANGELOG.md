@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.24 - 2025-08-05
+
+- **Perf:** Click overlay records frame durations and adjusts refresh delay based on average frame cost.
+
 ## 1.0.23 - 2025-08-04
 
 - **Feat:** Offload window scoring to a background worker for smoother UI.
