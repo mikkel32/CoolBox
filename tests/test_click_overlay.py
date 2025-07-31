@@ -1,6 +1,7 @@
 import os
 import time
 import unittest
+import threading
 import tkinter as tk
 from unittest.mock import patch
 
@@ -1298,6 +1299,34 @@ class TestClickOverlay(unittest.TestCase):
         overlay._update_rect(WindowInfo(5, (0, 0, 5, 5), "foo"))
 
         self.assertIn((5, "foo"), calls)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_tracker_add_runs_off_thread(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        main_thread = threading.get_ident()
+        called: dict[str, int] = {}
+        done = threading.Event()
+
+        def fake_add(info, pid):  # type: ignore[unused-arg]
+            called["worker"] = threading.get_ident()
+
+        def cb(_=None):
+            called["callback"] = threading.get_ident()
+            done.set()
+
+        overlay.engine.tracker.add = fake_add  # type: ignore[assignment]
+        overlay._track_async(WindowInfo(1), cb)
+        while not done.wait(0.01):
+            root.update()
+
+        self.assertNotEqual(called["worker"], main_thread)
+        self.assertEqual(called["callback"], main_thread)
 
         overlay.destroy()
         root.destroy()

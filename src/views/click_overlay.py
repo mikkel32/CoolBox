@@ -12,9 +12,11 @@ import os
 import time
 import math
 import re
+import threading
+import queue
 import tkinter as tk
 from collections import deque
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 from enum import Enum, auto
 
 from src.utils.window_utils import (
@@ -238,6 +240,13 @@ class ClickOverlay(tk.Toplevel):
         self._after_id: Optional[str] = None
         self._timeout_id: Optional[str] = None
         self.update_state = UpdateState.IDLE
+
+        # Worker thread for offloading scoring and tracking operations
+        self._task_queue: queue.Queue[
+            tuple[Callable[[], Any], Optional[Callable[[Any], None]]]
+        ] = queue.Queue()
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
         self.state = OverlayState.INIT
         self.pid: int | None = None
         self.title_text: str | None = None
@@ -281,6 +290,45 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_x = 0
             self._cursor_y = 0
         self._last_move_pos = (self._cursor_x, self._cursor_y)
+    def _worker_loop(self) -> None:
+        """Process queued scoring tasks in a background thread."""
+        while True:
+            func, callback = self._task_queue.get()
+            if func is None:
+                self._task_queue.task_done()
+                break
+            result = func()
+            if callback is not None:
+                try:
+                    self.after(0, lambda r=result, cb=callback: cb(r))
+                except Exception:
+                    pass
+            self._task_queue.task_done()
+
+    def _score_async(
+        self, func: Callable[[], Any], callback: Callable[[Any], None] | None = None
+    ) -> None:
+        """Run ``func`` on the worker thread and invoke ``callback`` with the result."""
+
+        self._task_queue.put((func, callback))
+
+    def _track_async(
+        self, info: WindowInfo, callback: Callable[[Any], None] | None = None
+    ) -> None:
+        """Queue ``engine.tracker.add`` on the worker thread."""
+
+        self._score_async(
+            lambda: self.engine.tracker.add(info, self._initial_active_pid), callback
+        )
+
+    def destroy(self) -> None:  # type: ignore[override]
+        """Ensure the worker thread exits before destroying the window."""
+        try:
+            self._task_queue.put((None, None))
+            self._worker.join(timeout=0.5)
+        except Exception:
+            pass
+        super().destroy()
 
     def _ensure_colorkey(self) -> None:
         """Ensure the overlay background remains fully transparent.
@@ -495,11 +543,11 @@ class ClickOverlay(tk.Toplevel):
         if self.state is OverlayState.HOOKED:
             info = probe()
             samples.append(info)
-            self.engine.tracker.add(info, self._initial_active_pid)
+            self._track_async(info)
             for _ in range(self.probe_attempts):
                 confirm = probe()
                 samples.append(confirm)
-                self.engine.tracker.add(confirm, self._initial_active_pid)
+                self._track_async(confirm)
                 if info.pid not in (self._own_pid, None) and confirm.pid == info.pid:
                     break
                 info = confirm
@@ -508,11 +556,11 @@ class ClickOverlay(tk.Toplevel):
             try:
                 info = probe()
                 samples.append(info)
-                self.engine.tracker.add(info, self._initial_active_pid)
+                self._track_async(info)
                 for _ in range(self.probe_attempts):
                     confirm = probe()
                     samples.append(confirm)
-                    self.engine.tracker.add(confirm, self._initial_active_pid)
+                    self._track_async(confirm)
                     if (
                         info.pid not in (self._own_pid, None)
                         and confirm.pid == info.pid
@@ -539,7 +587,7 @@ class ClickOverlay(tk.Toplevel):
         ) and attempts < tuning.extra_attempts:
             more = probe()
             samples.append(more)
-            self.engine.tracker.add(more, self._initial_active_pid)
+            self._track_async(more)
             choice, ratio, prob = self.engine.weighted_confidence(
                 samples,
                 self._cursor_x,
@@ -559,7 +607,7 @@ class ClickOverlay(tk.Toplevel):
                         continue
                     alt = self._probe_point(x + dx, y + dy)
                     samples.append(alt)
-                    self.engine.tracker.add(alt, self._initial_active_pid)
+                    self._track_async(alt)
             choice = self.engine.weighted_choice(
                 samples,
                 self._cursor_x,
@@ -605,7 +653,7 @@ class ClickOverlay(tk.Toplevel):
             self._last_info = info
             self._pid_history.append(info.pid)
             self._info_history.append(info)
-            self.engine.tracker.add(info, self._initial_active_pid)
+            self._track_async(info)
             self._pid_stability[info.pid] = self._pid_stability.get(info.pid, 0) + 1
             for pid in list(self._pid_stability):
                 if pid != info.pid:

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.23 - 2025-08-04
+
+- **Feat:** Offload window scoring to a background worker for smoother UI.
+
 ## 1.0.22 - 2025-08-03
 
 - **Perf:** Use a persistent X11 connection for window enumeration with
