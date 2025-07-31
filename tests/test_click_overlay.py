@@ -79,6 +79,21 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_normalizes_system_color_to_hex(self) -> None:
+        root = tk.Tk()
+        root.configure(bg="SystemButtonFace")
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            key = overlay.attributes("-transparentcolor")
+        except Exception:
+            key = None
+        self.assertTrue(overlay.cget("bg").startswith("#"))
+        self.assertEqual(key, overlay.cget("bg"))
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_invisible_when_color_key_missing(self) -> None:
         root = tk.Tk()
         with (
@@ -111,6 +126,51 @@ class TestClickOverlay(unittest.TestCase):
         except Exception:
             alpha = 1.0
         self.assertEqual(alpha, 0.0)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_accepts_uppercase_color_key(self) -> None:
+        root = tk.Tk()
+
+        def attributes_side_effect(self, *args):
+            if args and args[0] == "-transparentcolor" and len(args) == 1:
+                return self.cget("bg").upper()
+            return tk.Toplevel.attributes(self, *args)
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
+        ):
+            overlay = ClickOverlay(root)
+        try:
+            alpha = float(overlay.attributes("-alpha"))
+        except Exception:
+            alpha = 1.0
+        self.assertEqual(alpha, 1.0)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_accepts_shorthand_color_key(self) -> None:
+        root = tk.Tk()
+        root.configure(bg="white")
+
+        def attributes_side_effect(self, *args):
+            if args and args[0] == "-transparentcolor" and len(args) == 1:
+                return "#FFF"
+            return tk.Toplevel.attributes(self, *args)
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
+        ):
+            overlay = ClickOverlay(root)
+        try:
+            alpha = float(overlay.attributes("-alpha"))
+        except Exception:
+            alpha = 1.0
+        self.assertEqual(alpha, 1.0)
         overlay.destroy()
         root.destroy()
 

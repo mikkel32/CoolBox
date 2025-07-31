@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import time
 import math
+import re
 import tkinter as tk
 from collections import deque
 from typing import Optional, Callable
@@ -38,6 +39,41 @@ DEFAULT_INTERVAL = 1 / get_screen_refresh_rate()
 KILL_BY_CLICK_INTERVAL = float(
     os.getenv("KILL_BY_CLICK_INTERVAL", str(DEFAULT_INTERVAL))
 )
+
+
+_COLOR_CACHE: dict[str, str] = {}
+
+
+def _normalize_color(widget: tk.Misc, color: str) -> str:
+    """Return ``color`` as a lowercase ``#rrggbb`` string.
+
+    The value is memoized to avoid repeated conversions and handles shorthand
+    hex values without relying on ``winfo_rgb``.
+    """
+
+    c = str(color or "").strip()
+    if not c:
+        return ""
+    cached = _COLOR_CACHE.get(c)
+    if cached is not None:
+        return cached
+    if c.startswith("#"):
+        hexpart = c[1:]
+        if re.fullmatch(r"[0-9a-fA-F]{3}", hexpart):
+            result = "#" + "".join(ch * 2 for ch in hexpart).lower()
+        elif re.fullmatch(r"[0-9a-fA-F]{6}", hexpart):
+            result = "#" + hexpart.lower()
+        else:
+            result = c.lower()
+        _COLOR_CACHE[c] = result
+        return result
+    try:
+        r, g, b = widget.winfo_rgb(c)
+        result = f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
+    except Exception:
+        result = c.lower()
+    _COLOR_CACHE[c] = result
+    return result
 
 
 class UpdateState(Enum):
@@ -105,11 +141,11 @@ class ClickOverlay(tk.Toplevel):
         bg_color = "#000001"
         if isinstance(parent, tk.Widget):
             try:
-                r, g, b = parent.winfo_rgb(parent.cget("bg"))
-                bg_color = f"#{r >> 8:02x}{g >> 8:02x}{b >> 8:02x}"
+                bg_color = parent.cget("bg")
             except Exception:
                 pass
-        self.configure(bg=bg_color)
+        self._bg_color = _normalize_color(self, bg_color)
+        self.configure(bg=self._bg_color)
 
         if is_supported():
             make_window_clickthrough(self)
@@ -122,7 +158,7 @@ class ClickOverlay(tk.Toplevel):
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself
         # becomes transparent via the color key.
-        self.canvas = tk.Canvas(self, bg=bg_color, highlightthickness=0)
+        self.canvas = tk.Canvas(self, bg=self._bg_color, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.rect = self.canvas.create_rectangle(0, 0, 1, 1, outline=highlight, width=2)
         # crosshair lines spanning the entire screen for precise selection
@@ -242,11 +278,12 @@ class ClickOverlay(tk.Toplevel):
         try:
             if not self._has_colorkey:
                 self._has_colorkey = set_window_colorkey(self)
-            key = self.attributes("-transparentcolor")
-            if key != self.cget("bg"):
+            key = _normalize_color(self, self.attributes("-transparentcolor"))
+            bg = self._bg_color
+            if key != bg:
                 self._has_colorkey = set_window_colorkey(self)
-                key = self.attributes("-transparentcolor")
-                if key != self.cget("bg"):
+                key = _normalize_color(self, self.attributes("-transparentcolor"))
+                if key != bg:
                     self._has_colorkey = False
         except Exception:
             self._has_colorkey = False
