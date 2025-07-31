@@ -64,6 +64,21 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_normalizes_named_bg_to_hex(self) -> None:
+        root = tk.Tk()
+        root.configure(bg="red")
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            key = overlay.attributes("-transparentcolor")
+        except Exception:
+            key = None
+        self.assertEqual(overlay.cget("bg"), "#ff0000")
+        self.assertEqual(key, "#ff0000")
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_invisible_when_color_key_missing(self) -> None:
         root = tk.Tk()
         with (
@@ -76,6 +91,92 @@ class TestClickOverlay(unittest.TestCase):
         except Exception:
             alpha = 1.0
         self.assertEqual(alpha, 0.0)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_transparent_when_color_key_ignored(self) -> None:
+        root = tk.Tk()
+
+        def fake_colorkey(_win):
+            return True
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch("src.views.click_overlay.set_window_colorkey", side_effect=fake_colorkey),
+        ):
+            overlay = ClickOverlay(root)
+        try:
+            alpha = float(overlay.attributes("-alpha"))
+        except Exception:
+            alpha = 1.0
+        self.assertEqual(alpha, 0.0)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_transparent_when_color_key_removed_after_map(self) -> None:
+        root = tk.Tk()
+
+        def attributes_side_effect(self, *args):
+            if args and args[0] == "-transparentcolor" and len(args) == 1:
+                attributes_side_effect.calls += 1
+                if attributes_side_effect.calls == 1:
+                    return self.cget("bg")
+                return ""
+            return tk.Toplevel.attributes(self, *args)
+
+        attributes_side_effect.calls = 0
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
+            patch(
+                "src.views.click_overlay.set_window_colorkey",
+                side_effect=[True, False],
+            ) as swc,
+        ):
+            overlay = ClickOverlay(root)
+        self.assertEqual(swc.call_count, 2)
+        try:
+            alpha = float(overlay.attributes("-alpha"))
+        except Exception:
+            alpha = 1.0
+        self.assertEqual(alpha, 0.0)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_recovers_color_key_after_loss(self) -> None:
+        root = tk.Tk()
+
+        def attributes_side_effect(self, *args):
+            if args and args[0] == "-transparentcolor" and len(args) == 1:
+                attributes_side_effect.calls += 1
+                if attributes_side_effect.calls == 1:
+                    return self.cget("bg")
+                if attributes_side_effect.calls == 2:
+                    return ""
+                return self.cget("bg")
+            return tk.Toplevel.attributes(self, *args)
+
+        attributes_side_effect.calls = 0
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
+            patch(
+                "src.views.click_overlay.set_window_colorkey",
+                side_effect=[True, True],
+            ) as swc,
+        ):
+            overlay = ClickOverlay(root)
+        self.assertEqual(swc.call_count, 2)
+        try:
+            alpha = float(overlay.attributes("-alpha"))
+        except Exception:
+            alpha = 1.0
+        self.assertEqual(alpha, 1.0)
         overlay.destroy()
         root.destroy()
 
