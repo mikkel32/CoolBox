@@ -104,23 +104,25 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_overlay_invisible_when_color_key_missing(self) -> None:
+    def test_overlay_visible_when_color_key_missing(self) -> None:
         root = tk.Tk()
         with (
             patch("src.views.click_overlay.is_supported", return_value=False),
             patch("src.views.click_overlay.set_window_colorkey", return_value=False),
+            patch("builtins.print") as mock_print,
         ):
             overlay = ClickOverlay(root)
         try:
             alpha = float(overlay.attributes("-alpha"))
         except Exception:
-            alpha = 1.0
-        self.assertEqual(alpha, 0.0)
+            alpha = 0.0
+        self.assertGreater(alpha, 0.0)
+        mock_print.assert_called()
         overlay.destroy()
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_overlay_transparent_when_color_key_ignored(self) -> None:
+    def test_overlay_visible_when_color_key_ignored(self) -> None:
         root = tk.Tk()
 
         def fake_colorkey(_win):
@@ -134,8 +136,8 @@ class TestClickOverlay(unittest.TestCase):
         try:
             alpha = float(overlay.attributes("-alpha"))
         except Exception:
-            alpha = 1.0
-        self.assertEqual(alpha, 0.0)
+            alpha = 0.0
+        self.assertGreater(alpha, 0.0)
         overlay.destroy()
         root.destroy()
 
@@ -185,7 +187,7 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_overlay_transparent_when_color_key_removed_after_map(self) -> None:
+    def test_overlay_visible_when_color_key_removed_after_map(self) -> None:
         root = tk.Tk()
 
         def attributes_side_effect(self, *args):
@@ -211,8 +213,8 @@ class TestClickOverlay(unittest.TestCase):
         try:
             alpha = float(overlay.attributes("-alpha"))
         except Exception:
-            alpha = 1.0
-        self.assertEqual(alpha, 0.0)
+            alpha = 0.0
+        self.assertGreater(alpha, 0.0)
         overlay.destroy()
         root.destroy()
 
