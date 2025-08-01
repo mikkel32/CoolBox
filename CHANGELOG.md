@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.26 - 2025-08-07
+
+- **Perf:** Click overlay caches window probes and reuses them until
+  confidence drops, removing repeated queries.
+
 ## 1.0.25 - 2025-08-06
 
 - **Feat:** Direct X11 queries replace subprocess calls for Linux window lookup with cached fallback.

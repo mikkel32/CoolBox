@@ -5,7 +5,12 @@ import threading
 import tkinter as tk
 from unittest.mock import patch
 
-from src.views.click_overlay import ClickOverlay, WindowInfo, COLORKEY_RECHECK_MS
+from src.views.click_overlay import (
+    ClickOverlay,
+    WindowInfo,
+    COLORKEY_RECHECK_MS,
+    OverlayState,
+)
 
 
 class TestClickOverlay(unittest.TestCase):
@@ -375,29 +380,95 @@ class TestClickOverlay(unittest.TestCase):
         info_self = WindowInfo(overlay._own_pid, (0, 0, 10, 10), "Self")
         info_target = WindowInfo(123, (5, 5, 10, 10), "Target")
 
-        with patch("src.views.click_overlay.get_window_under_cursor") as gwuc:
-            gwuc.side_effect = [info_self, info_target]
+        with (
+            patch("src.views.click_overlay.get_window_at") as gwa,
+            patch("src.views.click_overlay.list_windows_at") as lwa,
+        ):
+            gwa.return_value = info_self
+            lwa.return_value = [info_self, info_target]
             result = overlay._query_window()
 
         self.assertEqual(result.pid, 123)
+        self.assertEqual(gwa.call_count, 1)
 
         overlay.destroy()
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_query_loops_until_foreign_window(self) -> None:
+    def test_query_single_probe(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
-        info_self = WindowInfo(overlay._own_pid, (0, 0, 5, 5), "Self")
-        info_other = WindowInfo(321, (5, 5, 10, 10), "Other")
+        overlay.state = OverlayState.HOOKED
 
-        with patch("src.views.click_overlay.get_window_under_cursor") as gwuc:
-            gwuc.side_effect = [info_self, info_self, info_other]
-            result = overlay._query_window()
+        with (
+            patch.object(
+                overlay.engine.tracker,
+                "best_with_confidence",
+                return_value=(None, 0.0),
+            ),
+            patch.object(
+                overlay,
+                "_probe_point",
+                return_value=WindowInfo(321, (0, 0, 5, 5), "Other"),
+            ) as probe,
+        ):
+            result = overlay._query_window_at(0, 0)
+            probe.assert_called_once()
 
         self.assertEqual(result.pid, 321)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_uses_cached_result_when_confident(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.state = OverlayState.HOOKED
+        cached = WindowInfo(7, (0, 0, 5, 5), "cached")
+        overlay._cached_info = cached
+
+        with (
+            patch.object(
+                overlay.engine.tracker,
+                "best_with_confidence",
+                return_value=(cached, overlay.engine.tuning.confidence_ratio + 1),
+            ),
+            patch.object(overlay, "_probe_point") as probe,
+        ):
+            info = overlay._query_window_at(0, 0)
+            probe.assert_not_called()
+        self.assertEqual(info.pid, 7)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_reprobes_when_confidence_low(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.state = OverlayState.HOOKED
+        cached = WindowInfo(7, (0, 0, 5, 5), "cached")
+        overlay._cached_info = cached
+
+        new_info = WindowInfo(8, (0, 0, 5, 5), "new")
+        with (
+            patch.object(
+                overlay.engine.tracker,
+                "best_with_confidence",
+                return_value=(cached, overlay.engine.tuning.confidence_ratio - 0.1),
+            ),
+            patch.object(overlay, "_probe_point", return_value=new_info) as probe,
+        ):
+            info = overlay._query_window_at(0, 0)
+            probe.assert_called_once()
+        self.assertEqual(info.pid, 8)
 
         overlay.destroy()
         root.destroy()
@@ -416,25 +487,6 @@ class TestClickOverlay(unittest.TestCase):
         x, y = overlay.canvas.coords(overlay.label)
         self.assertLessEqual(x + 20, 100)
         self.assertLessEqual(y + 10, 50)
-
-        overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_probe_attempts_respected(self) -> None:
-        root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
-            overlay = ClickOverlay(root, probe_attempts=3)
-
-        info_self = WindowInfo(overlay._own_pid, (0, 0, 10, 10), "Self")
-        info_other = WindowInfo(999, (5, 5, 10, 10), "Other")
-
-        with patch("src.views.click_overlay.get_window_under_cursor") as gwuc:
-            gwuc.side_effect = [info_self, info_self, info_self, info_other]
-            result = overlay._query_window()
-
-        self.assertEqual(result.pid, 999)
-        self.assertEqual(gwuc.call_count, 4)
 
         overlay.destroy()
         root.destroy()
@@ -695,59 +747,6 @@ class TestClickOverlay(unittest.TestCase):
 
         self.assertEqual(info.pid, 3)
         self.assertGreaterEqual(prob, 0.99)
-
-        overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_query_window_uses_extra_attempts(self) -> None:
-        root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
-            overlay = ClickOverlay(root, probe_attempts=1)
-
-        info1 = WindowInfo(1, (0, 0, 5, 5), "one")
-        info2 = WindowInfo(2, (0, 0, 5, 5), "two")
-
-        with (
-            patch("src.views.click_overlay.get_window_at") as gwa,
-            patch("src.utils.scoring_engine.tuning.confidence_ratio", 2.0),
-            patch("src.utils.scoring_engine.tuning.extra_attempts", 2),
-        ):
-            gwa.side_effect = [info1, info2, info2, info2]
-            result = overlay._query_window_at(0, 0)
-
-        self.assertEqual(result.pid, 2)
-        self.assertEqual(gwa.call_count, 4)
-
-        overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_query_window_uses_dominance_threshold(self) -> None:
-        root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
-            overlay = ClickOverlay(root, probe_attempts=1)
-
-        info1 = WindowInfo(1, (0, 0, 5, 5), "one")
-        info2 = WindowInfo(2, (0, 0, 5, 5), "two")
-
-        with (
-            patch("src.views.click_overlay.get_window_at") as gwa,
-            patch.object(overlay, "_weighted_confidence") as wc,
-            patch("src.utils.scoring_engine.tuning.confidence_ratio", 1.0),
-            patch("src.utils.scoring_engine.tuning.dominance", 0.9),
-            patch("src.utils.scoring_engine.tuning.extra_attempts", 2),
-        ):
-            gwa.side_effect = [info1, info2, info2]
-            wc.side_effect = [
-                (info1, 1.5, 0.4),
-                (info2, 1.5, 0.95),
-            ]
-            result = overlay._query_window_at(0, 0)
-
-        self.assertEqual(result.pid, 2)
-        self.assertEqual(wc.call_count, 2)
-        self.assertEqual(gwa.call_count, 3)
 
         overlay.destroy()
         root.destroy()
