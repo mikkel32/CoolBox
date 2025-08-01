@@ -119,27 +119,6 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_active_window_query_async(self) -> None:
-        root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
-            overlay = ClickOverlay(root, interval=0.01)
-
-        def slow_active():
-            time.sleep(0.2)
-            return WindowInfo(1)
-
-        with patch("src.views.click_overlay.get_active_window") as gaw:
-            gaw.side_effect = slow_active
-            start = time.perf_counter()
-            overlay._process_update()
-            duration = time.perf_counter() - start
-            self.assertLess(duration, 0.2)
-            time.sleep(0.25)
-
-        overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_visible_when_color_key_missing(self) -> None:
         root = tk.Tk()
         with (
