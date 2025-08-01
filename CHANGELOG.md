@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.30 - 2025-08-09
+
+- **Feat:** Offload window queries and scoring to a ``ThreadPoolExecutor`` to
+  keep the click overlay responsive.
+
 ## 1.0.29 - 2025-08-08
 
 - **Perf:** Revalidate the transparent color key only during initialization or

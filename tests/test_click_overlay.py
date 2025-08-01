@@ -321,13 +321,14 @@ class TestClickOverlay(unittest.TestCase):
         info_self = WindowInfo(overlay._own_pid, (5, 5, 10, 10), "Self")
 
         with (
-            patch("src.views.click_overlay.get_window_under_cursor") as gwuc,
+            patch.object(overlay, "_query_window_at") as gwuc,
             patch(
                 "src.views.click_overlay.make_window_clickthrough", return_value=False
             ),
         ):
             gwuc.side_effect = [target, info_self]
             overlay._update_rect()
+            root.update()
 
             overlay.close = lambda _e=None: None
             overlay._on_click()
@@ -353,9 +354,10 @@ class TestClickOverlay(unittest.TestCase):
         info1 = WindowInfo(1, (0, 0, 10, 10), "One")
         info2 = WindowInfo(2, (10, 10, 20, 20), "Two")
 
-        with patch("src.views.click_overlay.get_window_under_cursor") as gwuc:
+        with patch.object(overlay, "_query_window_at") as gwuc:
             gwuc.side_effect = [info1, info2]
             overlay._update_rect()
+            root.update()
 
             self.assertEqual(overlay.pid, 1)
             self.assertEqual(overlay.title_text, "One")
@@ -369,6 +371,29 @@ class TestClickOverlay(unittest.TestCase):
 
         overlay.destroy()
         root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_update_rect_async_uses_worker(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            event = threading.Event()
+
+            def slow_query(_x: int, _y: int) -> WindowInfo:
+                event.set()
+                time.sleep(0.05)
+                return WindowInfo(99, (0, 0, 1, 1), "async")
+
+            with patch.object(overlay, "_query_window_at", side_effect=slow_query):
+                overlay._update_rect()
+                self.assertIsNone(overlay.pid)
+                event.wait(1.0)
+                root.update()
+                self.assertEqual(overlay.pid, 99)
+        finally:
+            overlay.destroy()
+            root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_click_uses_click_coordinates(self) -> None:
@@ -527,8 +552,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._cursor_y = 30
         overlay.winfo_screenwidth = lambda: 100
         overlay.winfo_screenheight = lambda: 80
-        overlay._query_window = lambda: WindowInfo(1, None, "")
-        overlay._update_rect()
+        overlay._update_rect(WindowInfo(1, None, ""))
 
         self.assertEqual(overlay.canvas.coords(overlay.hline), [0.0, 30.0, 100.0, 30.0])
         self.assertEqual(overlay.canvas.coords(overlay.vline), [40.0, 0.0, 40.0, 80.0])
