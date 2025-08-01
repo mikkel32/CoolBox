@@ -297,6 +297,9 @@ class ClickOverlay(tk.Toplevel):
         self._last_frame_start = 0.0
         self._last_frame_end = 0.0
         self._frame_count = 0
+        # Cache for window enumeration to minimize repeated list_windows_at calls
+        self._window_cache_pos: tuple[int, int] | None = None
+        self._window_cache: list[WindowInfo] = []
     def _worker_loop(self) -> None:
         """Process queued scoring tasks in a background thread."""
         while True:
@@ -327,6 +330,62 @@ class ClickOverlay(tk.Toplevel):
         self._score_async(
             lambda: self.engine.tracker.add(info, self._initial_active_pid), callback
         )
+
+    def _prefetch_windows(self, x: int, y: int) -> None:
+        """Schedule ``list_windows_at`` on the worker thread with caching."""
+
+        key = (x, y)
+        if self._window_cache_pos == key:
+            return
+
+        def store(result: list[WindowInfo], *, key: tuple[int, int] = key) -> None:
+            # Ignore stale results when the cursor moved while enumerating
+            if self._window_cache_pos != key:
+                self._window_cache_pos = key
+                self._window_cache = result
+                try:
+                    self.after_idle(self._queue_update)
+                except Exception:
+                    pass
+
+        self._score_async(lambda: list_windows_at(x, y), store)
+
+    def _weighted_confidence_async(
+        self, samples: list[WindowInfo], callback: Callable[[tuple[WindowInfo | None, float, float]], None]
+    ) -> None:
+        """Run ``engine.weighted_confidence`` on the worker thread."""
+
+        self._score_async(
+            lambda: self.engine.weighted_confidence(
+                samples,
+                self._cursor_x,
+                self._cursor_y,
+                self._velocity,
+                self._path_history,
+                self._initial_active_pid,
+            ),
+            callback,
+        )
+
+    def _weighted_confidence(
+        self, samples: list[WindowInfo]
+    ) -> tuple[WindowInfo | None, float, float]:
+        """Synchronous wrapper around :meth:`_weighted_confidence_async`.
+
+        The heavy computation runs on the worker thread while the main thread
+        waits for the result using a queue, keeping the Tk event loop free from
+        blocking work.
+        """
+
+        result_q: queue.Queue[
+            tuple[WindowInfo | None, float, float]
+        ] = queue.Queue()
+
+        def store(result: tuple[WindowInfo | None, float, float]) -> None:
+            result_q.put(result)
+
+        self._weighted_confidence_async(samples, store)
+        return result_q.get()
 
     def destroy(self) -> None:  # type: ignore[override]
         """Ensure the worker thread exits before destroying the window."""
@@ -537,15 +596,17 @@ class ClickOverlay(tk.Toplevel):
 
     def _probe_point(self, x: int, y: int) -> WindowInfo:
         """Return window info at ``(x, y)`` applying fallbacks."""
-
         info = get_window_at(x, y)
+        wins = self._window_cache if self._window_cache_pos == (x, y) else []
+        if not wins:
+            self._prefetch_windows(x, y)
         if info.pid is not None and info.rect is None:
-            for win in list_windows_at(x, y):
+            for win in wins:
                 if win.pid == info.pid:
                     info = WindowInfo(info.pid, win.rect, info.title or win.title)
                     break
         if info.pid in (self._own_pid, None):
-            for win in list_windows_at(x, y):
+            for win in wins:
                 if win.pid not in (self._own_pid, None):
                     info = win
                     break
