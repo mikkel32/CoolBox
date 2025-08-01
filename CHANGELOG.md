@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.28 - 2025-08-08
+
+- **Perf:** Cache X11 window enumeration to avoid per-frame process launches.
+
 ## 1.0.27 - 2025-08-08
 
 - **Perf:** Run window enumeration and scoring in a worker thread, keeping the

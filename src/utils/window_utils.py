@@ -24,7 +24,7 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # noqa: F401
     _X_DISPLAY = None
 
-_SUBPROC_CACHE: dict[str, Any] = {"time": 0.0, "coords": None, "results": []}
+_SUBPROC_CACHE: dict[str, Any] = {"time": 0.0, "windows": []}
 
 
 @dataclass(frozen=True)
@@ -333,52 +333,55 @@ def _list_windows_x11(x: int, y: int) -> List[WindowInfo]:
 
 
 def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
-    """Subprocess-based X11 enumeration with simple caching."""
+    """Enumerate X11 windows via subprocess with global caching."""
 
     global _SUBPROC_CACHE
     now = time.time()
-    if (
-        _SUBPROC_CACHE.get("coords") == (x, y)
-        and now - _SUBPROC_CACHE.get("time", 0.0) < 0.5
-    ):
-        return list(_SUBPROC_CACHE.get("results", []))
-    try:
-        stacking = subprocess.check_output(
-            ["xprop", "-root", "_NET_CLIENT_LIST_STACKING"], text=True
-        )
-        ids = [w.strip() for w in stacking.split("#", 1)[1].split()] if "#" in stacking else []
-        results: List[WindowInfo] = []
-        for wid in ids:
-            geom_out = subprocess.check_output(["xwininfo", "-id", wid], text=True)
-            gx = re.search(r"Absolute upper-left X:\s+(\d+)", geom_out)
-            gy = re.search(r"Absolute upper-left Y:\s+(\d+)", geom_out)
-            gw = re.search(r"Width:\s+(\d+)", geom_out)
-            gh = re.search(r"Height:\s+(\d+)", geom_out)
-            if not (gx and gy and gw and gh):
-                continue
-            wx = int(gx.group(1))
-            wy = int(gy.group(1))
-            ww = int(gw.group(1))
-            wh = int(gh.group(1))
-            if not (wx <= x <= wx + ww and wy <= y <= wy + wh):
-                continue
-            pid_line = subprocess.check_output(["xprop", "-id", wid, "_NET_WM_PID"], text=True)
-            match = re.search(r"= (\d+)", pid_line)
-            pid = int(match.group(1)) if match else None
-            title_out = subprocess.check_output(["xprop", "-id", wid, "WM_NAME"], text=True)
-            title_match = re.search(r'"(.*)"', title_out)
-            title = title_match.group(1) if title_match else None
-            results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
-        if not results:
+    windows: List[WindowInfo] = _SUBPROC_CACHE.get("windows", [])
+    if now - _SUBPROC_CACHE.get("time", 0.0) >= 0.5 or not windows:
+        try:
+            stacking = subprocess.check_output(
+                ["xprop", "-root", "_NET_CLIENT_LIST_STACKING"], text=True
+            )
+            ids = (
+                [w.strip() for w in stacking.split("#", 1)[1].split()]
+                if "#" in stacking
+                else []
+            )
+            windows = []
+            for wid in ids:
+                geom_out = subprocess.check_output(["xwininfo", "-id", wid], text=True)
+                gx = re.search(r"Absolute upper-left X:\s+(\d+)", geom_out)
+                gy = re.search(r"Absolute upper-left Y:\s+(\d+)", geom_out)
+                gw = re.search(r"Width:\s+(\d+)", geom_out)
+                gh = re.search(r"Height:\s+(\d+)", geom_out)
+                if not (gx and gy and gw and gh):
+                    continue
+                wx = int(gx.group(1))
+                wy = int(gy.group(1))
+                ww = int(gw.group(1))
+                wh = int(gh.group(1))
+                pid_line = subprocess.check_output(
+                    ["xprop", "-id", wid, "_NET_WM_PID"], text=True
+                )
+                match = re.search(r"= (\d+)", pid_line)
+                pid = int(match.group(1)) if match else None
+                title_out = subprocess.check_output(
+                    ["xprop", "-id", wid, "WM_NAME"], text=True
+                )
+                title_match = re.search(r'"(.*)"', title_out)
+                title = title_match.group(1) if title_match else None
+                windows.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+        except Exception:
             info = get_window_at(x, y)
-            results = [info] if info.pid is not None else []
-        _SUBPROC_CACHE = {"time": now, "coords": (x, y), "results": results}
-        return results
-    except Exception:
-        info = get_window_at(x, y)
-        results = [info] if info.pid is not None else []
-        _SUBPROC_CACHE = {"time": now, "coords": (x, y), "results": results}
-        return results
+            windows = [info] if info.pid is not None else []
+        _SUBPROC_CACHE = {"time": now, "windows": windows}
+    results: List[WindowInfo] = []
+    for win in windows:
+        rect = win.rect
+        if rect and rect[0] <= x <= rect[0] + rect[2] and rect[1] <= y <= rect[1] + rect[3]:
+            results.append(win)
+    return results
 
 
 def list_windows_at(x: int, y: int) -> List[WindowInfo]:
