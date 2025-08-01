@@ -398,13 +398,13 @@ class ClickOverlay(tk.Toplevel):
                 self.attributes("-alpha", 1.0)
             else:
                 self.attributes("-alpha", FALLBACK_ALPHA)
-                if not self._colorkey_warning_shown:
-                    print(
-                        "warning: transparency color key unavailable; using fallback alpha"
-                    )
-            self._colorkey_warning_shown = True
         except Exception:
             pass
+        if not self._has_colorkey and not self._colorkey_warning_shown:
+            print(
+                "warning: transparency color key unavailable; using fallback alpha"
+            )
+            self._colorkey_warning_shown = True
 
     def _maybe_ensure_colorkey(self, *, force: bool = False) -> None:
         """Revalidate the transparent color key when necessary."""
@@ -700,20 +700,22 @@ class ClickOverlay(tk.Toplevel):
         window_changed = (
             rect != getattr(self, "_last_rect", None) or info.pid != old_pid
         )
+        text_changed = text != getattr(self, "_last_text", None)
         if window_changed:
             self.canvas.coords(self.rect, *rect)
             self._last_rect = rect
             if info.pid != old_pid:
                 self._flash_highlight()
-        if text != getattr(self, "_last_text", None) or info.pid != old_pid:
+        if text_changed or info.pid != old_pid:
             self.canvas.itemconfigure(self.label, text=text)
             self._last_text = text
-        if not cursor_changed and not window_changed:
+        hover_changed = text_changed or info.pid != old_pid
+        if not cursor_changed and not window_changed and not hover_changed:
             return
         self._last_cursor = (px, py)
         self._last_pid = info.pid
         self._position_label(px, py, sw, sh)
-        if self.on_hover is not None:
+        if hover_changed and self.on_hover is not None:
             try:
                 self.on_hover(self.pid, self.title_text)
             except Exception:
