@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.36 - 2025-08-12
+
+- **Perf:** Reuse cached window info when the cursor remains inside a window,
+  eliminating hover lag.
+
 ## 1.0.35 - 2025-08-11
 
 - **Perf:** Halve kill-by-click refresh interval for smoother window switching.
