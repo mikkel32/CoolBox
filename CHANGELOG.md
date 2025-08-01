@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-## 1.0.33 - 2025-08-09
-
-- **Fix:** Re-probe the window when the cursor moves so kill-by-click highlights the correct program.
-
 ## 1.0.32 - 2025-08-09
 
 - **Fix:** Initialize color key tracking before configuring the click overlay

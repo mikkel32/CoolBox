@@ -491,7 +491,6 @@ class TestClickOverlay(unittest.TestCase):
         overlay.state = OverlayState.HOOKED
         cached = WindowInfo(7, (0, 0, 5, 5), "cached")
         overlay._cached_info = cached
-        overlay._cached_pos = (0, 0)
 
         with (
             patch.object(
@@ -517,7 +516,6 @@ class TestClickOverlay(unittest.TestCase):
         overlay.state = OverlayState.HOOKED
         cached = WindowInfo(7, (0, 0, 5, 5), "cached")
         overlay._cached_info = cached
-        overlay._cached_pos = (0, 0)
 
         new_info = WindowInfo(8, (0, 0, 5, 5), "new")
         with (
@@ -530,34 +528,6 @@ class TestClickOverlay(unittest.TestCase):
         ):
             info = overlay._query_window_at(0, 0)
             probe.assert_called_once()
-        self.assertEqual(info.pid, 8)
-
-        overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_query_reprobes_when_position_changes(self) -> None:
-        root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
-            overlay = ClickOverlay(root)
-
-        overlay.state = OverlayState.HOOKED
-        cached = WindowInfo(7, (0, 0, 5, 5), "cached")
-        overlay._cached_info = cached
-        overlay._cached_pos = (0, 0)
-
-        new_info = WindowInfo(8, (0, 0, 5, 5), "new")
-        with (
-            patch.object(
-                overlay.engine.tracker,
-                "best_with_confidence",
-                return_value=(cached, overlay.engine.tuning.confidence_ratio + 1),
-            ),
-            patch.object(overlay, "_probe_point", return_value=new_info) as probe,
-        ):
-            info = overlay._query_window_at(10, 10)
-            probe.assert_called_once()
-
         self.assertEqual(info.pid, 8)
 
         overlay.destroy()
