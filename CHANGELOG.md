@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.27 - 2025-08-08
+
+- **Perf:** Run window enumeration and scoring in a worker thread, keeping the
+  click overlay responsive.
+
 ## 1.0.26 - 2025-08-07
 
 - **Perf:** Click overlay caches window probes and reuses them until
