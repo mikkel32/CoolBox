@@ -252,6 +252,7 @@ class ClickOverlay(tk.Toplevel):
         self.pid: int | None = None
         self.title_text: str | None = None
         self._last_info: WindowInfo | None = None
+        self._cached_info: WindowInfo | None = None
         self._screen_w = self.winfo_screenwidth()
         self._screen_h = self.winfo_screenheight()
         self.engine = ScoringEngine(
@@ -551,96 +552,39 @@ class ClickOverlay(tk.Toplevel):
         return info
 
     def _query_window_at(self, x: int, y: int) -> WindowInfo:
-        """Return the window info at ``(x, y)`` in screen coordinates."""
+        """Return the window info at ``(x, y)`` in screen coordinates.
 
-        def probe() -> WindowInfo:
-            return self._probe_point(x, y)
+        The method performs at most one probe per call. When the scoring
+        engine's history indicates that the previously probed window remains
+        reliable, the cached result is reused and no probe is performed. The
+        cache is refreshed only when confidence falls below
+        ``tuning.confidence_ratio`` or the best scoring window differs from the
+        cached one.
+        """
 
-        samples: list[WindowInfo] = []
+        self.engine.tracker.decay()
+        best, ratio = self.engine.tracker.best_with_confidence()
+        if (
+            best is not None
+            and self._cached_info is not None
+            and best.pid == self._cached_info.pid
+            and ratio >= tuning.confidence_ratio
+        ):
+            return self._cached_info
 
         if self.state is OverlayState.HOOKED:
-            info = probe()
-            samples.append(info)
-            self._track_async(info)
-            for _ in range(self.probe_attempts):
-                confirm = probe()
-                samples.append(confirm)
-                self._track_async(confirm)
-                if info.pid not in (self._own_pid, None) and confirm.pid == info.pid:
-                    break
-                info = confirm
+            info = self._probe_point(x, y)
         else:
             was_click = make_window_clickthrough(self)
             try:
-                info = probe()
-                samples.append(info)
-                self._track_async(info)
-                for _ in range(self.probe_attempts):
-                    confirm = probe()
-                    samples.append(confirm)
-                    self._track_async(confirm)
-                    if (
-                        info.pid not in (self._own_pid, None)
-                        and confirm.pid == info.pid
-                    ):
-                        break
-                    info = confirm
+                info = self._probe_point(x, y)
             finally:
                 if was_click:
                     remove_window_clickthrough(self)
 
-        choice, ratio, prob = self.engine.weighted_confidence(
-            samples,
-            self._cursor_x,
-            self._cursor_y,
-            self._velocity,
-            self._path_history,
-            self._initial_active_pid,
-        )
-        if choice is not None:
-            info = choice
-        attempts = 0
-        while (
-            ratio < tuning.confidence_ratio or prob < tuning.dominance
-        ) and attempts < tuning.extra_attempts:
-            more = probe()
-            samples.append(more)
-            self._track_async(more)
-            choice, ratio, prob = self.engine.weighted_confidence(
-                samples,
-                self._cursor_x,
-                self._cursor_y,
-                self._velocity,
-                self._path_history,
-                self._initial_active_pid,
-            )
-            if choice is not None:
-                info = choice
-            attempts += 1
-
-        if info.pid in (self._own_pid, None):
-            for dx in range(-tuning.near_radius, tuning.near_radius + 1):
-                for dy in range(-tuning.near_radius, tuning.near_radius + 1):
-                    if dx == 0 and dy == 0:
-                        continue
-                    alt = self._probe_point(x + dx, y + dy)
-                    samples.append(alt)
-                    self._track_async(alt)
-            choice = self.engine.weighted_choice(
-                samples,
-                self._cursor_x,
-                self._cursor_y,
-                self._velocity,
-                self._path_history,
-                self._initial_active_pid,
-            )
-            if choice is not None:
-                info = choice
-
+        self._cached_info = info
         if info.pid is None:
-            if self._last_info is not None:
-                return self._last_info
-            return WindowInfo(None)
+            return self._last_info or WindowInfo(None)
         if info.pid == self._own_pid:
             return self._last_info or WindowInfo(None)
         return info
