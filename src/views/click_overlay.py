@@ -300,6 +300,17 @@ class ClickOverlay(tk.Toplevel):
         # Cache for window enumeration to minimize repeated list_windows_at calls
         self._window_cache_pos: tuple[int, int] | None = None
         self._window_cache: list[WindowInfo] = []
+    def configure(self, cnf=None, **kw):  # type: ignore[override]
+        """Configure widget options and reapply transparency on bg changes."""
+        result = super().configure(cnf or {}, **kw)
+        bg = kw.get("bg") or kw.get("background")
+        if bg is not None:
+            self._bg_color = _normalize_color(self, bg)
+            self._maybe_ensure_colorkey(force=True)
+        return result
+
+    config = configure
+
     def _worker_loop(self) -> None:
         """Process queued scoring tasks in a background thread."""
         while True:
@@ -627,7 +638,6 @@ class ClickOverlay(tk.Toplevel):
         return info
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
-        self._maybe_ensure_colorkey()
         if info is None:
             info = self._query_window()
         if not getattr(self, "_raised", False):

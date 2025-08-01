@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.29 - 2025-08-08
+
+- **Perf:** Revalidate the transparent color key only during initialization or
+  when the background changes, reducing per-frame overhead.
+
 ## 1.0.28 - 2025-08-08
 
 - **Perf:** Cache X11 window enumeration to avoid per-frame process launches.
