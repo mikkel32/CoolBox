@@ -14,22 +14,19 @@ from .window_utils import WindowInfo, list_windows_at
 class Tuning:
     """Weight and scoring parameters loaded from environment variables."""
 
-    # Default overlay update interval in seconds. A higher frame rate keeps
-    # cursor tracking smooth so kill‑by‑click feels responsive. The previous
-    # 0.1s value updated at roughly 10 FPS which could appear choppy on fast
-    # movements. Using a 60 FPS baseline strikes a good balance between
-    # responsiveness and CPU usage while still allowing users to override via
-    # ``KILL_BY_CLICK_INTERVAL``.
-    interval: float = 1 / 60
+    # Default overlay update interval in seconds. Doubling the frame rate to
+    # 120 FPS keeps cursor tracking smooth while still allowing users to
+    # override via ``KILL_BY_CLICK_INTERVAL``.
+    interval: float = 1 / 120
     # Dynamic adjustment bounds for the overlay refresh delay.
     # The update interval scales between these values based on
     # cursor velocity so quick movements feel responsive while
     # idle periods use fewer resources.
-    # Allow the interval to scale between ~120 FPS and ~30 FPS based on cursor
+    # Allow the interval to scale between ~240 FPS and ~60 FPS based on cursor
     # velocity so rapid motion speeds up updates and idle periods slow down to
     # conserve resources.
-    min_interval: float = 1 / 120
-    max_interval: float = 1 / 30
+    min_interval: float = 1 / 240
+    max_interval: float = 1 / 60
     # Divisor controlling how strongly pointer speed compresses the overlay
     # refresh interval. Larger values make motion influence the delay more
     # gradually while smaller values cause faster updates during quick moves.

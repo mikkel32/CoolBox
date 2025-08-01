@@ -61,10 +61,10 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   mouse events while polling the window under the cursor at ``KILL_BY_CLICK_INTERVAL``
   and tracks pointer coordinates from hook callbacks or motion events to keep
   updates smooth without flicker. Set ``KILL_BY_CLICK_INTERVAL`` to control the
-  base refresh rate (defaults to ``0.016`` seconds) or pass ``--interval`` when using
+  base refresh rate (defaults to ``0.008`` seconds) or pass ``--interval`` when using
   ``scripts/kill_by_click.py``. The refresh interval expands and contracts
-  between ``KILL_BY_CLICK_MIN_INTERVAL`` (``0.008`` seconds) and
-  ``KILL_BY_CLICK_MAX_INTERVAL`` (``0.033`` seconds) using an exponential curve
+  between ``KILL_BY_CLICK_MIN_INTERVAL`` (``0.004`` seconds) and
+  ``KILL_BY_CLICK_MAX_INTERVAL`` (``0.016`` seconds) using an exponential curve
   tied to pointer velocity. ``KILL_BY_CLICK_DELAY_SCALE`` controls how strongly
   speed influences this interval. Fast motion shortens the delay for responsive
   tracking while slower movement stretches it to conserve CPU. The window's normal interaction state is restored automatically when the overlay closes. The Force Quit dialog uses this overlay when you choose *Kill by Click* and falls back to the window under the cursor if no PID is detected. Set ``FORCE_QUIT_CLICK_SKIP_CONFIRM=1`` to skip the termination prompt. The overlay samples the window

@@ -17,7 +17,7 @@ class TestClickOverlayFPS(unittest.TestCase):
                 patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
             ):
                 overlay = ClickOverlay(root)
-            self.assertAlmostEqual(overlay.interval, 1 / 75)
+            self.assertAlmostEqual(overlay.interval, 1 / 150)
             overlay.destroy()
         finally:
             os.environ.pop("COOLBOX_REFRESH_RATE", None)
