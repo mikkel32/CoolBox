@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.35 - 2025-08-10
+
+- **Perf:** Active window detection runs asynchronously to reduce lag when switching windows.
+
 ## 1.0.34 - 2025-08-10
 
 - **Perf:** Avoid blocking when gathering CPU metrics to keep the UI responsive.

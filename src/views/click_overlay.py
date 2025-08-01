@@ -279,6 +279,7 @@ class ClickOverlay(tk.Toplevel):
         self._active_history: deque[tuple[int, float]] = deque(
             maxlen=tuning.active_history_size
         )
+        self._active_future: Future[int | None] | None = None
         self._last_pid: int | None = None
         self._flash_id: str | None = None
         try:
@@ -501,6 +502,13 @@ class ClickOverlay(tk.Toplevel):
         delay = max(min(delay, max_ms), min_ms)
         return int(delay)
 
+    def _store_active_pid(self, pid: int | None, ts: float) -> None:
+        """Record the active window PID asynchronously."""
+        self._active_future = None
+        if pid not in (self._own_pid, None):
+            if not self._active_history or self._active_history[-1][0] != pid:
+                self._active_history.append((pid, ts))
+
     def _process_update(self) -> None:
         self.update_state = UpdateState.IDLE
         try:
@@ -525,12 +533,15 @@ class ClickOverlay(tk.Toplevel):
         if self._frame_count % self._frame_times.maxlen == 0:
             log(f"ClickOverlay avg frame {self.avg_frame_ms:.2f}ms")
         now = time.monotonic()
-        if now - self._last_active_query >= self.interval:
-            active = get_active_window().pid
+        if (
+            now - self._last_active_query >= self.interval
+            and self._active_future is None
+        ):
             self._last_active_query = now
-            if active not in (self._own_pid, None):
-                if not self._active_history or self._active_history[-1][0] != active:
-                    self._active_history.append((active, now))
+            self._active_future = self._score_async(
+                lambda: get_active_window().pid,
+                lambda pid, ts=now: self._store_active_pid(pid, ts),
+            )
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
