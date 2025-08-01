@@ -52,6 +52,9 @@ COLORKEY_RECHECK_MS = int(
     os.getenv("KILL_BY_CLICK_COLORKEY_RECHECK_MS", "1000")
 )
 
+# Minimum interval between active window queries in seconds
+ACTIVE_WINDOW_QUERY_SEC = 0.3
+
 
 _COLOR_CACHE: dict[str, str] = {}
 
@@ -280,6 +283,7 @@ class ClickOverlay(tk.Toplevel):
         self._active_history: deque[tuple[int, float]] = deque(
             maxlen=tuning.active_history_size
         )
+        self._active_future: Future[int | None] | None = None
         self._last_pid: int | None = None
         self._flash_id: str | None = None
         try:
@@ -367,6 +371,25 @@ class ClickOverlay(tk.Toplevel):
             )
         )
         return future.result()
+
+    def _query_active_window_async(self) -> None:
+        """Fetch the active window PID on the worker thread and record it."""
+
+        def worker() -> int | None:
+            info = get_active_window()
+            return info.pid
+
+        def done(pid: int | None) -> None:
+            self._active_future = None
+            now = time.monotonic()
+            if pid not in (self._own_pid, None):
+                if not self._active_history or self._active_history[-1][0] != pid:
+                    self._active_history.append((pid, now))
+
+        self._active_future = self._executor.submit(worker)
+        self._active_future.add_done_callback(
+            lambda fut: self.after(0, lambda: done(fut.result()))
+        )
 
     def destroy(self) -> None:  # type: ignore[override]
         """Ensure the worker thread exits before destroying the window."""
@@ -527,12 +550,12 @@ class ClickOverlay(tk.Toplevel):
         if self._frame_count % self._frame_times.maxlen == 0:
             log(f"ClickOverlay avg frame {self.avg_frame_ms:.2f}ms")
         now = time.monotonic()
-        if now - self._last_active_query >= self.interval:
-            active = get_active_window().pid
+        if (
+            now - self._last_active_query >= ACTIVE_WINDOW_QUERY_SEC
+            and self._active_future is None
+        ):
             self._last_active_query = now
-            if active not in (self._own_pid, None):
-                if not self._active_history or self._active_history[-1][0] != active:
-                    self._active_history.append((active, now))
+            self._query_active_window_async()
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
