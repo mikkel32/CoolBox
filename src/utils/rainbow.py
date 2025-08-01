@@ -4,7 +4,6 @@ import math
 
 import shutil
 import threading
-import time
 from typing import Iterable, Tuple
 
 try:
@@ -96,8 +95,8 @@ class RainbowBorder:
         offset = 0
         while not self._stop.is_set():
             self._draw(offset)
-            time.sleep(self.speed)
             offset += 1
+            self._stop.wait(self.speed)
 
     def _draw(self, offset: int) -> None:
         width, height = shutil.get_terminal_size(fallback=(80, 24))
@@ -194,6 +193,6 @@ class NeonPulseBorder(RainbowBorder):
             width, height = shutil.get_terminal_size(fallback=(80, 24))
             self.colors = self._generate_colors(width, height)
             self._draw(offset)
-            time.sleep(self.speed)
             self._phase += 0.05
             offset += 1
+            self._stop.wait(self.speed)

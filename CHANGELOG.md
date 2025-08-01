@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.34 - 2025-08-09
+
+- **Perf:** Use event-based waiting in rainbow borders so animations stop without delay.
+
 ## 1.0.33 - 2025-08-09
 
 - **Fix:** Clear cached window info on cursor movement so the kill overlay

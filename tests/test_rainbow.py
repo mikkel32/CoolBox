@@ -1,4 +1,6 @@
-from src.utils.rainbow import NeonPulseBorder
+import time
+
+from src.utils.rainbow import NeonPulseBorder, RainbowBorder
 
 
 def test_generate_colors_changes_with_phase():
@@ -15,3 +17,12 @@ def test_single_color_when_no_highlight():
     b = NeonPulseBorder(base_color="#123456", highlight_color="#123456")
     colors = b._generate_colors(8, 4)
     assert len(set(colors)) == 1
+
+
+def test_stop_returns_quickly():
+    b = RainbowBorder(speed=0.5)
+    b.start()
+    time.sleep(0.05)
+    start = time.perf_counter()
+    b.stop()
+    assert time.perf_counter() - start < 0.25
