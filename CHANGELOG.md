@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.25 - 2025-08-06
+
+- **Feat:** Direct X11 queries replace subprocess calls for Linux window lookup with cached fallback.
+
 ## 1.0.24 - 2025-08-05
 
 - **Perf:** Click overlay records frame durations and adjusts refresh delay based on average frame cost.
