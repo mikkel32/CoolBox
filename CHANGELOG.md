@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.35 - 2025-08-11
+
+- **Perf:** Halve kill-by-click refresh interval for smoother window switching.
+
 ## 1.0.34 - 2025-08-10
 
 - **Perf:** Avoid blocking when gathering CPU metrics to keep the UI responsive.

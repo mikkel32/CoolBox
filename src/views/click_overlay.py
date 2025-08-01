@@ -35,9 +35,10 @@ from src.utils.helpers import log
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
 
 # Allow the refresh interval to be configured via an environment
-# variable. Falling back to the tuning default keeps behaviour
-# consistent for tests while providing an easy knob for users.
-DEFAULT_INTERVAL = 1 / get_screen_refresh_rate()
+# variable. Falling back to half the screen refresh period keeps the
+# overlay snappy (120 FPS on a 60 Hz display) while providing an easy
+# knob for users.
+DEFAULT_INTERVAL = 1 / (get_screen_refresh_rate() * 2)
 KILL_BY_CLICK_INTERVAL = float(
     os.getenv("KILL_BY_CLICK_INTERVAL", str(DEFAULT_INTERVAL))
 )
