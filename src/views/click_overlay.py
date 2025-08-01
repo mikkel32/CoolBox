@@ -296,6 +296,8 @@ class ClickOverlay(tk.Toplevel):
         # Cache for window enumeration to minimize repeated list_windows_at calls
         self._window_cache_pos: tuple[int, int] | None = None
         self._window_cache: list[WindowInfo] = []
+        self._query_token = 0
+
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         """Configure widget options and reapply transparency on bg changes."""
         result = super().configure(cnf or {}, **kw)
@@ -483,6 +485,12 @@ class ClickOverlay(tk.Toplevel):
                 self._cursor_y = self.winfo_pointery()
             except Exception:
                 pass
+        if self._after_id is not None:
+            try:
+                self.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
         if self.update_state is UpdateState.IDLE:
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
@@ -582,10 +590,20 @@ class ClickOverlay(tk.Toplevel):
         """Resolve the window under the cursor on the worker thread."""
 
         x, y = int(self._cursor_x), int(self._cursor_y)
+        self._query_token += 1
+        token = self._query_token
         future = self._executor.submit(self._query_window_at, x, y)
-        future.add_done_callback(
-            lambda fut: self.after(0, lambda: callback(fut.result()))
-        )
+
+        def handle(fut: Future) -> None:
+            if token != self._query_token:
+                return
+            try:
+                result = fut.result()
+            except Exception:
+                return
+            self.after(0, lambda: callback(result))
+
+        future.add_done_callback(handle)
 
     def _probe_point(self, x: int, y: int) -> WindowInfo:
         """Return window info at ``(x, y)`` using cached enumeration."""
