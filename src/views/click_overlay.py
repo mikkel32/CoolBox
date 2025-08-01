@@ -249,7 +249,6 @@ class ClickOverlay(tk.Toplevel):
         self.title_text: str | None = None
         self._last_info: WindowInfo | None = None
         self._cached_info: WindowInfo | None = None
-        self._cached_pos: tuple[int, int] | None = None
         self._screen_w = self.winfo_screenwidth()
         self._screen_h = self.winfo_screenheight()
         self.engine = ScoringEngine(
@@ -613,7 +612,6 @@ class ClickOverlay(tk.Toplevel):
             and self._cached_info is not None
             and best.pid == self._cached_info.pid
             and ratio >= tuning.confidence_ratio
-            and self._cached_pos == (x, y)
         ):
             return self._cached_info
 
@@ -628,7 +626,6 @@ class ClickOverlay(tk.Toplevel):
                     remove_window_clickthrough(self)
 
         self._cached_info = info
-        self._cached_pos = (x, y)
         if info.pid is None:
             return self._last_info or WindowInfo(None)
         if info.pid == self._own_pid:
