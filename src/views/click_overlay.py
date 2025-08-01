@@ -331,25 +331,6 @@ class ClickOverlay(tk.Toplevel):
             lambda: self.engine.tracker.add(info, self._initial_active_pid), callback
         )
 
-    def _prefetch_windows(self, x: int, y: int) -> None:
-        """Schedule ``list_windows_at`` on the worker thread with caching."""
-
-        key = (x, y)
-        if self._window_cache_pos == key:
-            return
-
-        def store(result: list[WindowInfo], *, key: tuple[int, int] = key) -> None:
-            # Ignore stale results when the cursor moved while enumerating
-            if self._window_cache_pos != key:
-                self._window_cache_pos = key
-                self._window_cache = result
-                try:
-                    self.after_idle(self._queue_update)
-                except Exception:
-                    pass
-
-        self._score_async(lambda: list_windows_at(x, y), store)
-
     def _weighted_confidence_async(
         self, samples: list[WindowInfo], callback: Callable[[tuple[WindowInfo | None, float, float]], None]
     ) -> None:
@@ -595,22 +576,17 @@ class ClickOverlay(tk.Toplevel):
         return self._query_window_at(int(self._cursor_x), int(self._cursor_y))
 
     def _probe_point(self, x: int, y: int) -> WindowInfo:
-        """Return window info at ``(x, y)`` applying fallbacks."""
-        info = get_window_at(x, y)
-        wins = self._window_cache if self._window_cache_pos == (x, y) else []
+        """Return window info at ``(x, y)`` using cached enumeration."""
+        wins = self._window_cache if self._window_cache_pos == (x, y) else list_windows_at(x, y)
+        if self._window_cache_pos != (x, y):
+            self._window_cache_pos = (x, y)
+            self._window_cache = wins
         if not wins:
-            self._prefetch_windows(x, y)
-        if info.pid is not None and info.rect is None:
-            for win in wins:
-                if win.pid == info.pid:
-                    info = WindowInfo(info.pid, win.rect, info.title or win.title)
-                    break
-        if info.pid in (self._own_pid, None):
-            for win in wins:
-                if win.pid not in (self._own_pid, None):
-                    info = win
-                    break
-        return info
+            return WindowInfo(None)
+        for win in wins:
+            if win.pid not in (self._own_pid, None):
+                return win
+        return wins[0]
 
     def _query_window_at(self, x: int, y: int) -> WindowInfo:
         """Return the window info at ``(x, y)`` in screen coordinates.
