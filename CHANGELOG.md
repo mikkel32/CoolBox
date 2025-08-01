@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.35 - 2025-08-10
+
+- **Perf:** Drop stale window queries so the Kill by Click overlay reacts
+  immediately when switching targets.
+
 ## 1.0.34 - 2025-08-10
 
 - **Perf:** Avoid blocking when gathering CPU metrics to keep the UI responsive.
