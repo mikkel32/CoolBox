@@ -534,6 +534,34 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_move_clears_cache(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.state = OverlayState.HOOKED
+        first = WindowInfo(1, (0, 0, 5, 5), "first")
+        second = WindowInfo(2, (10, 10, 5, 5), "second")
+        overlay._cached_info = first
+
+        with (
+            patch.object(
+                overlay.engine.tracker,
+                "best_with_confidence",
+                return_value=(first, overlay.engine.tuning.confidence_ratio + 1),
+            ),
+            patch.object(overlay, "_probe_point", return_value=second) as probe,
+        ):
+            overlay._pending_move = (10, 10, time.time())
+            overlay._handle_move()
+            info = overlay._query_window_at(10, 10)
+            self.assertEqual(info.pid, 2)
+            probe.assert_called_once()
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_position_label_keeps_on_screen(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

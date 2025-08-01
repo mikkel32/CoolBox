@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.33 - 2025-08-09
+
+- **Fix:** Clear cached window info on cursor movement so the kill overlay
+  follows the currently hovered program.
+
 ## 1.0.32 - 2025-08-09
 
 - **Fix:** Initialize color key tracking before configuring the click overlay

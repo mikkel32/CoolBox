@@ -504,10 +504,15 @@ class ClickOverlay(tk.Toplevel):
     def _process_update(self) -> None:
         self.update_state = UpdateState.IDLE
         try:
-            self._cursor_x = self.winfo_pointerx()
-            self._cursor_y = self.winfo_pointery()
+            x = self.winfo_pointerx()
+            y = self.winfo_pointery()
         except Exception:
-            pass
+            x = self._cursor_x
+            y = self._cursor_y
+        if x != self._cursor_x or y != self._cursor_y:
+            self._cached_info = None
+        self._cursor_x = x
+        self._cursor_y = y
         start = time.perf_counter()
         self._last_frame_start = start
         self._update_rect()
@@ -565,6 +570,7 @@ class ClickOverlay(tk.Toplevel):
             self.engine.heatmap.update(x, y)
         self._cursor_x = x
         self._cursor_y = y
+        self._cached_info = None
         self._queue_update()
 
     def _query_window(self) -> WindowInfo:
