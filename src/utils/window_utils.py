@@ -36,6 +36,13 @@ class WindowInfo:
     title: str | None = None
 
 
+_ACTIVE_WINDOW_CACHE: dict[str, Any] = {
+    "time": 0.0,
+    "info": WindowInfo(None),
+}
+_ACTIVE_WINDOW_CACHE_SEC = 0.3
+
+
 def has_active_window_support() -> bool:
     """Return ``True`` if active window detection should work on this system."""
     if sys.platform.startswith("win"):
@@ -60,8 +67,8 @@ def has_cursor_window_support() -> bool:
     )
 
 
-def get_active_window() -> WindowInfo:
-    """Return information about the currently active window."""
+def _get_active_window_uncached() -> WindowInfo:
+    """Return information about the currently active window without caching."""
     if sys.platform.startswith("win"):
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not hwnd:
@@ -143,6 +150,17 @@ def get_active_window() -> WindowInfo:
         return WindowInfo(pid, geom, title)
     except Exception:
         return WindowInfo(None)
+
+
+def get_active_window() -> WindowInfo:
+    """Return information about the currently active window using a short cache."""
+    now = time.monotonic()
+    if now - _ACTIVE_WINDOW_CACHE["time"] < _ACTIVE_WINDOW_CACHE_SEC:
+        return _ACTIVE_WINDOW_CACHE["info"]
+    info = _get_active_window_uncached()
+    _ACTIVE_WINDOW_CACHE["time"] = now
+    _ACTIVE_WINDOW_CACHE["info"] = info
+    return info
 
 
 def get_window_under_cursor() -> WindowInfo:

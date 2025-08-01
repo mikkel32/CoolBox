@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.37 - 2025-08-13
+
+- **Perf:** Query the active window asynchronously with caching so the click
+  overlay stays responsive.
+
 ## 1.0.36 - 2025-08-12
 
 - **Perf:** Reuse cached window info when the cursor remains inside a window,

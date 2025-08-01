@@ -1461,6 +1461,32 @@ class TestClickOverlay(unittest.TestCase):
         overlay.destroy()
         root.destroy()
 
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_active_window_query_async(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch("src.views.click_overlay.get_active_window") as mock_active,
+            patch.object(ClickOverlay, "_update_rect", return_value=None),
+        ):
+            def slow_active():
+                time.sleep(0.2)
+                return WindowInfo(123)
+
+            mock_active.side_effect = slow_active
+            overlay = ClickOverlay(root, interval=0.01)
+            start = time.perf_counter()
+            overlay._process_update()
+            duration = time.perf_counter() - start
+            self.assertLess(duration, 0.2)
+            for _ in range(10):
+                root.update()
+                time.sleep(0.05)
+            self.assertEqual(overlay._active_history[-1][0], 123)
+            overlay.destroy()
+        root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
