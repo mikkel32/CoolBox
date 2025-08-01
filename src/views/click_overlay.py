@@ -297,6 +297,7 @@ class ClickOverlay(tk.Toplevel):
         # Cache for window enumeration to minimize repeated list_windows_at calls
         self._window_cache_pos: tuple[int, int] | None = None
         self._window_cache: list[WindowInfo] = []
+
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         """Configure widget options and reapply transparency on bg changes."""
         result = super().configure(cnf or {}, **kw)
@@ -613,14 +614,23 @@ class ClickOverlay(tk.Toplevel):
         """
 
         self.engine.tracker.decay()
+        cached = self._cached_info
+        if (
+            cached is not None
+            and cached.pid not in (self._own_pid, None)
+            and cached.rect
+            and cached.rect[0] <= x < cached.rect[0] + cached.rect[2]
+            and cached.rect[1] <= y < cached.rect[1] + cached.rect[3]
+        ):
+            return cached
         best, ratio = self.engine.tracker.best_with_confidence()
         if (
             best is not None
-            and self._cached_info is not None
-            and best.pid == self._cached_info.pid
+            and cached is not None
+            and best.pid == cached.pid
             and ratio >= tuning.confidence_ratio
         ):
-            return self._cached_info
+            return cached
 
         if self.state is OverlayState.HOOKED:
             info = self._probe_point(x, y)
