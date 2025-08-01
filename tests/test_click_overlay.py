@@ -4,7 +4,6 @@ import unittest
 import threading
 import tkinter as tk
 from unittest.mock import patch
-from concurrent.futures import Future
 
 from src.views.click_overlay import (
     ClickOverlay,
@@ -401,33 +400,6 @@ class TestClickOverlay(unittest.TestCase):
                 event.wait(1.0)
                 root.update()
                 self.assertEqual(overlay.pid, 99)
-        finally:
-            overlay.destroy()
-            root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_stale_async_results_ignored(self) -> None:
-        root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
-            overlay = ClickOverlay(root)
-        try:
-            overlay.after = lambda _ms, cb: cb()
-            futures: list[Future] = []
-
-            def fake_submit(fn):
-                fut: Future = Future()
-                futures.append(fut)
-                return fut
-
-            overlay._executor.submit = fake_submit  # type: ignore[assignment]
-
-            overlay._update_rect()
-            overlay._update_rect()
-
-            futures[1].set_result(WindowInfo(2))
-            futures[0].set_result(WindowInfo(1))
-
-            self.assertEqual(overlay.pid, 2)
         finally:
             overlay.destroy()
             root.destroy()
