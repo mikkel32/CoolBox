@@ -1,5 +1,6 @@
 import sys
 import subprocess
+from types import SimpleNamespace
 from src.utils import (
     open_path,
     calc_hash,
@@ -79,6 +80,61 @@ def test_get_system_metrics():
     assert "battery" in metrics
     assert "read_bytes" in metrics
     assert "write_bytes" in metrics
+
+
+def test_get_system_metrics_non_blocking(monkeypatch):
+    calls = []
+
+    def fake_cpu_percent(interval=None, percpu=False):
+        calls.append(interval)
+        return [10.0, 20.0] if percpu else 15.0
+
+    ns = SimpleNamespace
+    gb = 1024 ** 3
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "cpu_percent",
+        fake_cpu_percent,
+    )
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "virtual_memory",
+        lambda: ns(percent=50.0, used=2 * gb, total=4 * gb),
+    )
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "disk_usage",
+        lambda _p: ns(percent=60.0, used=3 * gb, total=5 * gb),
+    )
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "net_io_counters",
+        lambda: ns(bytes_sent=1, bytes_recv=2),
+    )
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "disk_io_counters",
+        lambda: ns(read_bytes=3, write_bytes=4),
+    )
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "cpu_freq",
+        lambda: ns(current=1000.0),
+    )
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "sensors_temperatures",
+        lambda: {},
+    )
+    monkeypatch.setattr(
+        get_system_metrics.__globals__["psutil"],
+        "sensors_battery",
+        lambda: ns(percent=88),
+    )
+
+    metrics = get_system_metrics()
+    assert calls == [None]
+    assert metrics["cpu"] == 15.0
 
 
 def test_calc_hash_cached_and_bulk(tmp_path):

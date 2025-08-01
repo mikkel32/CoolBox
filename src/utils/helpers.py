@@ -255,8 +255,8 @@ def get_system_info() -> str:
 
 def get_system_metrics() -> dict[str, Any]:
     """Return live system metrics for UI dashboards."""
-    cpu = psutil.cpu_percent(interval=0.1)
     cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
+    cpu = sum(cpu_per_core) / len(cpu_per_core) if cpu_per_core else 0.0
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
     net = psutil.net_io_counters()

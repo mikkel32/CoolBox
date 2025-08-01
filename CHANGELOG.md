@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.34 - 2025-08-10
+
+- **Perf:** Avoid blocking when gathering CPU metrics to keep the UI responsive.
+
 ## 1.0.33 - 2025-08-09
 
 - **Fix:** Clear cached window info on cursor movement so the kill overlay
