@@ -191,9 +191,18 @@ def get_window_under_cursor() -> WindowInfo:
                 if x <= loc.x <= x + w and y <= loc.y <= y + h:
                     pid = int(win.get("kCGWindowOwnerPID", 0))
                     title = win.get("kCGWindowName")
-                    return WindowInfo(pid, (x, y, w, h), title)
+            return WindowInfo(pid, (x, y, w, h), title)
         except Exception:
             return WindowInfo(None)
+
+    if _X_DISPLAY is not None:
+        try:
+            pointer = _X_ROOT.query_pointer()
+            wins = _list_windows_x11(pointer.root_x, pointer.root_y)
+            if wins:
+                return wins[0]
+        except Exception:
+            pass
 
     xdotool = shutil.which("xdotool")
     xprop = shutil.which("xprop")
@@ -279,15 +288,20 @@ def get_window_at(x: int, y: int) -> WindowInfo:
                 if wx <= x <= wx + ww and wy <= y <= wy + wh:
                     pid = int(win.get("kCGWindowOwnerPID", 0))
                     title = win.get("kCGWindowName")
-                    return WindowInfo(pid, (wx, wy, ww, wh), title)
+            return WindowInfo(pid, (wx, wy, ww, wh), title)
         except Exception:
             return WindowInfo(None)
 
-    # X11 fallback - coordinates ignored
-    info = get_window_under_cursor()
-    if info.pid is None:
-        info = get_active_window()
-    return info
+    if _X_DISPLAY is not None:
+        try:
+            wins = _list_windows_x11(x, y)
+            if wins:
+                return wins[0]
+        except Exception:
+            pass
+
+    results = _fallback_list_windows_at(x, y)
+    return results[0] if results else WindowInfo(None)
 
 
 def _list_windows_x11(x: int, y: int) -> List[WindowInfo]:
