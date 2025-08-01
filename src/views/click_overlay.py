@@ -156,18 +156,19 @@ class ClickOverlay(tk.Toplevel):
             except Exception:
                 pass
         self._bg_color = _normalize_color(self, bg_color)
-        self.configure(bg=self._bg_color)
-
-        if is_supported():
-            make_window_clickthrough(self)
-        # Keep track of whether the transparent color key is active. This is
-        # validated and restored as needed to avoid a fullscreen black window
-        # if the system drops support for the color key.
+        # Initialize color key tracking before configuring the widget so that
+        # ``configure`` can safely call ``_maybe_ensure_colorkey``.
         self._has_colorkey = False
         self._colorkey_warning_shown = False
         self._colorkey_last_check = 0.0
         self._colorkey_last_key = ""
         self._colorkey_last_bg = self._bg_color
+        self.configure(bg=self._bg_color)
+
+        if is_supported():
+            make_window_clickthrough(self)
+        # Validate and restore the transparent color key to avoid a fullscreen
+        # black window if the system drops support.
         self._maybe_ensure_colorkey(force=True)
 
         # Using an empty string for the canvas background causes a TclError on

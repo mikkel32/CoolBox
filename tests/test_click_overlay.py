@@ -30,6 +30,15 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_colorkey_attributes_initialized(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        self.assertFalse(overlay._colorkey_warning_shown)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_env_sets_default_highlight(self) -> None:
         with patch.dict(os.environ, {"KILL_BY_CLICK_HIGHLIGHT": "green"}):
             root = tk.Tk()

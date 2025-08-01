@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.32 - 2025-08-09
+
+- **Fix:** Initialize color key tracking before configuring the click overlay
+  to prevent missing attribute errors during setup.
+
 ## 1.0.31 - 2025-08-09
 
 - **Fix:** Smooth kill-by-click overlay by avoiding repeated transparency warnings and redundant hover callbacks.
