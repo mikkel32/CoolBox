@@ -191,6 +191,32 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_update_rect_skips_colorkey_check(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            with patch.object(overlay, "_maybe_ensure_colorkey") as mock:
+                overlay._update_rect(WindowInfo(None))
+                mock.assert_not_called()
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_configure_bg_triggers_colorkey(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            with patch.object(overlay, "_maybe_ensure_colorkey") as mock:
+                overlay.configure(bg="#123456")
+                mock.assert_called_once()
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_accepts_shorthand_color_key(self) -> None:
         root = tk.Tk()
         root.configure(bg="white")
