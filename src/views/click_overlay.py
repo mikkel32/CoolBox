@@ -12,10 +12,9 @@ import os
 import time
 import math
 import re
-import threading
-import queue
 import tkinter as tk
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional, Callable, Any
 from enum import Enum, auto
 
@@ -242,12 +241,8 @@ class ClickOverlay(tk.Toplevel):
         self._timeout_id: Optional[str] = None
         self.update_state = UpdateState.IDLE
 
-        # Worker thread for offloading scoring and tracking operations
-        self._task_queue: queue.Queue[
-            tuple[Callable[[], Any], Optional[Callable[[Any], None]]]
-        ] = queue.Queue()
-        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
-        self._worker.start()
+        # Background executor for window queries and scoring
+        self._executor = ThreadPoolExecutor(max_workers=1)
         self.state = OverlayState.INIT
         self.pid: int | None = None
         self.title_text: str | None = None
@@ -311,27 +306,17 @@ class ClickOverlay(tk.Toplevel):
 
     config = configure
 
-    def _worker_loop(self) -> None:
-        """Process queued scoring tasks in a background thread."""
-        while True:
-            func, callback = self._task_queue.get()
-            if func is None:
-                self._task_queue.task_done()
-                break
-            result = func()
-            if callback is not None:
-                try:
-                    self.after(0, lambda r=result, cb=callback: cb(r))
-                except Exception:
-                    pass
-            self._task_queue.task_done()
-
     def _score_async(
         self, func: Callable[[], Any], callback: Callable[[Any], None] | None = None
-    ) -> None:
+    ) -> Future[Any]:
         """Run ``func`` on the worker thread and invoke ``callback`` with the result."""
 
-        self._task_queue.put((func, callback))
+        future: Future[Any] = self._executor.submit(func)
+        if callback is not None:
+            future.add_done_callback(
+                lambda fut: self.after(0, lambda: callback(fut.result()))
+            )
+        return future
 
     def _track_async(
         self, info: WindowInfo, callback: Callable[[Any], None] | None = None
@@ -364,26 +349,26 @@ class ClickOverlay(tk.Toplevel):
     ) -> tuple[WindowInfo | None, float, float]:
         """Synchronous wrapper around :meth:`_weighted_confidence_async`.
 
-        The heavy computation runs on the worker thread while the main thread
-        waits for the result using a queue, keeping the Tk event loop free from
-        blocking work.
+        The heavy computation runs on the worker thread while the caller waits
+        for the result, avoiding any blocking work on the Tk event loop.
         """
 
-        result_q: queue.Queue[
-            tuple[WindowInfo | None, float, float]
-        ] = queue.Queue()
-
-        def store(result: tuple[WindowInfo | None, float, float]) -> None:
-            result_q.put(result)
-
-        self._weighted_confidence_async(samples, store)
-        return result_q.get()
+        future = self._score_async(
+            lambda: self.engine.weighted_confidence(
+                samples,
+                self._cursor_x,
+                self._cursor_y,
+                self._velocity,
+                self._path_history,
+                self._initial_active_pid,
+            )
+        )
+        return future.result()
 
     def destroy(self) -> None:  # type: ignore[override]
         """Ensure the worker thread exits before destroying the window."""
         try:
-            self._task_queue.put((None, None))
-            self._worker.join(timeout=0.5)
+            self._executor.shutdown(cancel_futures=True)
         except Exception:
             pass
         super().destroy()
@@ -586,6 +571,15 @@ class ClickOverlay(tk.Toplevel):
 
         return self._query_window_at(int(self._cursor_x), int(self._cursor_y))
 
+    def _query_window_async(self, callback: Callable[[WindowInfo], None]) -> None:
+        """Resolve the window under the cursor on the worker thread."""
+
+        x, y = int(self._cursor_x), int(self._cursor_y)
+        future = self._executor.submit(self._query_window_at, x, y)
+        future.add_done_callback(
+            lambda fut: self.after(0, lambda: callback(fut.result()))
+        )
+
     def _probe_point(self, x: int, y: int) -> WindowInfo:
         """Return window info at ``(x, y)`` using cached enumeration."""
         wins = self._window_cache if self._window_cache_pos == (x, y) else list_windows_at(x, y)
@@ -639,7 +633,8 @@ class ClickOverlay(tk.Toplevel):
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
         if info is None:
-            info = self._query_window()
+            self._query_window_async(self._update_rect)
+            return
         if not getattr(self, "_raised", False):
             self.lift()
             self._raised = True
