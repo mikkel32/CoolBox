@@ -1353,6 +1353,28 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_hover_not_called_when_window_unchanged(self) -> None:
+        root = tk.Tk()
+        calls: list[tuple[int | None, str | None]] = []
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(
+                root, on_hover=lambda pid, title: calls.append((pid, title))
+            )
+
+        overlay._cursor_x = 1
+        overlay._cursor_y = 1
+        info = WindowInfo(5, (0, 0, 5, 5), "foo")
+        overlay._update_rect(info)
+        overlay._cursor_x = 2
+        overlay._cursor_y = 2
+        overlay._update_rect(info)
+
+        self.assertEqual(calls, [(5, "foo")])
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_tracker_add_runs_off_thread(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

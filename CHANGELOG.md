@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.31 - 2025-08-09
+
+- **Fix:** Smooth kill-by-click overlay by avoiding repeated transparency warnings and redundant hover callbacks.
+
 ## 1.0.30 - 2025-08-09
 
 - **Feat:** Offload window queries and scoring to a ``ThreadPoolExecutor`` to
