@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.41 - 2025-08-17
+
+- **Perf:** Probe the topmost window first and cache results across small cursor
+  moves to reduce redundant enumeration.
+
 ## 1.0.40 - 2025-08-16
 
 - **Perf:** Throttle active window polling with a background task to keep the click overlay responsive.

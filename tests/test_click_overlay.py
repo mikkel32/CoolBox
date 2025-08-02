@@ -1540,6 +1540,43 @@ class TestClickOverlay(unittest.TestCase):
             overlay.destroy()
         root.destroy()
 
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_probe_point_caches_cursor_movement(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            own = overlay._own_pid
+            top = WindowInfo(own, (0, 0, 100, 100), "self")
+            other = WindowInfo(999, (0, 0, 100, 100), "other")
+            calls = {"list": 0}
+
+            def fake_top() -> WindowInfo:
+                return top
+
+            def fake_list(x: int, y: int) -> list[WindowInfo]:
+                calls["list"] += 1
+                return [top, other]
+
+            with (
+                patch("src.views.click_overlay.PROBE_CACHE_TTL", 60),
+                patch(
+                    "src.views.click_overlay.get_window_under_cursor",
+                    side_effect=fake_top,
+                ),
+                patch(
+                    "src.views.click_overlay.list_windows_at",
+                    side_effect=fake_list,
+                ),
+            ):
+                overlay._probe_point(5, 5)
+                overlay._probe_point(10, 10)
+                overlay._probe_point(15, 15)
+            self.assertEqual(calls["list"], 1)
+        finally:
+            overlay.destroy()
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
