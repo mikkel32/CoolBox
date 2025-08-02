@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.54 - 2025-08-26
+
+- **Refactor:** Share click overlay executor and shut it down on exit.
+
 ## 1.0.53 - 2025-08-26
 
 - **Fix:** Skip Tk pointer lookups when hooks are active and fall back to polling

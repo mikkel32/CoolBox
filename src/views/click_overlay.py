@@ -17,6 +17,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional, Callable, Any
 from enum import Enum, auto
+import atexit
 
 from src.utils.window_utils import (
     get_active_window,
@@ -33,6 +34,9 @@ from src.utils.mouse_listener import capture_mouse, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
 from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
+
+EXECUTOR = ThreadPoolExecutor(max_workers=1)
+atexit.register(EXECUTOR.shutdown, cancel_futures=True)
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
 
@@ -260,7 +264,7 @@ class ClickOverlay(tk.Toplevel):
         self.update_state = UpdateState.IDLE
 
         # Background executor for window queries and scoring
-        self._executor = ThreadPoolExecutor(max_workers=1)
+        self._executor = EXECUTOR
         self.state = OverlayState.INIT
         self.pid: int | None = None
         self.title_text: str | None = None
@@ -408,10 +412,6 @@ class ClickOverlay(tk.Toplevel):
     def destroy(self) -> None:  # type: ignore[override]
         """Ensure background threads exit before destroying the window."""
         self._destroyed = True
-        try:
-            self._executor.shutdown(cancel_futures=True)
-        except Exception:
-            pass
         super().destroy()
 
     def _ensure_colorkey(self) -> None:
