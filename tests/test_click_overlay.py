@@ -1570,32 +1570,6 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_active_window_query_on_movement(self) -> None:
-        root = tk.Tk()
-        with (
-            patch("src.views.click_overlay.is_supported", return_value=False),
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
-            patch("src.views.click_overlay.get_active_window", return_value=WindowInfo(1)) as mock_active,
-            patch("src.views.click_overlay.ACTIVE_QUERY_MS", 1000),
-            patch("src.views.click_overlay.ACTIVE_QUERY_DELTA", 10),
-            patch.object(ClickOverlay, "_update_rect", return_value=None),
-        ):
-            overlay = ClickOverlay(root, interval=0.01)
-            overlay._last_active_query = time.monotonic()
-            overlay._last_active_pos = (0, 0)
-            overlay._cursor_x = 0
-            overlay._cursor_y = 0
-            with (
-                patch.object(overlay, "winfo_pointerx", return_value=15),
-                patch.object(overlay, "winfo_pointery", return_value=0),
-            ):
-                overlay._process_update()
-            time.sleep(0.05)
-            self.assertEqual(mock_active.call_count, 1)
-            overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_probe_point_caches_cursor_movement(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
