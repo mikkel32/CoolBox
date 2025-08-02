@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.40 - 2025-08-16
+
+- **Perf:** Throttle active window polling with a background task to keep the click overlay responsive.
+
 ## 1.0.39 - 2025-08-15
 
 - **Perf:** Reuse the previous window query result while a query is running to avoid redundant work.
