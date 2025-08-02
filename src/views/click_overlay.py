@@ -117,6 +117,8 @@ class ClickOverlay(tk.Toplevel):
         The parent ``tk`` widget owning the overlay.
     highlight:
         Color used for the selection rectangle and crosshair lines.
+    show_label:
+        Whether to display an informational label near the cursor.
     probe_attempts:
         Number of times to retry window detection when the cursor is over one
         of this process's windows.
@@ -132,6 +134,7 @@ class ClickOverlay(tk.Toplevel):
         parent: tk.Misc,
         *,
         highlight: str = DEFAULT_HIGHLIGHT,
+        show_label: bool = True,
         probe_attempts: int = 3,
         timeout: float | None = None,
         interval: float = KILL_BY_CLICK_INTERVAL,
@@ -143,6 +146,10 @@ class ClickOverlay(tk.Toplevel):
     ) -> None:
         super().__init__(parent)
         self._closed = tk.BooleanVar(value=False)
+        env = os.getenv("KILL_BY_CLICK_LABEL")
+        if env in ("0", "false", "no"):
+            show_label = False
+        self.show_label = show_label
         # Hide until fully configured to avoid a brief black flash
         self.withdraw()
         try:
@@ -193,14 +200,17 @@ class ClickOverlay(tk.Toplevel):
         # crosshair lines spanning the entire screen for precise selection
         self.hline = self.canvas.create_line(0, 0, 0, 0, fill=highlight, dash=(4, 2))
         self.vline = self.canvas.create_line(0, 0, 0, 0, fill=highlight, dash=(4, 2))
-        self.label = self.canvas.create_text(
-            0,
-            0,
-            anchor="nw",
-            fill=highlight,
-            text="",
-            font=("TkDefaultFont", 10, "bold"),
-        )
+        if self.show_label:
+            self.label = self.canvas.create_text(
+                0,
+                0,
+                anchor="nw",
+                fill=highlight,
+                text="",
+                font=("TkDefaultFont", 10, "bold"),
+            )
+        else:
+            self.label = None
         # Fade in now that the window is fully configured. If the color key
         # cannot be applied the overlay remains semi-transparent so the user
         # can still see the screen.
@@ -476,6 +486,8 @@ class ClickOverlay(tk.Toplevel):
 
     def _position_label(self, px: int, py: int, sw: int, sh: int) -> None:
         """Place the info label near the cursor while keeping it on-screen."""
+        if not self.show_label or self.label is None:
+            return
         x = px + 10
         y = py + 10
         bbox = self.canvas.bbox(self.label)
@@ -803,7 +815,9 @@ class ClickOverlay(tk.Toplevel):
             self._last_rect = rect
             if info.pid != old_pid:
                 self._flash_highlight()
-        if text_changed or info.pid != old_pid:
+        if self.show_label and self.label is not None and (
+            text_changed or info.pid != old_pid
+        ):
             self.canvas.itemconfigure(self.label, text=text)
             self._last_text = text
         hover_changed = text_changed or info.pid != old_pid
@@ -811,7 +825,8 @@ class ClickOverlay(tk.Toplevel):
             return
         self._last_cursor = (px, py)
         self._last_pid = info.pid
-        self._position_label(px, py, sw, sh)
+        if self.show_label:
+            self._position_label(px, py, sw, sh)
         if hover_changed and self.on_hover is not None:
             try:
                 self.on_hover(self.pid, self.title_text)

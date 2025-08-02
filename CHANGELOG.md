@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.61 - 2025-08-26
+
+- **Feat:** Allow disabling click overlay label via parameter or `KILL_BY_CLICK_LABEL` env var.
+
 ## 1.0.60 - 2025-08-26
 
 - **Perf:** Vectorize cursor heat-map updates and window tracker confidence
