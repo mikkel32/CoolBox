@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.52 - 2025-08-26
+
+- **Perf:** Reduce active window poll interval and movement threshold so the
+  kill-by-click overlay reacts faster when switching windows.
+
 ## 1.0.51 - 2025-08-25
 
 - **Perf:** Query active window in a background thread and cache results to
