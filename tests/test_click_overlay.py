@@ -405,6 +405,29 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_update_rect_skips_duplicate_queries(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            overlay._last_info = WindowInfo(5, (0, 0, 1, 1), "cached")
+
+            def slow_query(_x: int, _y: int) -> WindowInfo:
+                time.sleep(0.05)
+                return WindowInfo(1, (0, 0, 1, 1), "new")
+
+            with patch.object(overlay, "_query_window_at", side_effect=slow_query) as gw:
+                overlay._update_rect()
+                overlay._update_rect()
+                self.assertEqual(gw.call_count, 1)
+                self.assertEqual(overlay.pid, 5)
+                time.sleep(0.06)
+                root.update()
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_click_uses_click_coordinates(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

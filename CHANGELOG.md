@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.39 - 2025-08-15
+
+- **Perf:** Reuse the previous window query result while a query is running to avoid redundant work.
+
 ## 1.0.38 - 2025-08-14
 
 - **Perf:** Refresh the active window PID asynchronously on a timer to keep the
