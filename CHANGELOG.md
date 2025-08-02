@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.58 - 2025-08-26
+
+- **Perf:** Prime window cache in Force Quit dialog and remove redundant overlay warm-up.
+
 ## 1.0.57 - 2025-08-02
 
 - **Refactor:** Reuse a persistent click-to-kill overlay within the Force Quit dialog.

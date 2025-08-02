@@ -11,6 +11,7 @@ from src.utils.window_utils import (
     get_window_under_cursor,
     has_active_window_support,
     has_cursor_window_support,
+    prime_window_cache,
 )
 from src.utils.kill_utils import kill_process, kill_process_tree
 from src.utils import get_screen_refresh_rate
@@ -872,6 +873,7 @@ class ForceQuitDialog(BaseDialog):
 
         from .click_overlay import ClickOverlay
 
+        prime_window_cache()
         self._overlay = ClickOverlay(self)
         self._overlay.reset()
 

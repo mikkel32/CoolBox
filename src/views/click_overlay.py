@@ -24,7 +24,6 @@ from src.utils.window_utils import (
     get_window_at,
     get_window_under_cursor,
     list_windows_at,
-    prime_window_cache,
     make_window_clickthrough,
     remove_window_clickthrough,
     set_window_colorkey,
@@ -316,10 +315,7 @@ class ClickOverlay(tk.Toplevel):
         self._window_cache: list[WindowInfo] = []
         self._window_cache_time: float = 0.0
         self._window_cache_future: Future[list[WindowInfo]] | None = None
-        # Warm the global window cache so probes reuse cached data.
-        prime_window_cache()
         self.reset()
-
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         """Configure widget options and reapply transparency on bg changes."""
