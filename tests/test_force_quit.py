@@ -1213,23 +1213,25 @@ class TestForceQuit(unittest.TestCase):
         dialog._populate = mock.Mock()
         dialog.withdraw = mock.Mock()
         dialog.deiconify = mock.Mock()
+        dialog.after_idle = mock.Mock()
+        overlay = mock.Mock()
+        overlay.choose.return_value = (None, None)
+        overlay.canvas = mock.Mock()
+        overlay.rect = object()
+        overlay.hline = object()
+        overlay.vline = object()
+        overlay.label = object()
+        overlay.reset = mock.Mock()
+        dialog._overlay = overlay
 
-        with (
-            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
-            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
-        ):
-            CO.return_value.choose.return_value = (None, None)
-            dialog.after_idle = mock.Mock()
+        with mock.patch("src.views.force_quit_dialog.messagebox") as MB:
             dialog._kill_by_click()
             dialog._watcher.pause.assert_called_once()
             dialog._watcher.resume.assert_called_once()
-            CO.assert_called_once()
-            args, kwargs = CO.call_args
-            assert args[0] is dialog
-            assert kwargs.get("highlight") == dialog.accent
-            assert kwargs.get("on_hover") == dialog._highlight_pid
             MB.showerror.assert_called_once()
             dialog.after_idle.assert_called_with(dialog._update_hover)
+            overlay.choose.assert_called_once()
+            overlay.reset.assert_called_once()
 
     def test_kill_by_click_skip_confirm(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1241,13 +1243,20 @@ class TestForceQuit(unittest.TestCase):
         dialog.deiconify = mock.Mock()
         dialog.force_kill = mock.Mock(return_value=True)
         dialog.after_idle = mock.Mock()
+        overlay = mock.Mock()
+        overlay.choose.return_value = (123, "foo")
+        overlay.canvas = mock.Mock()
+        overlay.rect = object()
+        overlay.hline = object()
+        overlay.vline = object()
+        overlay.label = object()
+        overlay.reset = mock.Mock()
+        dialog._overlay = overlay
 
         with (
             mock.patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
-            mock.patch("src.views.click_overlay.ClickOverlay") as CO,
             mock.patch("src.views.force_quit_dialog.messagebox") as MB,
         ):
-            CO.return_value.choose.return_value = (123, "foo")
             dialog._kill_by_click()
             MB.askyesno.assert_not_called()
             MB.showinfo.assert_called_once()
