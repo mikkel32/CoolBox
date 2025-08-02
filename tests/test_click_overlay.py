@@ -1510,6 +1510,36 @@ class TestClickOverlay(unittest.TestCase):
             overlay.destroy()
         root.destroy()
 
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_active_window_throttled(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch("src.views.click_overlay.get_active_window", return_value=WindowInfo(1)) as mock_active,
+            patch("src.views.click_overlay.ACTIVE_QUERY_MS", 100),
+            patch.object(ClickOverlay, "_update_rect", return_value=None),
+        ):
+            overlay = ClickOverlay(root, interval=0.01)
+            overlay._process_update()
+            for _ in range(5):
+                root.update()
+                time.sleep(0.02)
+            self.assertEqual(mock_active.call_count, 1)
+            overlay._process_update()
+            for _ in range(5):
+                root.update()
+                time.sleep(0.02)
+            self.assertEqual(mock_active.call_count, 1)
+            time.sleep(0.12)
+            overlay._process_update()
+            for _ in range(5):
+                root.update()
+                time.sleep(0.02)
+            self.assertEqual(mock_active.call_count, 2)
+            overlay.destroy()
+        root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

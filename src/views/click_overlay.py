@@ -52,9 +52,9 @@ COLORKEY_RECHECK_MS = int(
     os.getenv("KILL_BY_CLICK_COLORKEY_RECHECK_MS", "1000")
 )
 
-# Interval between active window refreshes in milliseconds
-ACTIVE_WINDOW_REFRESH_MS = int(
-    os.getenv("KILL_BY_CLICK_ACTIVE_REFRESH_MS", "250")
+# Interval between active window queries in milliseconds
+ACTIVE_QUERY_MS = int(
+    os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_MS", "250")
 )
 
 
@@ -288,7 +288,7 @@ class ClickOverlay(tk.Toplevel):
         self.engine.active_history = self._active_history
         self._cached_active_pid: int | None = None
         self._active_pid_future: Future[int | None] | None = None
-        self._active_pid_job: str | None = None
+        self._last_active_query = 0.0
         self._query_future: Future[WindowInfo] | None = None
         self._last_pid: int | None = None
         self._flash_id: str | None = None
@@ -308,8 +308,6 @@ class ClickOverlay(tk.Toplevel):
         self._window_cache_pos: tuple[int, int] | None = None
         self._window_cache: list[WindowInfo] = []
 
-        # Start background refresh of the active window PID
-        self._refresh_active_pid()
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         """Configure widget options and reapply transparency on bg changes."""
@@ -397,14 +395,7 @@ class ClickOverlay(tk.Toplevel):
                     self._active_history.append((pid, now))
 
         if self._active_pid_future is None:
-            self._active_pid_future = self._executor.submit(worker)
-            self._active_pid_future.add_done_callback(
-                lambda fut: self.after(0, lambda: done(fut.result()))
-            )
-
-        self._active_pid_job = self.after(
-            ACTIVE_WINDOW_REFRESH_MS, self._refresh_active_pid
-        )
+            self._active_pid_future = self._score_async(worker, done)
 
     def destroy(self) -> None:  # type: ignore[override]
         """Ensure the worker thread exits before destroying the window."""
@@ -553,6 +544,13 @@ class ClickOverlay(tk.Toplevel):
             self._cached_info = None
         self._cursor_x = x
         self._cursor_y = y
+        now = time.monotonic()
+        if (
+            self._active_pid_future is None
+            and now - self._last_active_query >= ACTIVE_QUERY_MS / 1000
+        ):
+            self._last_active_query = now
+            self._refresh_active_pid()
         start = time.perf_counter()
         self._last_frame_start = start
         self._update_rect()
@@ -872,12 +870,6 @@ class ClickOverlay(tk.Toplevel):
             except Exception:
                 pass
             self._flash_id = None
-        if self._active_pid_job is not None:
-            try:
-                self.after_cancel(self._active_pid_job)
-            except Exception:
-                pass
-            self._active_pid_job = None
         remove_window_clickthrough(self)
         self.destroy()
 
