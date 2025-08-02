@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.55 - 2025-08-26
+
+- **Refactor:** Introduce a shared global mouse listener to reuse across
+  overlays and stop once on exit.
+
 ## 1.0.54 - 2025-08-26
 
 - **Refactor:** Share click overlay executor and shut it down on exit.

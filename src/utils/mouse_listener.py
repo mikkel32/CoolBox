@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 from contextlib import contextmanager
 from typing import Callable, Optional
 
@@ -20,15 +21,10 @@ def is_supported() -> bool:
 class GlobalMouseListener:
     """Lightweight wrapper around ``pynput.mouse.Listener``."""
 
-    def __init__(
-        self,
-        on_move: Callable[[int, int], None] | None = None,
-        on_click: Callable[[int, int, bool], None] | None = None,
-    ) -> None:
-        self._listener: Optional[mouse.Listener] = None if mouse is None else mouse.Listener(
-            on_move=self._wrap_move(on_move),
-            on_click=self._wrap_click(on_click),
-        )
+    def __init__(self) -> None:
+        self._listener: Optional[mouse.Listener] = None
+        self._move_cb: Optional[Callable[[int, int], None]] = None
+        self._click_cb: Optional[Callable[[int, int, bool], None]] = None
 
     def _wrap_move(self, cb: Callable[[int, int], None] | None):
         if cb is None or mouse is None:
@@ -55,22 +51,38 @@ class GlobalMouseListener:
 
         return _on_click
 
-    def start(self) -> bool:
-        """Start the underlying listener if possible.
+    def start(
+        self,
+        on_move: Callable[[int, int], None] | None = None,
+        on_click: Callable[[int, int, bool], None] | None = None,
+    ) -> bool:
+        """Start or update the underlying listener if possible.
 
         Returns
         -------
         bool
-            ``True`` if the listener started successfully.
+            ``True`` if the listener is running.
         """
-        if self._listener is None:
+        if mouse is None:
             return False
-        try:
-            self._listener.start()
-            return True
-        except Exception:  # pragma: no cover - start failures are rare
-            self._listener = None
-            return False
+
+        self._move_cb = self._wrap_move(on_move)
+        self._click_cb = self._wrap_click(on_click)
+
+        if self._listener is None or not self._listener.is_alive():
+            self._listener = mouse.Listener(
+                on_move=self._move_cb,
+                on_click=self._click_cb,
+            )
+            try:
+                self._listener.start()
+            except Exception:  # pragma: no cover - start failures are rare
+                self._listener = None
+                return False
+        else:
+            self._listener.on_move = self._move_cb
+            self._listener.on_click = self._click_cb
+        return True
 
     def stop(self) -> None:
         if self._listener is not None:
@@ -79,6 +91,10 @@ class GlobalMouseListener:
                 self._listener.join()
             except Exception:  # pragma: no cover - defensive
                 pass
+            finally:
+                self._listener = None
+                self._move_cb = None
+                self._click_cb = None
 
 
 @contextmanager
@@ -88,10 +104,23 @@ def capture_mouse(
 ) -> "GlobalMouseListener":
     """Context manager to start a global mouse listener."""
 
-    listener = GlobalMouseListener(on_move=on_move, on_click=on_click)
-    started = listener.start()
+    listener = GlobalMouseListener()
+    started = listener.start(on_move=on_move, on_click=on_click)
     try:
         yield listener if started else None
     finally:
         if started:
             listener.stop()
+
+
+_GLOBAL_LISTENER = GlobalMouseListener()
+
+
+def get_global_listener() -> GlobalMouseListener:
+    """Return the shared global mouse listener instance."""
+
+    return _GLOBAL_LISTENER
+
+
+atexit.register(_GLOBAL_LISTENER.stop)
+
