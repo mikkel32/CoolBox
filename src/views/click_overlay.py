@@ -34,19 +34,40 @@ from src.utils.mouse_listener import get_global_listener, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
 from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
+from src.config import Config
 
 EXECUTOR = ThreadPoolExecutor(max_workers=1)
 atexit.register(EXECUTOR.shutdown, cancel_futures=True)
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
 
+CFG = Config()
+
+
+def _load_calibrated(env: str, key: str, default: float) -> float:
+    """Return a float loaded from ``env`` or configuration ``key``."""
+    val = os.getenv(env)
+    if val is not None:
+        try:
+            return float(val)
+        except ValueError:
+            pass
+    try:
+        cfg_val = CFG.get(key)
+        if cfg_val is not None:
+            return float(cfg_val)
+    except Exception:
+        pass
+    return default
+
+
 # Allow the refresh interval to be configured via an environment
 # variable. Falling back to half the screen refresh period keeps the
 # overlay snappy (120 FPS on a 60 Hz display) while providing an easy
 # knob for users.
 DEFAULT_INTERVAL = 1 / (get_screen_refresh_rate() * 2)
-KILL_BY_CLICK_INTERVAL = float(
-    os.getenv("KILL_BY_CLICK_INTERVAL", str(DEFAULT_INTERVAL))
+KILL_BY_CLICK_INTERVAL = _load_calibrated(
+    "KILL_BY_CLICK_INTERVAL", "kill_by_click_interval", DEFAULT_INTERVAL
 )
 
 # Alpha used when a transparent color key cannot be applied. This keeps the
@@ -128,6 +149,50 @@ class ClickOverlay(tk.Toplevel):
         Optional callback invoked with ``(pid, title)`` when the hovered window
         changes.
     """
+
+    @staticmethod
+    def auto_tune_interval(samples: int = 60) -> tuple[float, float, float]:
+        """Calibrate refresh intervals based on average frame render time.
+
+        Parameters
+        ----------
+        samples:
+            Number of frames to sample when measuring the average frame time.
+
+        Returns
+        -------
+        tuple
+            ``(interval, min_interval, max_interval)`` tuned for the current
+            environment.
+        """
+
+        root = tk.Tk()
+        root.withdraw()
+        canvas = tk.Canvas(root)
+        canvas.pack()
+        root.update_idletasks()
+        times: list[float] = []
+        for _ in range(max(1, samples)):
+            start = time.perf_counter()
+            root.update()
+            end = time.perf_counter()
+            times.append(end - start)
+        root.destroy()
+        avg = sum(times) / len(times)
+        interval = max(DEFAULT_INTERVAL, avg * 2)
+        min_interval = max(avg * 1.2, 0.001)
+        max_interval = interval * 5
+        os.environ["KILL_BY_CLICK_INTERVAL"] = str(interval)
+        os.environ["KILL_BY_CLICK_MIN_INTERVAL"] = str(min_interval)
+        os.environ["KILL_BY_CLICK_MAX_INTERVAL"] = str(max_interval)
+        try:
+            CFG.set("kill_by_click_interval", interval)
+            CFG.set("kill_by_click_min_interval", min_interval)
+            CFG.set("kill_by_click_max_interval", max_interval)
+            CFG.save()
+        except Exception:
+            pass
+        return interval, min_interval, max_interval
 
     def __init__(
         self,
@@ -224,21 +289,19 @@ class ClickOverlay(tk.Toplevel):
         self.timeout = timeout
         self.interval = interval
         if min_interval is None:
-            try:
-                self.min_interval = float(
-                    os.getenv("KILL_BY_CLICK_MIN_INTERVAL", str(tuning.min_interval))
-                )
-            except ValueError:
-                self.min_interval = tuning.min_interval
+            self.min_interval = _load_calibrated(
+                "KILL_BY_CLICK_MIN_INTERVAL",
+                "kill_by_click_min_interval",
+                tuning.min_interval,
+            )
         else:
             self.min_interval = min_interval
         if max_interval is None:
-            try:
-                self.max_interval = float(
-                    os.getenv("KILL_BY_CLICK_MAX_INTERVAL", str(tuning.max_interval))
-                )
-            except ValueError:
-                self.max_interval = tuning.max_interval
+            self.max_interval = _load_calibrated(
+                "KILL_BY_CLICK_MAX_INTERVAL",
+                "kill_by_click_max_interval",
+                tuning.max_interval,
+            )
         else:
             self.max_interval = max_interval
         if self.min_interval > self.max_interval:
