@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.45 - 2025-08-20
+
+- **Perf:** Keep X11 window enumeration on a background thread and return
+  cached results immediately so overlays never block.
+
 ## 1.0.44 - 2025-08-19
 
 - **Perf:** Enumerate X11 windows on a background thread and serve cached

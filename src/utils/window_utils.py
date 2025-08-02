@@ -29,11 +29,13 @@ except Exception:  # noqa: F401
     _WM_PID = None
     _WM_NAME = None
 
-_SUBPROC_CACHE: dict[str, Any] = {"time": 0.0, "windows": []}
-_SUBPROC_CACHE_SEC = 2.0
-_SUBPROC_LOCK = threading.RLock()
-_SUBPROC_THREAD: threading.Thread | None = None
-_SUBPROC_REFRESH = threading.Event()
+# Cache populated by a background enumeration thread.  The cache is intentionally
+# long lived so repeated overlay updates can reuse results without blocking.
+_WINDOWS_CACHE: dict[str, Any] = {"time": 0.0, "windows": []}
+_WINDOWS_CACHE_SEC = 5.0
+_WINDOWS_LOCK = threading.RLock()
+_WINDOWS_THREAD: threading.Thread | None = None
+_WINDOWS_REFRESH = threading.Event()
 
 
 @dataclass(frozen=True)
@@ -225,7 +227,7 @@ def get_window_under_cursor() -> WindowInfo:
     if _X_DISPLAY is not None:
         try:
             pointer = _X_ROOT.query_pointer()
-            wins = _list_windows_x11(pointer.root_x, pointer.root_y)
+            wins = _cached_list_windows_at(pointer.root_x, pointer.root_y)
             if wins:
                 return wins[0]
         except Exception:
@@ -319,44 +321,37 @@ def get_window_at(x: int, y: int) -> WindowInfo:
         except Exception:
             return WindowInfo(None)
 
-    if _X_DISPLAY is not None:
-        try:
-            wins = _list_windows_x11(x, y)
-            if wins:
-                return wins[0]
-        except Exception:
-            pass
-
-    results = _fallback_list_windows_at(x, y)
-    return results[0] if results else WindowInfo(None)
+    wins = _cached_list_windows_at(x, y)
+    return wins[0] if wins else WindowInfo(None)
 
 
-def _list_windows_x11(x: int, y: int) -> List[WindowInfo]:
-    """Return windows at ``(x, y)`` using a persistent X11 connection."""
+def _enumerate_x11_windows() -> List[WindowInfo]:
+    """Enumerate windows using a persistent X11 connection."""
 
-    root = _X_ROOT
-    prop = root.get_full_property(_NET_CLIENT_LIST_STACKING, Xatom.WINDOW)
-    ids = list(prop.value) if prop else []
-    results: List[WindowInfo] = []
-    for wid in reversed(ids):  # front to back
-        win = _X_DISPLAY.create_resource_object("window", wid)
-        geom = win.get_geometry()
-        abs_pos = win.translate_coords(root, 0, 0)
-        wx, wy = abs_pos.x, abs_pos.y
-        ww, wh = geom.width, geom.height
-        if not (wx <= x <= wx + ww and wy <= y <= wy + wh):
-            continue
-        pid_prop = win.get_full_property(_WM_PID, Xatom.CARDINAL)
-        pid = int(pid_prop.value[0]) if pid_prop and pid_prop.value else None
-        name_prop = win.get_full_property(_WM_NAME, X.AnyPropertyType)
-        title = None
-        if name_prop and name_prop.value:
-            try:
-                title = name_prop.value.decode("utf-8", "ignore")
-            except Exception:  # pragma: no cover - defensive
-                title = None
-        results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
-    return results
+    windows: List[WindowInfo] = []
+    try:
+        root = _X_ROOT
+        prop = root.get_full_property(_NET_CLIENT_LIST_STACKING, Xatom.WINDOW)
+        ids = list(prop.value) if prop else []
+        for wid in reversed(ids):  # front to back
+            win = _X_DISPLAY.create_resource_object("window", wid)
+            geom = win.get_geometry()
+            abs_pos = win.translate_coords(root, 0, 0)
+            wx, wy = abs_pos.x, abs_pos.y
+            ww, wh = geom.width, geom.height
+            pid_prop = win.get_full_property(_WM_PID, Xatom.CARDINAL)
+            pid = int(pid_prop.value[0]) if pid_prop and pid_prop.value else None
+            name_prop = win.get_full_property(_WM_NAME, X.AnyPropertyType)
+            title = None
+            if name_prop and name_prop.value:
+                try:
+                    title = name_prop.value.decode("utf-8", "ignore")
+                except Exception:  # pragma: no cover - defensive
+                    title = None
+            windows.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+    except Exception:
+        pass
+    return windows
 
 
 def _enumerate_subproc_windows() -> List[WindowInfo]:
@@ -400,46 +395,54 @@ def _enumerate_subproc_windows() -> List[WindowInfo]:
     return windows
 
 
-def _subproc_worker() -> None:
-    """Worker thread that refreshes the subprocess window cache."""
+def _refresh_windows() -> List[WindowInfo]:
+    """Return a full window list using the best available method."""
+
+    if _X_DISPLAY is not None:
+        return _enumerate_x11_windows()
+    return _enumerate_subproc_windows()
+
+
+def _window_enum_worker() -> None:
+    """Worker thread that refreshes the window cache."""
 
     while True:
-        _SUBPROC_REFRESH.wait()
-        _SUBPROC_REFRESH.clear()
-        windows = _enumerate_subproc_windows()
+        _WINDOWS_REFRESH.wait()
+        _WINDOWS_REFRESH.clear()
+        windows = _refresh_windows()
         now = time.time()
-        with _SUBPROC_LOCK:
-            _SUBPROC_CACHE["time"] = now
-            _SUBPROC_CACHE["windows"] = windows
+        with _WINDOWS_LOCK:
+            _WINDOWS_CACHE["time"] = now
+            _WINDOWS_CACHE["windows"] = windows
 
 
-def _ensure_subproc_worker() -> None:
-    """Start the subprocess enumeration thread if needed."""
+def _ensure_window_worker() -> None:
+    """Start the enumeration thread if needed."""
 
-    global _SUBPROC_THREAD
-    if _SUBPROC_THREAD is None or not _SUBPROC_THREAD.is_alive():
-        _SUBPROC_THREAD = threading.Thread(target=_subproc_worker, daemon=True)
-        _SUBPROC_THREAD.start()
+    global _WINDOWS_THREAD
+    if _WINDOWS_THREAD is None or not _WINDOWS_THREAD.is_alive():
+        _WINDOWS_THREAD = threading.Thread(target=_window_enum_worker, daemon=True)
+        _WINDOWS_THREAD.start()
 
 
 def prime_window_cache() -> None:
-    """Ensure the subprocess window cache is populated asynchronously."""
+    """Ensure the window cache is populated asynchronously."""
 
-    _ensure_subproc_worker()
-    if not _SUBPROC_REFRESH.is_set():
-        _SUBPROC_REFRESH.set()
+    _ensure_window_worker()
+    if not _WINDOWS_REFRESH.is_set():
+        _WINDOWS_REFRESH.set()
 
 
-def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
-    """Return cached subprocess enumeration results for ``(x, y)``."""
+def _cached_list_windows_at(x: int, y: int) -> List[WindowInfo]:
+    """Return cached enumeration results for ``(x, y)``."""
 
-    _ensure_subproc_worker()
+    _ensure_window_worker()
     now = time.time()
-    with _SUBPROC_LOCK:
-        last = _SUBPROC_CACHE.get("time", 0.0)
-        windows: List[WindowInfo] = list(_SUBPROC_CACHE.get("windows", []))
-    if now - last >= _SUBPROC_CACHE_SEC and not _SUBPROC_REFRESH.is_set():
-        _SUBPROC_REFRESH.set()
+    with _WINDOWS_LOCK:
+        last = _WINDOWS_CACHE.get("time", 0.0)
+        windows: List[WindowInfo] = list(_WINDOWS_CACHE.get("windows", []))
+    if now - last >= _WINDOWS_CACHE_SEC and not _WINDOWS_REFRESH.is_set():
+        _WINDOWS_REFRESH.set()
     results: List[WindowInfo] = []
     for win in windows:
         rect = win.rect
@@ -503,16 +506,8 @@ def list_windows_at(x: int, y: int) -> List[WindowInfo]:
         except Exception:
             return [get_window_at(x, y)]
 
-    # X11 path
-    if _X_DISPLAY is not None:
-        try:
-            results = _list_windows_x11(x, y)
-            if results:
-                return results
-        except Exception:
-            pass
-    # Fallback to cached subprocess enumeration
-    return _fallback_list_windows_at(x, y)
+    # X11 and other Unix-like systems
+    return _cached_list_windows_at(x, y)
 
 
 def make_window_clickthrough(win: Any) -> bool:

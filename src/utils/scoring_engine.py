@@ -303,6 +303,7 @@ class ScoringEngine:
                 weights[pid] = weights.get(pid, 0.0) + dur * self.tuning.duration_weight
 
         if self.tuning.zorder_weight:
+            prime_window_cache()
             stack = list_windows_at(int(cursor_x), int(cursor_y))
             for idx, info in enumerate(stack):
                 if info.pid is None:
