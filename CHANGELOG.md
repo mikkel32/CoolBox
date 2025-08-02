@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.48 - 2025-08-23
+
+- **Perf:** Use cached window lists for click overlay queries so enumeration never blocks.
+- **Test:** Assert window lookups finish under 50 ms with mocked subprocess calls.
+
 ## 1.0.47 - 2025-08-22
 
 - **Perf:** Enumerate windows in a background thread and update a shared

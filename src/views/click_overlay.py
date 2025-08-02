@@ -316,6 +316,7 @@ class ClickOverlay(tk.Toplevel):
         self._window_cache_rect: tuple[int, int, int, int] | None = None
         self._window_cache: list[WindowInfo] = []
         self._window_cache_time: float = 0.0
+        # Warm the global window cache so probes reuse cached data.
         prime_window_cache()
 
 
@@ -646,7 +647,6 @@ class ClickOverlay(tk.Toplevel):
         else:
             top = get_window_under_cursor()
             if top.pid in (self._own_pid, None):
-                prime_window_cache()
                 wins = list_windows_at(x, y)
             else:
                 wins = [top]
