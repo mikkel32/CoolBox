@@ -52,8 +52,10 @@ COLORKEY_RECHECK_MS = int(
     os.getenv("KILL_BY_CLICK_COLORKEY_RECHECK_MS", "1000")
 )
 
-# Minimum interval between active window queries in seconds
-ACTIVE_WINDOW_QUERY_SEC = 0.3
+# Interval between active window refreshes in milliseconds
+ACTIVE_WINDOW_REFRESH_MS = int(
+    os.getenv("KILL_BY_CLICK_ACTIVE_REFRESH_MS", "250")
+)
 
 
 _COLOR_CACHE: dict[str, str] = {}
@@ -279,11 +281,14 @@ class ClickOverlay(tk.Toplevel):
         self._gaze_duration: dict[int, float] = {}
         self._hover_start = time.monotonic()
         self._last_gaze_pid: int | None = None
-        self._last_active_query = 0.0
         self._active_history: deque[tuple[int, float]] = deque(
             maxlen=tuning.active_history_size
         )
-        self._active_future: Future[int | None] | None = None
+        # Share history with the scoring engine
+        self.engine.active_history = self._active_history
+        self._cached_active_pid: int | None = None
+        self._active_pid_future: Future[int | None] | None = None
+        self._active_pid_job: str | None = None
         self._last_pid: int | None = None
         self._flash_id: str | None = None
         try:
@@ -301,6 +306,9 @@ class ClickOverlay(tk.Toplevel):
         # Cache for window enumeration to minimize repeated list_windows_at calls
         self._window_cache_pos: tuple[int, int] | None = None
         self._window_cache: list[WindowInfo] = []
+
+        # Start background refresh of the active window PID
+        self._refresh_active_pid()
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         """Configure widget options and reapply transparency on bg changes."""
@@ -372,23 +380,29 @@ class ClickOverlay(tk.Toplevel):
         )
         return future.result()
 
-    def _query_active_window_async(self) -> None:
-        """Fetch the active window PID on the worker thread and record it."""
+    def _refresh_active_pid(self) -> None:
+        """Refresh the active window PID asynchronously and cache it."""
 
         def worker() -> int | None:
             info = get_active_window()
             return info.pid
 
         def done(pid: int | None) -> None:
-            self._active_future = None
+            self._active_pid_future = None
+            self._cached_active_pid = pid
             now = time.monotonic()
             if pid not in (self._own_pid, None):
                 if not self._active_history or self._active_history[-1][0] != pid:
                     self._active_history.append((pid, now))
 
-        self._active_future = self._executor.submit(worker)
-        self._active_future.add_done_callback(
-            lambda fut: self.after(0, lambda: done(fut.result()))
+        if self._active_pid_future is None:
+            self._active_pid_future = self._executor.submit(worker)
+            self._active_pid_future.add_done_callback(
+                lambda fut: self.after(0, lambda: done(fut.result()))
+            )
+
+        self._active_pid_job = self.after(
+            ACTIVE_WINDOW_REFRESH_MS, self._refresh_active_pid
         )
 
     def destroy(self) -> None:  # type: ignore[override]
@@ -549,13 +563,6 @@ class ClickOverlay(tk.Toplevel):
         self._frame_count += 1
         if self._frame_count % self._frame_times.maxlen == 0:
             log(f"ClickOverlay avg frame {self.avg_frame_ms:.2f}ms")
-        now = time.monotonic()
-        if (
-            now - self._last_active_query >= ACTIVE_WINDOW_QUERY_SEC
-            and self._active_future is None
-        ):
-            self._last_active_query = now
-            self._query_active_window_async()
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
@@ -859,13 +866,24 @@ class ClickOverlay(tk.Toplevel):
             except Exception:
                 pass
             self._flash_id = None
+        if self._active_pid_job is not None:
+            try:
+                self.after_cancel(self._active_pid_job)
+            except Exception:
+                pass
+            self._active_pid_job = None
         remove_window_clickthrough(self)
         self.destroy()
 
     def choose(self) -> tuple[int | None, str | None]:
         """Show the overlay and return the PID and title of the clicked window."""
         self.bind("<Escape>", self.close)
-        self._initial_active_pid = get_active_window().pid
+        self._initial_active_pid = self._cached_active_pid
+        if self._initial_active_pid is None:
+            try:
+                self._initial_active_pid = get_active_window().pid
+            except Exception:
+                self._initial_active_pid = None
         self.protocol("WM_DELETE_WINDOW", self.close)
         if self.on_hover is not None:
             try:
