@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.50 - 2025-08-24
+
+- **Perf:** Refresh overlay window cache on a worker thread to keep the UI responsive.
+- **Perf:** Allow precomputed window lists to be filtered without blocking the main thread.
+
 ## 1.0.49 - 2025-08-24
 
 - **Perf:** Switch cursor heatmap to lazy decay so only the active cell updates each frame.

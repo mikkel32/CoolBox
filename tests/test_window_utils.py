@@ -8,6 +8,7 @@ from src.utils.window_utils import (
     get_window_under_cursor,
     has_active_window_support,
     has_cursor_window_support,
+    filter_windows_at,
 )
 
 
@@ -52,6 +53,16 @@ class TestWindowUtils(unittest.TestCase):
             time.sleep(0.15)
             res2 = wu._fallback_list_windows_at(0, 0)
             self.assertEqual(res2[0].pid, 1)
+
+    def test_filter_windows_at(self):
+        wins = [
+            WindowInfo(1, (0, 0, 5, 5), "a"),
+            WindowInfo(2, (10, 10, 5, 5), "b"),
+        ]
+        res = filter_windows_at(1, 1, wins)
+        self.assertEqual(res, [wins[0]])
+        res2 = filter_windows_at(12, 12, wins)
+        self.assertEqual(res2, [wins[1]])
 
     def test_x11_shortcuts(self):
         from src.utils import window_utils as wu
