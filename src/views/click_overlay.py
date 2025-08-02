@@ -143,6 +143,7 @@ class ClickOverlay(tk.Toplevel):
         on_hover: Callable[[int | None, str | None], None] | None = None,
     ) -> None:
         super().__init__(parent)
+        self._closed = tk.BooleanVar(value=False)
         # Hide until fully configured to avoid a brief black flash
         self.withdraw()
         try:
@@ -317,6 +318,8 @@ class ClickOverlay(tk.Toplevel):
         self._window_cache_future: Future[list[WindowInfo]] | None = None
         # Warm the global window cache so probes reuse cached data.
         prime_window_cache()
+        self.reset()
+
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         """Configure widget options and reapply transparency on bg changes."""
@@ -892,6 +895,40 @@ class ClickOverlay(tk.Toplevel):
         self._click_y = e.y_root
         self.after(0, self._on_click)
 
+    def reset(self) -> None:
+        """Hide the overlay and clear runtime state."""
+        try:
+            remove_window_clickthrough(self)
+        except Exception:
+            pass
+        self.withdraw()
+        for seq in ("<Motion>", "<Button-1>", "<Escape>"):
+            try:
+                self.unbind(seq)
+            except Exception:
+                pass
+        try:
+            self.protocol("WM_DELETE_WINDOW", lambda: None)
+        except Exception:
+            pass
+        self.pid = None
+        self.title_text = None
+        self._last_info = None
+        self._cached_info = None
+        self._current_pid = None
+        self._current_streak = 0
+        self._pid_stability.clear()
+        self._pid_history.clear()
+        self._info_history.clear()
+        self._gaze_duration.clear()
+        self._path_history.clear()
+        self._active_history.clear()
+        self._move_scheduled = False
+        self._pending_move = None
+        self._closed.set(False)
+        self.update_state = UpdateState.IDLE
+        self.state = OverlayState.INIT
+
     def close(self, _e: object | None = None) -> None:
         if self._after_id is not None:
             try:
@@ -911,11 +948,22 @@ class ClickOverlay(tk.Toplevel):
             except Exception:
                 pass
             self._flash_id = None
-        remove_window_clickthrough(self)
-        self.destroy()
+        self.reset()
+        self._closed.set(True)
 
     def choose(self) -> tuple[int | None, str | None]:
         """Show the overlay and return the PID and title of the clicked window."""
+        self._closed.set(False)
+        try:
+            if is_supported():
+                make_window_clickthrough(self)
+            self._maybe_ensure_colorkey(force=True)
+            self.deiconify()
+            self.update_idletasks()
+            self.wait_visibility()
+            self.lift()
+        except Exception:
+            pass
         self.bind("<Escape>", self.close)
         self._initial_active_pid = self._active_pid
         if self._initial_active_pid is None:
@@ -934,7 +982,6 @@ class ClickOverlay(tk.Toplevel):
             listener = get_global_listener()
             if not listener.start(on_move=self._on_move, on_click=self._click):
                 use_hooks = False
-                remove_window_clickthrough(self)
                 self.state = OverlayState.POLLING
             else:
                 self.state = OverlayState.HOOKED
@@ -943,17 +990,16 @@ class ClickOverlay(tk.Toplevel):
                     self._timeout_id = self.after(
                         int(self.timeout * 1000), self.close
                     )
-                self.wait_window()
+                self.wait_variable(self._closed)
                 listener.start()  # clear callbacks but keep running
                 return self.pid, self.title_text
 
         if not use_hooks:
-            remove_window_clickthrough(self)
             self.state = OverlayState.POLLING
         self.bind("<Motion>", self._queue_update)
         self.bind("<Button-1>", self._click_event)
         self._queue_update()
         if self.timeout is not None:
             self._timeout_id = self.after(int(self.timeout * 1000), self.close)
-        self.wait_window()
+        self.wait_variable(self._closed)
         return self.pid, self.title_text

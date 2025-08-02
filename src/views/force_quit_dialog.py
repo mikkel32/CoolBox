@@ -870,6 +870,11 @@ class ForceQuitDialog(BaseDialog):
         self.refresh_fonts()
         self.refresh_theme()
 
+        from .click_overlay import ClickOverlay
+
+        self._overlay = ClickOverlay(self)
+        self._overlay.reset()
+
         self._auto_refresh()
 
     def _drain_queue(self) -> None:
@@ -2078,7 +2083,7 @@ class ForceQuitDialog(BaseDialog):
     def _kill_by_click(self) -> None:
         """Launch the click-to-kill overlay and terminate the selected window."""
 
-        from .click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
+        from .click_overlay import KILL_BY_CLICK_INTERVAL
 
         paused = self.paused
         if not paused:
@@ -2087,21 +2092,24 @@ class ForceQuitDialog(BaseDialog):
         color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
         color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
         interval_env = os.getenv("KILL_BY_CLICK_INTERVAL")
-        kwargs = {
-            "highlight": color,
-            "on_hover": self._highlight_pid,
-        }
+
+        overlay = self._overlay
+        overlay.on_hover = self._highlight_pid
+        overlay.canvas.itemconfigure(overlay.rect, outline=color)
+        overlay.canvas.itemconfigure(overlay.hline, fill=color)
+        overlay.canvas.itemconfigure(overlay.vline, fill=color)
+        overlay.canvas.itemconfigure(overlay.label, fill=color)
         if interval_env is not None:
             try:
-                kwargs["interval"] = float(interval_env)
+                overlay.interval = float(interval_env)
             except ValueError:
-                kwargs["interval"] = KILL_BY_CLICK_INTERVAL
+                overlay.interval = KILL_BY_CLICK_INTERVAL
         for name in ("min_interval", "max_interval", "delay_scale"):
             env = os.getenv(f"KILL_BY_CLICK_{name.upper()}")
             if env is None:
                 continue
             try:
-                kwargs[name] = float(env)
+                setattr(overlay, name, float(env))
             except ValueError:
                 pass
 
@@ -2110,21 +2118,13 @@ class ForceQuitDialog(BaseDialog):
         self.withdraw()
         if hasattr(self, "tk"):
             self.update_idletasks()
-        overlay = ClickOverlay(self, **kwargs)
-        # Ensure the overlay window becomes visible immediately so the
-        # crosshair appears without any perceptible delay.
-        try:
-            overlay.update_idletasks()
-            overlay.wait_visibility()
-            overlay.lift()
-        except Exception:
-            pass
         try:
             pid, title = overlay.choose()
             if pid is None:
                 fallback = self._get_window_under_cursor()
                 pid, title = fallback.pid, fallback.title
         finally:
+            overlay.reset()
             self.deiconify()
             self._highlight_pid(None)
             if not paused:

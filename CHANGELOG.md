@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.57 - 2025-08-02
+
+- **Refactor:** Reuse a persistent click-to-kill overlay within the Force Quit dialog.
+
 ## 1.0.56 - 2025-08-26
 
 - **Feat:** Use foreground window callbacks to track active window without polling.
