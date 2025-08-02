@@ -6,6 +6,10 @@ import tkinter as tk
 from typing import Any
 from unittest.mock import Mock, patch
 from concurrent.futures import Future
+from pathlib import Path
+import tempfile
+
+from src.config import Config
 
 from src.views.click_overlay import (
     ClickOverlay,
@@ -219,6 +223,19 @@ class TestClickOverlay(unittest.TestCase):
         finally:
             overlay.destroy()
             root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_auto_tune_interval_persists(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("pathlib.Path.home", return_value=tmp):
+                import src.views.click_overlay as click_overlay_module
+                click_overlay_module.CFG = Config()
+                interval, min_i, max_i = click_overlay_module.ClickOverlay.auto_tune_interval(samples=5)
+                cfg = Config()
+                self.assertAlmostEqual(cfg.get("kill_by_click_interval"), interval)
+                self.assertAlmostEqual(cfg.get("kill_by_click_min_interval"), min_i)
+                self.assertAlmostEqual(cfg.get("kill_by_click_max_interval"), max_i)
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_move_primes_window_cache(self) -> None:

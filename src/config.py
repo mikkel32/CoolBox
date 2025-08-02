@@ -119,6 +119,9 @@ class Config:
             "scan_ping_timeout": 1.0,
             "scan_ping_concurrency": 100,
             "scan_latency": False,
+            "kill_by_click_interval": None,
+            "kill_by_click_min_interval": None,
+            "kill_by_click_max_interval": None,
         }
 
         # Load configuration
