@@ -316,6 +316,7 @@ class ClickOverlay(tk.Toplevel):
         self._window_cache_rect: tuple[int, int, int, int] | None = None
         self._window_cache: list[WindowInfo] = []
         self._window_cache_time: float = 0.0
+        self._window_cache_future: Future[list[WindowInfo]] | None = None
         # Warm the global window cache so probes reuse cached data.
         prime_window_cache()
 
@@ -647,20 +648,36 @@ class ClickOverlay(tk.Toplevel):
         else:
             top = get_window_under_cursor()
             if top.pid in (self._own_pid, None):
-                wins = list_windows_at(x, y)
+                wins = self._window_cache or [top]
+
+                if self._window_cache_future is None or self._window_cache_future.done():
+                    def _set(wins_new: list[WindowInfo]) -> None:
+                        self._window_cache_future = None
+                        self._window_cache = wins_new
+                        self._window_cache_time = time.monotonic()
+                        rects = [w.rect for w in wins_new if w.rect]
+                        if rects:
+                            minx = min(r[0] for r in rects)
+                            miny = min(r[1] for r in rects)
+                            maxx = max(r[0] + r[2] for r in rects)
+                            maxy = max(r[1] + r[3] for r in rects)
+                            self._window_cache_rect = (minx, miny, maxx - minx, maxy - miny)
+                        else:
+                            self._window_cache_rect = None
+
+                    self._window_cache_future = self._score_async(
+                        lambda: list_windows_at(x, y), _set
+                    )
             else:
                 wins = [top]
-            self._window_cache = wins
-            self._window_cache_time = now
-            rects = [w.rect for w in wins if w.rect]
-            if rects:
-                minx = min(r[0] for r in rects)
-                miny = min(r[1] for r in rects)
-                maxx = max(r[0] + r[2] for r in rects)
-                maxy = max(r[1] + r[3] for r in rects)
-                self._window_cache_rect = (minx, miny, maxx - minx, maxy - miny)
-            else:
-                self._window_cache_rect = None
+                self._window_cache = wins
+                self._window_cache_time = now
+                rects = [top.rect] if top.rect else []
+                if rects:
+                    r = rects[0]
+                    self._window_cache_rect = r
+                else:
+                    self._window_cache_rect = None
         if not wins:
             return WindowInfo(None)
         for win in wins:

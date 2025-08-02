@@ -433,27 +433,40 @@ def prime_window_cache() -> None:
         _WINDOWS_REFRESH.set()
 
 
-def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
-    """Return cached window enumeration results for ``(x, y)``.
+def filter_windows_at(x: int, y: int, windows: List[WindowInfo]) -> List[WindowInfo]:
+    """Return windows covering ``(x, y)`` from ``windows``.
 
-    This function ensures window enumeration runs in a background thread.
-    The thread populates a shared cache so callers can return immediately
-    without spawning new subprocesses each time.
+    This helper performs only a simple bounds check and performs no I/O,
+    making it safe to use from the UI thread.
     """
 
-    _ensure_window_worker()
-    now = time.time()
-    with _WINDOWS_LOCK:
-        last = _WINDOWS_CACHE.get("time", 0.0)
-        windows: List[WindowInfo] = list(_WINDOWS_CACHE.get("windows", []))
-    if (now - last >= _WINDOWS_CACHE_SEC or not windows) and not _WINDOWS_REFRESH.is_set():
-        _WINDOWS_REFRESH.set()
     results: List[WindowInfo] = []
     for win in windows:
         rect = win.rect
         if rect and rect[0] <= x <= rect[0] + rect[2] and rect[1] <= y <= rect[1] + rect[3]:
             results.append(win)
     return results
+
+
+def _fallback_list_windows_at(
+    x: int, y: int, windows: List[WindowInfo] | None = None
+) -> List[WindowInfo]:
+    """Return cached window enumeration results for ``(x, y)``.
+
+    When ``windows`` is provided, it is used directly which makes the call
+    non-blocking. Otherwise the function serves results from the shared cache
+    and schedules a background refresh when the cache is stale.
+    """
+
+    _ensure_window_worker()
+    if windows is None:
+        now = time.time()
+        with _WINDOWS_LOCK:
+            last = _WINDOWS_CACHE.get("time", 0.0)
+            windows = list(_WINDOWS_CACHE.get("windows", []))
+        if (now - last >= _WINDOWS_CACHE_SEC or not windows) and not _WINDOWS_REFRESH.is_set():
+            _WINDOWS_REFRESH.set()
+    return filter_windows_at(x, y, windows)
 
 
 def list_windows_at(x: int, y: int) -> List[WindowInfo]:
