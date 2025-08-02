@@ -46,11 +46,11 @@ class TestWindowUtils(unittest.TestCase):
 
         with mock.patch.object(wu, "_refresh_windows", fake_enum):
             start = time.time()
-            res = wu._cached_list_windows_at(0, 0)
+            res = wu._fallback_list_windows_at(0, 0)
             self.assertLess(time.time() - start, 0.05)
             self.assertEqual(res, [fake_old])
             time.sleep(0.15)
-            res2 = wu._cached_list_windows_at(0, 0)
+            res2 = wu._fallback_list_windows_at(0, 0)
             self.assertEqual(res2[0].pid, 1)
 
     def test_x11_shortcuts(self):
