@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.51 - 2025-08-25
+
+- **Perf:** Query active window in a background thread and cache results to
+  reduce overlay polling frequency.
+
 ## 1.0.50 - 2025-08-24
 
 - **Perf:** Refresh overlay window cache on a worker thread to keep the UI responsive.

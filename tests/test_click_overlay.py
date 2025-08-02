@@ -1523,6 +1523,7 @@ class TestClickOverlay(unittest.TestCase):
             patch("src.views.click_overlay.is_supported", return_value=False),
             patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
             patch("src.views.click_overlay.get_active_window") as mock_active,
+            patch("src.views.click_overlay.ACTIVE_QUERY_MS", 0),
             patch.object(ClickOverlay, "_update_rect", return_value=None),
         ):
             def slow_active():
@@ -1531,6 +1532,7 @@ class TestClickOverlay(unittest.TestCase):
 
             mock_active.side_effect = slow_active
             overlay = ClickOverlay(root, interval=0.01)
+            overlay._last_active_query = time.monotonic() - 1
             start = time.perf_counter()
             overlay._process_update()
             duration = time.perf_counter() - start
@@ -1538,7 +1540,7 @@ class TestClickOverlay(unittest.TestCase):
             for _ in range(10):
                 root.update()
                 time.sleep(0.05)
-            self.assertEqual(overlay._active_history[-1][0], 123)
+            self.assertEqual(overlay._active_pid, 123)
             overlay.destroy()
         root.destroy()
 
@@ -1553,17 +1555,16 @@ class TestClickOverlay(unittest.TestCase):
             patch.object(ClickOverlay, "_update_rect", return_value=None),
         ):
             overlay = ClickOverlay(root, interval=0.01)
-            for _ in range(10):
-                root.update()
-                if mock_active.call_count:
-                    break
-                time.sleep(0.01)
+            overlay._last_active_query = time.monotonic() - 1
+            overlay._process_update()
+            time.sleep(0.01)
             self.assertEqual(mock_active.call_count, 1)
-            time.sleep(0.05)
-            root.update()
+            overlay._process_update()
+            time.sleep(0.01)
             self.assertEqual(mock_active.call_count, 1)
             time.sleep(0.12)
-            root.update()
+            overlay._process_update()
+            time.sleep(0.01)
             self.assertEqual(mock_active.call_count, 2)
             overlay.destroy()
         root.destroy()
