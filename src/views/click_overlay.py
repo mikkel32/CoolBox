@@ -30,7 +30,7 @@ from src.utils.window_utils import (
     set_window_colorkey,
     WindowInfo,
 )
-from src.utils.mouse_listener import capture_mouse, is_supported
+from src.utils.mouse_listener import get_global_listener, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
 from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
@@ -956,23 +956,21 @@ class ClickOverlay(tk.Toplevel):
                 pass
         use_hooks = is_supported()
         if use_hooks:
-            with capture_mouse(
-                on_move=self._on_move,
-                on_click=self._click,
-            ) as listener:
-                if listener is None:
-                    use_hooks = False
-                    remove_window_clickthrough(self)
-                    self.state = OverlayState.POLLING
-                else:
-                    self.state = OverlayState.HOOKED
-                    self._queue_update()
-                    if self.timeout is not None:
-                        self._timeout_id = self.after(
-                            int(self.timeout * 1000), self.close
-                        )
-                    self.wait_window()
-                    return self.pid, self.title_text
+            listener = get_global_listener()
+            if not listener.start(on_move=self._on_move, on_click=self._click):
+                use_hooks = False
+                remove_window_clickthrough(self)
+                self.state = OverlayState.POLLING
+            else:
+                self.state = OverlayState.HOOKED
+                self._queue_update()
+                if self.timeout is not None:
+                    self._timeout_id = self.after(
+                        int(self.timeout * 1000), self.close
+                    )
+                self.wait_window()
+                listener.start()  # clear callbacks but keep running
+                return self.pid, self.title_text
 
         if not use_hooks:
             remove_window_clickthrough(self)
