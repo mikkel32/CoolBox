@@ -38,19 +38,19 @@ class TestWindowUtils(unittest.TestCase):
         from src.utils import window_utils as wu
 
         fake_old = WindowInfo(2, (0, 0, 1, 1), "old")
-        wu._SUBPROC_CACHE = {"time": 0.0, "windows": [fake_old]}
+        wu._WINDOWS_CACHE = {"time": 0.0, "windows": [fake_old]}
 
         def fake_enum():
             time.sleep(0.1)
             return [WindowInfo(1, (0, 0, 1, 1), "new")]
 
-        with mock.patch.object(wu, "_enumerate_subproc_windows", fake_enum):
+        with mock.patch.object(wu, "_refresh_windows", fake_enum):
             start = time.time()
-            res = wu._fallback_list_windows_at(0, 0)
+            res = wu._cached_list_windows_at(0, 0)
             self.assertLess(time.time() - start, 0.05)
             self.assertEqual(res, [fake_old])
             time.sleep(0.15)
-            res2 = wu._fallback_list_windows_at(0, 0)
+            res2 = wu._cached_list_windows_at(0, 0)
             self.assertEqual(res2[0].pid, 1)
 
     def test_x11_shortcuts(self):
@@ -60,8 +60,8 @@ class TestWindowUtils(unittest.TestCase):
         pointer = type("P", (), {"root_x": 5, "root_y": 6})()
 
         with mock.patch.object(wu, "_X_DISPLAY", object()), \
-            mock.patch.object(wu, "_X_ROOT", mock.Mock(query_pointer=lambda: pointer)), \
-            mock.patch.object(wu, "_list_windows_x11", return_value=[fake]):
+            mock.patch.object(wu, "_X_ROOT", mock.Mock(query_pointer=lambda: pointer)):
+            wu._WINDOWS_CACHE = {"time": time.time(), "windows": [fake]}
             self.assertEqual(get_window_under_cursor(), fake)
             self.assertEqual(wu.get_window_at(5, 6), fake)
             self.assertEqual(wu.list_windows_at(5, 6), [fake])

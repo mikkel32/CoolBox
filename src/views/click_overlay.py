@@ -647,6 +647,7 @@ class ClickOverlay(tk.Toplevel):
         else:
             top = get_window_under_cursor()
             if top.pid in (self._own_pid, None):
+                prime_window_cache()
                 wins = list_windows_at(x, y)
             else:
                 wins = [top]
