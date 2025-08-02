@@ -28,7 +28,7 @@ class AboutView(BaseView):
 
         info = info_label(
             container,
-            "CoolBox - A Modern Desktop App\nVersion 1.0.41",
+            "CoolBox - A Modern Desktop App\nVersion 1.0.42",
             font=self.font,
         )
         info.pack(anchor="w")
