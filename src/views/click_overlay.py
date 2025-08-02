@@ -21,6 +21,7 @@ from enum import Enum, auto
 from src.utils.window_utils import (
     get_active_window,
     get_window_at,
+    get_window_under_cursor,
     list_windows_at,
     make_window_clickthrough,
     remove_window_clickthrough,
@@ -56,6 +57,9 @@ COLORKEY_RECHECK_MS = int(
 ACTIVE_QUERY_MS = int(
     os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_MS", "250")
 )
+
+# Cache TTL for window probing in seconds
+PROBE_CACHE_TTL = float(os.getenv("KILL_BY_CLICK_PROBE_TTL", "0.1"))
 
 
 _COLOR_CACHE: dict[str, str] = {}
@@ -305,8 +309,9 @@ class ClickOverlay(tk.Toplevel):
         self._last_frame_end = 0.0
         self._frame_count = 0
         # Cache for window enumeration to minimize repeated list_windows_at calls
-        self._window_cache_pos: tuple[int, int] | None = None
+        self._window_cache_rect: tuple[int, int, int, int] | None = None
         self._window_cache: list[WindowInfo] = []
+        self._window_cache_time: float = 0.0
 
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
@@ -623,11 +628,33 @@ class ClickOverlay(tk.Toplevel):
         future.add_done_callback(_on_done)
 
     def _probe_point(self, x: int, y: int) -> WindowInfo:
-        """Return window info at ``(x, y)`` using cached enumeration."""
-        wins = self._window_cache if self._window_cache_pos == (x, y) else list_windows_at(x, y)
-        if self._window_cache_pos != (x, y):
-            self._window_cache_pos = (x, y)
+        """Return window info at ``(x, y)`` with smart caching."""
+        now = time.monotonic()
+        rect = self._window_cache_rect
+        if (
+            rect
+            and rect[0] <= x < rect[0] + rect[2]
+            and rect[1] <= y < rect[1] + rect[3]
+            and now - self._window_cache_time < PROBE_CACHE_TTL
+        ):
+            wins = self._window_cache
+        else:
+            top = get_window_under_cursor()
+            if top.pid in (self._own_pid, None):
+                wins = list_windows_at(x, y)
+            else:
+                wins = [top]
             self._window_cache = wins
+            self._window_cache_time = now
+            rects = [w.rect for w in wins if w.rect]
+            if rects:
+                minx = min(r[0] for r in rects)
+                miny = min(r[1] for r in rects)
+                maxx = max(r[0] + r[2] for r in rects)
+                maxy = max(r[1] + r[3] for r in rects)
+                self._window_cache_rect = (minx, miny, maxx - minx, maxy - miny)
+            else:
+                self._window_cache_rect = None
         if not wins:
             return WindowInfo(None)
         for win in wins:
