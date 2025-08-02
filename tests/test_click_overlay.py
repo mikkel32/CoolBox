@@ -200,6 +200,22 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_move_primes_window_cache(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            overlay._window_cache_rect = (0, 0, 10, 10)
+            overlay._window_cache_time = time.monotonic()
+            overlay._pending_move = (50, 50, time.time())
+            with patch.object(overlay, "_refresh_window_cache") as mock_refresh:
+                overlay._handle_move()
+                mock_refresh.assert_called_once()
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_probe_point_async_refresh_fast(self) -> None:
         root = tk.Tk()
         from src.utils import window_utils as wu

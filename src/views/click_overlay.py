@@ -327,7 +327,6 @@ class ClickOverlay(tk.Toplevel):
         # Warm the global window cache so probes reuse cached data.
         prime_window_cache()
 
-
     def configure(self, cnf=None, **kw):  # type: ignore[override]
         """Configure widget options and reapply transparency on bg changes."""
         result = super().configure(cnf or {}, **kw)
@@ -625,6 +624,18 @@ class ClickOverlay(tk.Toplevel):
         self._cursor_x = x
         self._cursor_y = y
         self._cached_info = None
+        mnow = time.monotonic()
+        rect = self._window_cache_rect
+        if (
+            rect is None
+            or not (
+                rect[0] <= x < rect[0] + rect[2]
+                and rect[1] <= y < rect[1] + rect[3]
+            )
+            or mnow - self._window_cache_time >= PROBE_CACHE_TTL
+        ):
+            if self._window_cache_future is None or self._window_cache_future.done():
+                self._refresh_window_cache(int(x), int(y))
         self._queue_update()
 
     def _query_window(self) -> WindowInfo:
@@ -645,6 +656,27 @@ class ClickOverlay(tk.Toplevel):
 
         future.add_done_callback(_on_done)
 
+    def _set_window_cache(self, wins: list[WindowInfo]) -> None:
+        """Update cached window list and bounding rectangle."""
+        self._window_cache_future = None
+        self._window_cache = wins
+        self._window_cache_time = time.monotonic()
+        rects = [w.rect for w in wins if w.rect]
+        if rects:
+            minx = min(r[0] for r in rects)
+            miny = min(r[1] for r in rects)
+            maxx = max(r[0] + r[2] for r in rects)
+            maxy = max(r[1] + r[3] for r in rects)
+            self._window_cache_rect = (minx, miny, maxx - minx, maxy - miny)
+        else:
+            self._window_cache_rect = None
+
+    def _refresh_window_cache(self, x: int, y: int) -> None:
+        """Asynchronously refresh windows beneath ``(x, y)``."""
+        self._window_cache_future = self._score_async(
+            lambda: list_windows_at(x, y), self._set_window_cache
+        )
+
     def _probe_point(self, x: int, y: int) -> WindowInfo:
         """Return window info at ``(x, y)`` with smart caching."""
         now = time.monotonic()
@@ -660,35 +692,11 @@ class ClickOverlay(tk.Toplevel):
             top = get_window_under_cursor()
             if top.pid in (self._own_pid, None):
                 wins = self._window_cache or [top]
-
                 if self._window_cache_future is None or self._window_cache_future.done():
-                    def _set(wins_new: list[WindowInfo]) -> None:
-                        self._window_cache_future = None
-                        self._window_cache = wins_new
-                        self._window_cache_time = time.monotonic()
-                        rects = [w.rect for w in wins_new if w.rect]
-                        if rects:
-                            minx = min(r[0] for r in rects)
-                            miny = min(r[1] for r in rects)
-                            maxx = max(r[0] + r[2] for r in rects)
-                            maxy = max(r[1] + r[3] for r in rects)
-                            self._window_cache_rect = (minx, miny, maxx - minx, maxy - miny)
-                        else:
-                            self._window_cache_rect = None
-
-                    self._window_cache_future = self._score_async(
-                        lambda: list_windows_at(x, y), _set
-                    )
+                    self._refresh_window_cache(x, y)
             else:
                 wins = [top]
-                self._window_cache = wins
-                self._window_cache_time = now
-                rects = [top.rect] if top.rect else []
-                if rects:
-                    r = rects[0]
-                    self._window_cache_rect = r
-                else:
-                    self._window_cache_rect = None
+                self._set_window_cache(wins)
         if not wins:
             return WindowInfo(None)
         for win in wins:
