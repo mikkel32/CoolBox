@@ -52,6 +52,25 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_can_disable_label(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, show_label=False)
+        self.assertIsNone(overlay.label)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_env_disables_label(self) -> None:
+        with patch.dict(os.environ, {"KILL_BY_CLICK_LABEL": "0"}):
+            root = tk.Tk()
+            with patch("src.views.click_overlay.is_supported", return_value=False):
+                overlay = ClickOverlay(root)
+            self.assertIsNone(overlay.label)
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_uses_transparent_color_key(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
