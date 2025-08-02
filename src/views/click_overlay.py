@@ -17,6 +17,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional, Callable, Any
 from enum import Enum, auto
+import threading
 
 from src.utils.window_utils import (
     get_active_window,
@@ -290,14 +291,15 @@ class ClickOverlay(tk.Toplevel):
         )
         # Share history with the scoring engine
         self.engine.active_history = self._active_history
-        # Cached info for the topmost active window. Populated by a background
-        # poller running on ``self._executor`` so the Tk thread never blocks on
-        # :func:`get_active_window`.
-        self._active_info: WindowInfo | None = None
-        self._active_poll_future: Future[WindowInfo] | None = None
-        self._active_poll_after: str | None = None
+        # Cached PID for the topmost active window. Updated on a background
+        # thread so the Tk loop never waits on :func:`get_active_window`.
+        self._active_pid: int | None = None
         self._destroyed = False
-        self._queue_active_poll()
+        self._active_stop = threading.Event()
+        self._active_thread = threading.Thread(
+            target=self._poll_active_pid, daemon=True
+        )
+        self._active_thread.start()
         self._query_future: Future[WindowInfo] | None = None
         self._last_pid: int | None = None
         self._flash_id: str | None = None
@@ -389,43 +391,25 @@ class ClickOverlay(tk.Toplevel):
         )
         return future.result()
 
-    def _queue_active_poll(self) -> None:
-        """Schedule an asynchronous active-window query."""
-
-        if self._destroyed or self._active_poll_future is not None:
-            return
-
-        def worker() -> WindowInfo:
-            return get_active_window()
-
-        def done(fut: Future[WindowInfo]) -> None:
-            self._active_poll_future = None
-            if self._destroyed:
-                return
+    def _poll_active_pid(self) -> None:
+        """Update ``self._active_pid`` on a background thread."""
+        interval = ACTIVE_QUERY_MS / 1000.0
+        while not self._active_stop.is_set():
             try:
-                info = fut.result()
+                self._active_pid = get_active_window().pid
             except Exception:
-                info = None  # type: ignore[assignment]
-            self._active_info = info
-            try:
-                self._active_poll_after = self.after(
-                    ACTIVE_QUERY_MS, self._queue_active_poll
-                )
-            except Exception:
-                pass
+                self._active_pid = None
+            self._active_stop.wait(interval)
 
-        self._active_poll_future = self._executor.submit(worker)
-        self._active_poll_future.add_done_callback(done)
 
     def destroy(self) -> None:  # type: ignore[override]
-        """Ensure the worker thread exits before destroying the window."""
+        """Ensure background threads exit before destroying the window."""
         self._destroyed = True
-        if self._active_poll_after is not None:
-            try:
-                self.after_cancel(self._active_poll_after)
-            except Exception:
-                pass
-            self._active_poll_after = None
+        self._active_stop.set()
+        try:
+            self._active_thread.join(timeout=1.0)
+        except Exception:
+            pass
         try:
             self._executor.shutdown(cancel_futures=True)
         except Exception:
@@ -572,12 +556,10 @@ class ClickOverlay(tk.Toplevel):
         self._cursor_x = x
         self._cursor_y = y
         now = time.monotonic()
-        info = self._active_info
-        if info is not None:
-            pid = info.pid
-            if pid not in (self._own_pid, None):
-                if not self._active_history or self._active_history[-1][0] != pid:
-                    self._active_history.append((pid, now))
+        pid = self._active_pid
+        if pid not in (self._own_pid, None):
+            if not self._active_history or self._active_history[-1][0] != pid:
+                self._active_history.append((pid, now))
         start = time.perf_counter()
         self._last_frame_start = start
         self._update_rect()
@@ -925,9 +907,7 @@ class ClickOverlay(tk.Toplevel):
     def choose(self) -> tuple[int | None, str | None]:
         """Show the overlay and return the PID and title of the clicked window."""
         self.bind("<Escape>", self.close)
-        self._initial_active_pid = (
-            self._active_info.pid if self._active_info is not None else None
-        )
+        self._initial_active_pid = self._active_pid
         if self._initial_active_pid is None:
             try:
                 self._initial_active_pid = get_active_window().pid

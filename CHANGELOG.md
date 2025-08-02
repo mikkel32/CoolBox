@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.43 - 2025-08-19
+
+- **Perf:** Cache active window PID on a background thread so overlay updates never block.
+
 ## 1.0.42 - 2025-08-18
 
 - **Perf:** Poll active window details on a background thread to avoid blocking the overlay UI.

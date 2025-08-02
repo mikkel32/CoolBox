@@ -1521,7 +1521,11 @@ class TestClickOverlay(unittest.TestCase):
             patch.object(ClickOverlay, "_update_rect", return_value=None),
         ):
             overlay = ClickOverlay(root, interval=0.01)
-            root.update()
+            for _ in range(10):
+                root.update()
+                if mock_active.call_count:
+                    break
+                time.sleep(0.01)
             self.assertEqual(mock_active.call_count, 1)
             time.sleep(0.05)
             root.update()
