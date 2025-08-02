@@ -289,6 +289,7 @@ class ClickOverlay(tk.Toplevel):
         self._cached_active_pid: int | None = None
         self._active_pid_future: Future[int | None] | None = None
         self._active_pid_job: str | None = None
+        self._query_future: Future[WindowInfo] | None = None
         self._last_pid: int | None = None
         self._flash_id: str | None = None
         try:
@@ -615,9 +616,13 @@ class ClickOverlay(tk.Toplevel):
 
         x, y = int(self._cursor_x), int(self._cursor_y)
         future = self._executor.submit(self._query_window_at, x, y)
-        future.add_done_callback(
-            lambda fut: self.after(0, lambda: callback(fut.result()))
-        )
+        self._query_future = future
+
+        def _on_done(fut: Future[WindowInfo]) -> None:
+            self._query_future = None
+            self.after(0, lambda: callback(fut.result()))
+
+        future.add_done_callback(_on_done)
 
     def _probe_point(self, x: int, y: int) -> WindowInfo:
         """Return window info at ``(x, y)`` using cached enumeration."""
@@ -681,8 +686,9 @@ class ClickOverlay(tk.Toplevel):
 
     def _update_rect(self, info: WindowInfo | None = None) -> None:
         if info is None:
-            self._query_window_async(self._update_rect)
-            return
+            if self._query_future is None:
+                self._query_window_async(self._update_rect)
+            info = self._last_info or WindowInfo(None)
         if not getattr(self, "_raised", False):
             self.lift()
             self._raised = True
