@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.52 - 2025-08-26
+
+- **Perf:** Prime window cache on cursor movement so the click overlay reacts
+  immediately when hovering new windows.
+
 ## 1.0.51 - 2025-08-25
 
 - **Perf:** Query active window in a background thread and cache results to
