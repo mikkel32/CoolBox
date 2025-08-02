@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.47 - 2025-08-22
+
+- **Perf:** Enumerate windows in a background thread and update a shared
+  cache to avoid repeated subprocess calls.
+
 ## 1.0.46 - 2025-08-21
 
 - **Perf:** Poll the active window on a timer and serve cached results to

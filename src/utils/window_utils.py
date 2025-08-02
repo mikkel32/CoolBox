@@ -32,7 +32,7 @@ except Exception:  # noqa: F401
 # Cache populated by a background enumeration thread.  The cache is intentionally
 # long lived so repeated overlay updates can reuse results without blocking.
 _WINDOWS_CACHE: dict[str, Any] = {"time": 0.0, "windows": []}
-_WINDOWS_CACHE_SEC = 5.0
+_WINDOWS_CACHE_SEC = 10.0
 _WINDOWS_LOCK = threading.RLock()
 _WINDOWS_THREAD: threading.Thread | None = None
 _WINDOWS_REFRESH = threading.Event()
@@ -227,7 +227,7 @@ def get_window_under_cursor() -> WindowInfo:
     if _X_DISPLAY is not None:
         try:
             pointer = _X_ROOT.query_pointer()
-            wins = _cached_list_windows_at(pointer.root_x, pointer.root_y)
+            wins = _fallback_list_windows_at(pointer.root_x, pointer.root_y)
             if wins:
                 return wins[0]
         except Exception:
@@ -321,7 +321,7 @@ def get_window_at(x: int, y: int) -> WindowInfo:
         except Exception:
             return WindowInfo(None)
 
-    wins = _cached_list_windows_at(x, y)
+    wins = _fallback_list_windows_at(x, y)
     return wins[0] if wins else WindowInfo(None)
 
 
@@ -433,8 +433,13 @@ def prime_window_cache() -> None:
         _WINDOWS_REFRESH.set()
 
 
-def _cached_list_windows_at(x: int, y: int) -> List[WindowInfo]:
-    """Return cached enumeration results for ``(x, y)``."""
+def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
+    """Return cached window enumeration results for ``(x, y)``.
+
+    This function ensures window enumeration runs in a background thread.
+    The thread populates a shared cache so callers can return immediately
+    without spawning new subprocesses each time.
+    """
 
     _ensure_window_worker()
     now = time.time()
@@ -507,7 +512,7 @@ def list_windows_at(x: int, y: int) -> List[WindowInfo]:
             return [get_window_at(x, y)]
 
     # X11 and other Unix-like systems
-    return _cached_list_windows_at(x, y)
+    return _fallback_list_windows_at(x, y)
 
 
 def make_window_clickthrough(win: Any) -> bool:
