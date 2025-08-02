@@ -1,5 +1,6 @@
 import unittest
 from unittest import mock
+import time
 
 from src.utils.window_utils import (
     WindowInfo,
@@ -32,6 +33,25 @@ class TestWindowUtils(unittest.TestCase):
         self.assertIsInstance(wins, list)
         for info in wins:
             self.assertIsInstance(info, WindowInfo)
+
+    def test_fallback_async_cache(self):
+        from src.utils import window_utils as wu
+
+        fake_old = WindowInfo(2, (0, 0, 1, 1), "old")
+        wu._SUBPROC_CACHE = {"time": 0.0, "windows": [fake_old]}
+
+        def fake_enum():
+            time.sleep(0.1)
+            return [WindowInfo(1, (0, 0, 1, 1), "new")]
+
+        with mock.patch.object(wu, "_enumerate_subproc_windows", fake_enum):
+            start = time.time()
+            res = wu._fallback_list_windows_at(0, 0)
+            self.assertLess(time.time() - start, 0.05)
+            self.assertEqual(res, [fake_old])
+            time.sleep(0.15)
+            res2 = wu._fallback_list_windows_at(0, 0)
+            self.assertEqual(res2[0].pid, 1)
 
     def test_x11_shortcuts(self):
         from src.utils import window_utils as wu

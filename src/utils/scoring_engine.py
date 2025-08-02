@@ -7,7 +7,7 @@ from collections import deque
 from dataclasses import dataclass, fields
 from typing import Deque, Dict, List, Tuple
 
-from .window_utils import WindowInfo, list_windows_at
+from .window_utils import WindowInfo, list_windows_at, prime_window_cache
 
 
 @dataclass(slots=True)
@@ -212,6 +212,7 @@ class ScoringEngine:
             maxlen=tuning.active_history_size
         )
         self.heatmap = CursorHeatmap(width, height, tuning)
+        prime_window_cache()
 
     def score_samples(
         self,

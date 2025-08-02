@@ -24,6 +24,7 @@ from src.utils.window_utils import (
     get_window_at,
     get_window_under_cursor,
     list_windows_at,
+    prime_window_cache,
     make_window_clickthrough,
     remove_window_clickthrough,
     set_window_colorkey,
@@ -319,6 +320,7 @@ class ClickOverlay(tk.Toplevel):
         self._window_cache_rect: tuple[int, int, int, int] | None = None
         self._window_cache: list[WindowInfo] = []
         self._window_cache_time: float = 0.0
+        prime_window_cache()
 
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]

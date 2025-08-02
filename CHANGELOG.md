@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.44 - 2025-08-19
+
+- **Perf:** Enumerate X11 windows on a background thread and serve cached
+  results immediately to keep overlays responsive.
+
 ## 1.0.43 - 2025-08-19
 
 - **Perf:** Cache active window PID on a background thread so overlay updates never block.
