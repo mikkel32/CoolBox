@@ -1521,21 +1521,13 @@ class TestClickOverlay(unittest.TestCase):
             patch.object(ClickOverlay, "_update_rect", return_value=None),
         ):
             overlay = ClickOverlay(root, interval=0.01)
-            overlay._process_update()
-            for _ in range(5):
-                root.update()
-                time.sleep(0.02)
+            root.update()
             self.assertEqual(mock_active.call_count, 1)
-            overlay._process_update()
-            for _ in range(5):
-                root.update()
-                time.sleep(0.02)
+            time.sleep(0.05)
+            root.update()
             self.assertEqual(mock_active.call_count, 1)
             time.sleep(0.12)
-            overlay._process_update()
-            for _ in range(5):
-                root.update()
-                time.sleep(0.02)
+            root.update()
             self.assertEqual(mock_active.call_count, 2)
             overlay.destroy()
         root.destroy()

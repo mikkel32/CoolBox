@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.42 - 2025-08-18
+
+- **Perf:** Poll active window details on a background thread to avoid blocking the overlay UI.
+
 ## 1.0.41 - 2025-08-17
 
 - **Perf:** Probe the topmost window first and cache results across small cursor
