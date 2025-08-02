@@ -774,20 +774,20 @@ class TestForceQuit(unittest.TestCase):
         ProcessEntry.change_mad_mult = 3.0
 
     def test_stable_env_vars(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, stable_cycles=5, stable_skip=2)
         assert watcher._stable_cycles == 5
         assert watcher._stable_skip == 2
         watcher.stop()
 
     def test_hide_system(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, hide_system=True)
         assert watcher.hide_system is True
         watcher.stop()
 
     def test_exclude_users(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, exclude_users={"root", "daemon"})
         assert watcher.exclude_users == {"root", "daemon"}
         watcher.stop()
@@ -868,32 +868,32 @@ class TestForceQuit(unittest.TestCase):
         assert entry.stable
 
     def test_ratio_env_vars(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, slow_ratio=0.05, fast_ratio=0.3)
         assert watcher._slow_ratio == 0.05
         assert watcher._fast_ratio == 0.3
         watcher.stop()
 
     def test_ratio_window_option(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, ratio_window=7)
         assert watcher._ratio_window == 7
         watcher.stop()
 
     def test_normal_window_option(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, normal_window=4)
         assert watcher._normal_window == 4
         watcher.stop()
 
     def test_visible_auto_option(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, visible_auto=True)
         assert watcher.visible_auto is True
         watcher.stop()
 
     def test_auto_baselines(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, visible_auto=True)
         watcher._update_auto_baselines(
             [1.0, 2.0, 3.0, 4.0], [10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4]
@@ -904,7 +904,7 @@ class TestForceQuit(unittest.TestCase):
         watcher.stop()
 
     def test_trend_env_vars(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(
             q, trend_window=6, trend_cpu=2.5, trend_mem=20.0, trend_io=0.5
         )
@@ -915,26 +915,26 @@ class TestForceQuit(unittest.TestCase):
         watcher.stop()
 
     def test_trend_io_window(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, trend_io_window=7)
         assert watcher._trend_io_window == 7
         watcher.stop()
 
     def test_trend_ratio_env_vars(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, trend_slow_ratio=0.1, trend_fast_ratio=0.4)
         assert watcher._trend_slow_ratio == 0.1
         assert watcher._trend_fast_ratio == 0.4
         watcher.stop()
 
     def test_ignore_age_option(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, ignore_age=2.5)
         assert watcher.ignore_age == 2.5
         watcher.stop()
 
     def test_change_mad_option(self) -> None:
-        q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+        q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
         watcher = ProcessWatcher(q, change_mad_mult=5.0)
         assert watcher.change_mad_mult == 5.0
         watcher.stop()

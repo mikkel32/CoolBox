@@ -508,7 +508,7 @@ class ProcessWatcher(threading.Thread):
 
     def __init__(
         self,
-        queue: Queue[tuple[dict[int, ProcessEntry], set[int]]],
+        queue: Queue[tuple[dict[int, ProcessEntry], set[int], float]],
         interval: float = 2.0,
         detail_interval: int = 3,
         max_workers: int | None = None,
@@ -757,6 +757,8 @@ class ProcessWatcher(threading.Thread):
         self._cycle_elapsed = 0.0
         self._last_change_ratio = 0.0
         self._last_trend_ratio = 0.0
+        self._processed_batches = 0
+        self._total_batches = 1
 
     def _update_idle_state(self, pid: int, cpu: float, mem: float, io_rate: float) -> None:
         """Update idle counters and skip interval for *pid* based on usage."""
@@ -1144,6 +1146,8 @@ class ProcessWatcher(threading.Thread):
             self.process_count = len(self._proc_pids)
             self._new_pids = set(self._proc_pids)
             self._proc_iter = psutil.process_iter(attrs=attrs)
+            self._processed_batches = 0
+            self._total_batches = max(1, math.ceil(self.process_count / self.batch_size))
         procs: list[psutil.Process] = []
         cycle_end = False
         try:
@@ -1311,6 +1315,7 @@ class ProcessWatcher(threading.Thread):
             sample_pids: set[int] = set()
 
             procs, cycle_end = self._next_batch(basic_attrs)
+            self._processed_batches += 1
             for proc in procs:
                 try:
                     with proc.oneshot():
@@ -1770,15 +1775,17 @@ class ProcessWatcher(threading.Thread):
                 removed = set(self._snapshot) - self._new_pids
                 self._new_pids.clear()
 
+            progress = self._processed_batches / self._total_batches
+
             if updates or removed:
                 try:
-                    self.queue.put_nowait((updates, removed))
+                    self.queue.put_nowait((updates, removed, progress))
                 except Full:
                     try:
                         self.queue.get_nowait()
                     except Empty:
                         pass
-                    self.queue.put_nowait((updates, removed))
+                    self.queue.put_nowait((updates, removed, progress))
                 for pid in removed:
                     self._snapshot.pop(pid, None)
                     self._detail_ts.pop(pid, None)

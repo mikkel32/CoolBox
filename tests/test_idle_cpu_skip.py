@@ -50,7 +50,7 @@ class _FakeProc:
 
 
 def test_proc_cpu_time_override() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_active_samples=0)
     watcher._system_time_delta = 1.0
 
@@ -68,7 +68,7 @@ def test_proc_cpu_time_override() -> None:
 
 
 def test_idle_global_alpha_param() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_global_alpha=0.7, idle_active_samples=0)
     watcher._system_time_delta = 1.0
     try:
@@ -78,7 +78,7 @@ def test_idle_global_alpha_param() -> None:
 
 
 def test_idle_cpu_skip_logic() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_cpu=1.0, idle_cycles=2, max_skip=4, idle_active_samples=0)
     watcher._cpu_count = 1
     watcher._system_time_delta = 1.0
@@ -128,7 +128,7 @@ def test_idle_cpu_skip_logic() -> None:
 
 
 def test_idle_skip_reset_on_activity() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_cpu=1.0, idle_cycles=2, max_skip=4, idle_active_samples=0)
     watcher._cpu_count = 1
     watcher._system_time_delta = 1.0
@@ -177,7 +177,7 @@ def test_idle_skip_reset_on_activity() -> None:
 
 
 def test_skip_interval_decay() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -230,7 +230,7 @@ def test_skip_interval_decay() -> None:
 
 
 def test_global_baseline_used_for_new_process() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_cpu=1.0, idle_cycles=1, max_skip=3, idle_active_samples=0)
     watcher._cpu_count = 1
     watcher._system_time_delta = 1.0
@@ -248,7 +248,7 @@ def test_global_baseline_used_for_new_process() -> None:
 
 
 def test_exponential_backoff() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_cpu=1.0, idle_cycles=1, max_skip=8, idle_active_samples=0)
     watcher._cpu_count = 1
     watcher._system_time_delta = 1.0
@@ -301,7 +301,7 @@ def test_exponential_backoff() -> None:
 
 
 def test_idle_skip_jitter(monkeypatch) -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -344,7 +344,7 @@ def test_idle_skip_jitter(monkeypatch) -> None:
 
 
 def test_idle_skip_multiplier() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -394,7 +394,7 @@ def test_idle_skip_multiplier() -> None:
 
 
 def test_idle_dynamic_multiplier() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -440,7 +440,7 @@ def test_idle_dynamic_multiplier() -> None:
 
 
 def test_idle_dynamic_weighted_rms() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -501,7 +501,7 @@ def test_idle_dynamic_weighted_rms() -> None:
 
 
 def test_idle_dynamic_exponent() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -548,7 +548,7 @@ def test_idle_dynamic_exponent() -> None:
 
 
 def test_idle_decay_exponent() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -598,7 +598,7 @@ def test_idle_decay_exponent() -> None:
 
 
 def test_idle_window_baseline() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_window=3,
@@ -648,7 +648,7 @@ def test_idle_window_baseline() -> None:
 
 
 def test_idle_refresh_forces_sample() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -704,7 +704,7 @@ def test_idle_refresh_forces_sample() -> None:
 
 
 def test_idle_baseline_updates_during_skip() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -751,7 +751,7 @@ def test_idle_baseline_updates_during_skip() -> None:
 
 
 def test_idle_grace_delay() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_cpu=1.0, idle_cycles=1, idle_grace=2, max_skip=4, idle_active_samples=0)
     watcher._cpu_count = 1
     watcher._system_time_delta = 1.0
@@ -797,7 +797,7 @@ def test_idle_grace_delay() -> None:
 
 
 def test_proc_cpu_time_no_such_process(monkeypatch) -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_active_samples=0)
     proc = _FakeProc()
 
@@ -811,7 +811,7 @@ def test_proc_cpu_time_no_such_process(monkeypatch) -> None:
 
 
 def test_proc_cpu_time_generic_error(monkeypatch) -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_active_samples=0)
     proc = _FakeProc()
 
@@ -824,7 +824,7 @@ def test_proc_cpu_time_generic_error(monkeypatch) -> None:
 
 
 def test_proc_cpu_time_attribute_error(monkeypatch) -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, idle_active_samples=0)
     proc = _FakeProc()
 
@@ -838,7 +838,7 @@ def test_proc_cpu_time_attribute_error(monkeypatch) -> None:
 
 
 def test_idle_reset_ratio() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -891,7 +891,7 @@ def test_idle_reset_ratio() -> None:
 
 
 def test_idle_check_interval_breaks_skip() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -942,7 +942,7 @@ def test_idle_check_interval_breaks_skip() -> None:
 
 
 def test_idle_active_samples_delay_skipping() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1005,7 +1005,7 @@ def test_idle_active_samples_delay_skipping() -> None:
 
 
 def test_idle_mem_delta_breaks_skip() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1054,7 +1054,7 @@ def test_idle_mem_delta_breaks_skip() -> None:
 
 
 def test_idle_io_delta_breaks_skip() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1103,7 +1103,7 @@ def test_idle_io_delta_breaks_skip() -> None:
 
 
 def test_idle_mem_ratio_breaks_skip() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1152,7 +1152,7 @@ def test_idle_mem_ratio_breaks_skip() -> None:
 
 
 def test_idle_io_ratio_breaks_skip() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1201,7 +1201,7 @@ def test_idle_io_ratio_breaks_skip() -> None:
 
 
 def test_idle_mem_reset_ratio() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1250,7 +1250,7 @@ def test_idle_mem_reset_ratio() -> None:
 
 
 def test_idle_io_reset_ratio() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1299,7 +1299,7 @@ def test_idle_io_reset_ratio() -> None:
 
 
 def test_idle_mem_reset_ratio_active() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1344,7 +1344,7 @@ def test_idle_mem_reset_ratio_active() -> None:
 
 
 def test_idle_io_reset_ratio_active() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1389,7 +1389,7 @@ def test_idle_io_reset_ratio_active() -> None:
 
 
 def test_global_mem_io_baseline_for_new_process() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,
@@ -1434,7 +1434,7 @@ def test_global_mem_io_baseline_for_new_process() -> None:
 
 
 def test_idle_trend_reset_breaks_skip() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(
         q,
         idle_cpu=1.0,

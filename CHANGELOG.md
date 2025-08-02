@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.63 - 2025-08-26
+
+- **Feat:** Stream process enumeration progress and disable kill actions until ready.
+
 ## 1.0.62 - 2025-08-26
 
 - **Feat:** Calibrate click overlay refresh intervals and persist settings.
