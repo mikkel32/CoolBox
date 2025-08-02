@@ -7,11 +7,12 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from ctypes import wintypes
-from typing import List
 from typing import Any
+from typing import List
 
 try:  # pragma: no cover - optional dependency
     from Xlib import X, Xatom, display as xlib_display
@@ -23,8 +24,16 @@ try:  # pragma: no cover - optional dependency
     _WM_NAME = _X_DISPLAY.intern_atom("WM_NAME")
 except Exception:  # noqa: F401
     _X_DISPLAY = None
+    _X_ROOT = None
+    _NET_CLIENT_LIST_STACKING = None
+    _WM_PID = None
+    _WM_NAME = None
 
 _SUBPROC_CACHE: dict[str, Any] = {"time": 0.0, "windows": []}
+_SUBPROC_CACHE_SEC = 2.0
+_SUBPROC_LOCK = threading.RLock()
+_SUBPROC_THREAD: threading.Thread | None = None
+_SUBPROC_REFRESH = threading.Event()
 
 
 @dataclass(frozen=True)
@@ -350,50 +359,87 @@ def _list_windows_x11(x: int, y: int) -> List[WindowInfo]:
     return results
 
 
-def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
-    """Enumerate X11 windows via subprocess with global caching."""
+def _enumerate_subproc_windows() -> List[WindowInfo]:
+    """Enumerate X11 windows via subprocess calls."""
 
-    global _SUBPROC_CACHE
+    windows: List[WindowInfo] = []
+    try:
+        stacking = subprocess.check_output(
+            ["xprop", "-root", "_NET_CLIENT_LIST_STACKING"], text=True
+        )
+        ids = (
+            [w.strip() for w in stacking.split("#", 1)[1].split()]
+            if "#" in stacking
+            else []
+        )
+        for wid in ids:
+            geom_out = subprocess.check_output(["xwininfo", "-id", wid], text=True)
+            gx = re.search(r"Absolute upper-left X:\s+(\d+)", geom_out)
+            gy = re.search(r"Absolute upper-left Y:\s+(\d+)", geom_out)
+            gw = re.search(r"Width:\s+(\d+)", geom_out)
+            gh = re.search(r"Height:\s+(\d+)", geom_out)
+            if not (gx and gy and gw and gh):
+                continue
+            wx = int(gx.group(1))
+            wy = int(gy.group(1))
+            ww = int(gw.group(1))
+            wh = int(gh.group(1))
+            pid_line = subprocess.check_output(
+                ["xprop", "-id", wid, "_NET_WM_PID"], text=True
+            )
+            match = re.search(r"= (\d+)", pid_line)
+            pid = int(match.group(1)) if match else None
+            title_out = subprocess.check_output(
+                ["xprop", "-id", wid, "WM_NAME"], text=True
+            )
+            title_match = re.search(r'"(.*)"', title_out)
+            title = title_match.group(1) if title_match else None
+            windows.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+    except Exception:
+        pass
+    return windows
+
+
+def _subproc_worker() -> None:
+    """Worker thread that refreshes the subprocess window cache."""
+
+    while True:
+        _SUBPROC_REFRESH.wait()
+        _SUBPROC_REFRESH.clear()
+        windows = _enumerate_subproc_windows()
+        now = time.time()
+        with _SUBPROC_LOCK:
+            _SUBPROC_CACHE["time"] = now
+            _SUBPROC_CACHE["windows"] = windows
+
+
+def _ensure_subproc_worker() -> None:
+    """Start the subprocess enumeration thread if needed."""
+
+    global _SUBPROC_THREAD
+    if _SUBPROC_THREAD is None or not _SUBPROC_THREAD.is_alive():
+        _SUBPROC_THREAD = threading.Thread(target=_subproc_worker, daemon=True)
+        _SUBPROC_THREAD.start()
+
+
+def prime_window_cache() -> None:
+    """Ensure the subprocess window cache is populated asynchronously."""
+
+    _ensure_subproc_worker()
+    if not _SUBPROC_REFRESH.is_set():
+        _SUBPROC_REFRESH.set()
+
+
+def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
+    """Return cached subprocess enumeration results for ``(x, y)``."""
+
+    _ensure_subproc_worker()
     now = time.time()
-    windows: List[WindowInfo] = _SUBPROC_CACHE.get("windows", [])
-    if now - _SUBPROC_CACHE.get("time", 0.0) >= 0.5 or not windows:
-        try:
-            stacking = subprocess.check_output(
-                ["xprop", "-root", "_NET_CLIENT_LIST_STACKING"], text=True
-            )
-            ids = (
-                [w.strip() for w in stacking.split("#", 1)[1].split()]
-                if "#" in stacking
-                else []
-            )
-            windows = []
-            for wid in ids:
-                geom_out = subprocess.check_output(["xwininfo", "-id", wid], text=True)
-                gx = re.search(r"Absolute upper-left X:\s+(\d+)", geom_out)
-                gy = re.search(r"Absolute upper-left Y:\s+(\d+)", geom_out)
-                gw = re.search(r"Width:\s+(\d+)", geom_out)
-                gh = re.search(r"Height:\s+(\d+)", geom_out)
-                if not (gx and gy and gw and gh):
-                    continue
-                wx = int(gx.group(1))
-                wy = int(gy.group(1))
-                ww = int(gw.group(1))
-                wh = int(gh.group(1))
-                pid_line = subprocess.check_output(
-                    ["xprop", "-id", wid, "_NET_WM_PID"], text=True
-                )
-                match = re.search(r"= (\d+)", pid_line)
-                pid = int(match.group(1)) if match else None
-                title_out = subprocess.check_output(
-                    ["xprop", "-id", wid, "WM_NAME"], text=True
-                )
-                title_match = re.search(r'"(.*)"', title_out)
-                title = title_match.group(1) if title_match else None
-                windows.append(WindowInfo(pid, (wx, wy, ww, wh), title))
-        except Exception:
-            info = get_window_at(x, y)
-            windows = [info] if info.pid is not None else []
-        _SUBPROC_CACHE = {"time": now, "windows": windows}
+    with _SUBPROC_LOCK:
+        last = _SUBPROC_CACHE.get("time", 0.0)
+        windows: List[WindowInfo] = list(_SUBPROC_CACHE.get("windows", []))
+    if now - last >= _SUBPROC_CACHE_SEC and not _SUBPROC_REFRESH.is_set():
+        _SUBPROC_REFRESH.set()
     results: List[WindowInfo] = []
     for win in windows:
         rect = win.rect
