@@ -17,7 +17,6 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional, Callable, Any
 from enum import Enum, auto
-import threading
 
 from src.utils.window_utils import (
     get_active_window,
@@ -292,15 +291,12 @@ class ClickOverlay(tk.Toplevel):
         )
         # Share history with the scoring engine
         self.engine.active_history = self._active_history
-        # Cached PID for the topmost active window. Updated on a background
-        # thread so the Tk loop never waits on :func:`get_active_window`.
+        # Cached PID for the topmost active window. Updated asynchronously so
+        # the Tk loop never waits on :func:`get_active_window`.
         self._active_pid: int | None = None
         self._destroyed = False
-        self._active_stop = threading.Event()
-        self._active_thread = threading.Thread(
-            target=self._poll_active_pid, daemon=True
-        )
-        self._active_thread.start()
+        self._active_after: str | None = None
+        self._schedule_active_pid()
         self._query_future: Future[WindowInfo] | None = None
         self._last_pid: int | None = None
         self._flash_id: str | None = None
@@ -393,25 +389,28 @@ class ClickOverlay(tk.Toplevel):
         )
         return future.result()
 
-    def _poll_active_pid(self) -> None:
-        """Update ``self._active_pid`` on a background thread."""
-        interval = ACTIVE_QUERY_MS / 1000.0
-        while not self._active_stop.is_set():
-            try:
-                self._active_pid = get_active_window().pid
-            except Exception:
-                self._active_pid = None
-            self._active_stop.wait(interval)
+    def _schedule_active_pid(self) -> None:
+        """Refresh ``self._active_pid`` asynchronously on a timer."""
+
+        def _set(info: WindowInfo) -> None:
+            self._active_pid = info.pid
+            if not self._destroyed:
+                self._active_after = self.after(
+                    ACTIVE_QUERY_MS, self._schedule_active_pid
+                )
+
+        self._score_async(get_active_window, _set)
 
 
     def destroy(self) -> None:  # type: ignore[override]
         """Ensure background threads exit before destroying the window."""
         self._destroyed = True
-        self._active_stop.set()
-        try:
-            self._active_thread.join(timeout=1.0)
-        except Exception:
-            pass
+        if self._active_after is not None:
+            try:
+                self.after_cancel(self._active_after)
+            except Exception:
+                pass
+            self._active_after = None
         try:
             self._executor.shutdown(cancel_futures=True)
         except Exception:
