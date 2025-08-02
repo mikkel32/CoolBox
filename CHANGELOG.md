@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.56 - 2025-08-26
+
+- **Feat:** Use foreground window callbacks to track active window without polling.
+
 ## 1.0.55 - 2025-08-26
 
 - **Refactor:** Introduce a shared global mouse listener to reuse across

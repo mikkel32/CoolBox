@@ -70,12 +70,34 @@ class TestWindowUtils(unittest.TestCase):
         fake = WindowInfo(1, (0, 0, 10, 10), "t")
         pointer = type("P", (), {"root_x": 5, "root_y": 6})()
 
-        with mock.patch.object(wu, "_X_DISPLAY", object()), \
-            mock.patch.object(wu, "_X_ROOT", mock.Mock(query_pointer=lambda: pointer)):
+        with (
+            mock.patch.object(wu, "_X_DISPLAY", object()),
+            mock.patch.object(wu, "_X_ROOT", mock.Mock(query_pointer=lambda: pointer)),
+        ):
             wu._WINDOWS_CACHE = {"time": time.time(), "windows": [fake]}
             self.assertEqual(get_window_under_cursor(), fake)
             self.assertEqual(wu.get_window_at(5, 6), fake)
             self.assertEqual(wu.list_windows_at(5, 6), [fake])
+
+    def test_subscribe_active_window(self):
+        from src.utils import window_utils as wu
+
+        infos = [WindowInfo(1), WindowInfo(2)]
+
+        def fake_get_active():
+            return infos.pop(0) if infos else WindowInfo(2)
+
+        received: list[WindowInfo] = []
+        with (
+            mock.patch.object(wu, "_get_active_window_uncached", side_effect=fake_get_active),
+            mock.patch.object(wu, "_POLL_INTERVAL", 0.01),
+        ):
+            unsub = wu.subscribe_active_window(lambda info: received.append(info))
+            time.sleep(0.05)
+            unsub()
+        self.assertGreaterEqual(len(received), 2)
+        self.assertEqual(received[0].pid, 1)
+        self.assertEqual(received[1].pid, 2)
 
 
 if __name__ == "__main__":
