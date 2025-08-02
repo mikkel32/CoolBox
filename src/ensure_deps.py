@@ -26,6 +26,7 @@ _DEF_PILLOW = "11.0.0"
 _DEF_PYPERCLIP = "1.8.2"
 _DEF_RICH = "13.0.0"
 _DEF_MATPLOTLIB = "3.7.0"
+_DEF_NUMPY = "1.26.0"
 
 
 def ensure_import(
@@ -101,3 +102,9 @@ def ensure_matplotlib(version: str = _DEF_MATPLOTLIB) -> ModuleType:
     """Return the ``matplotlib`` module, installing it if needed."""
 
     return ensure_import("matplotlib", version=version)
+
+
+def ensure_numpy(version: str = _DEF_NUMPY) -> ModuleType:
+    """Return the ``numpy`` module, installing it if needed."""
+
+    return ensure_import("numpy", version=version)

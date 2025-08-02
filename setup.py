@@ -30,6 +30,13 @@ except ImportError:  # pragma: no cover - runtime dependency check
         TimeElapsedColumn,
     )
 
+from src.ensure_deps import ensure_numpy
+
+try:  # Ensure NumPy is available for optional speedups
+    ensure_numpy()
+except Exception:  # pragma: no cover - dependency may be skipped
+    pass
+
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")  # noqa: E402
 from src.utils.helpers import log, get_system_info, run_with_spinner, console  # noqa: E402
 from src.utils.rainbow import NeonPulseBorder  # noqa: E402
@@ -201,6 +208,32 @@ VENV_DIR = get_venv_dir()
 DEV_PACKAGES = ["debugpy", "flake8"]
 
 
+def build_extensions() -> None:
+    """Attempt to build optional Cython extensions."""
+
+    try:
+        from Cython.Build import cythonize
+        from setuptools import Extension
+        import numpy
+    except Exception as exc:  # pragma: no cover - build tools missing
+        log(f"Skipping Cython build: {exc}")
+        return
+    try:
+        cythonize(
+            [
+                Extension(
+                    "src.utils._heatmap",
+                    ["src/utils/_heatmap.pyx"],
+                    include_dirs=[numpy.get_include()],
+                )
+            ],
+            quiet=True,
+        )
+        log("Built optional Cython extensions.")
+    except Exception as exc:  # pragma: no cover - compile may fail
+        log(f"Failed to build Cython extensions: {exc}")
+
+
 def ensure_venv(venv_dir: Path = VENV_DIR, *, python: str | None = None) -> Path:
     """Ensure a virtual environment exists and return its Python executable."""
     if sys.prefix != sys.base_prefix:
@@ -290,6 +323,7 @@ def install(
             _pip(args, python=py)
 
     log("Dependencies installed.")
+    build_extensions()
 
 
 def check_outdated(requirements: Path | None = None, *, upgrade: bool = False) -> None:
