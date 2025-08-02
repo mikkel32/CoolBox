@@ -55,14 +55,15 @@ COLORKEY_RECHECK_MS = int(
 )
 
 # Interval between background active window polls in milliseconds
-# Use a relatively slow default to avoid hammering the window manager.
+# Lower the default to improve responsiveness when the active window changes.
 ACTIVE_QUERY_MS = int(
-    os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_MS", "500")
+    os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_MS", "100")
 )
 
 # Minimum cursor movement in pixels before forcing an active window refresh
+# Smaller movements now trigger refreshes sooner for snappier hovering.
 ACTIVE_QUERY_DELTA = int(
-    os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_DELTA", "40")
+    os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_DELTA", "10")
 )
 
 # Cache TTL for window probing in seconds
