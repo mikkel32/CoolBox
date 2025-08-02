@@ -4,7 +4,8 @@ import unittest
 import threading
 import tkinter as tk
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from concurrent.futures import Future
 
 from src.views.click_overlay import (
     ClickOverlay,
@@ -1558,6 +1559,35 @@ class TestClickOverlay(unittest.TestCase):
             overlay.destroy()
             self.assertTrue(holder.get("unsub"))
         root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_query_future_cancelled_before_replacement(self) -> None:
+        root = tk.Tk()
+
+        def unsub():
+            return None
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch("src.views.click_overlay.subscribe_active_window", return_value=unsub),
+            patch("src.views.click_overlay.get_active_window", return_value=WindowInfo(None)),
+        ):
+            overlay = ClickOverlay(root)
+        try:
+            old = Future()
+            old.cancel = Mock(wraps=old.cancel)
+            old.add_done_callback = Mock(wraps=old.add_done_callback)
+            overlay._query_future = old
+
+            new = Future()
+            with patch.object(overlay._executor, "submit", return_value=new):
+                overlay._query_window_async(lambda _: None)
+
+            old.cancel.assert_called_once()
+            old.add_done_callback.assert_called_once()
+            self.assertIs(overlay._query_future, new)
+        finally:
+            overlay.destroy()
+            root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_probe_point_caches_cursor_movement(self) -> None:

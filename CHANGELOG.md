@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.59 - 2025-08-26
+
+- **Fix:** Cancel in-flight window queries before launching new ones.
+
 ## 1.0.58 - 2025-08-26
 
 - **Perf:** Prime window cache in Force Quit dialog and remove redundant overlay warm-up.
