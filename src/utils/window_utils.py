@@ -446,7 +446,7 @@ def _fallback_list_windows_at(x: int, y: int) -> List[WindowInfo]:
     with _WINDOWS_LOCK:
         last = _WINDOWS_CACHE.get("time", 0.0)
         windows: List[WindowInfo] = list(_WINDOWS_CACHE.get("windows", []))
-    if now - last >= _WINDOWS_CACHE_SEC and not _WINDOWS_REFRESH.is_set():
+    if (now - last >= _WINDOWS_CACHE_SEC or not windows) and not _WINDOWS_REFRESH.is_set():
         _WINDOWS_REFRESH.set()
     results: List[WindowInfo] = []
     for win in windows:

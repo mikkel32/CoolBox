@@ -200,6 +200,37 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_probe_point_async_refresh_fast(self) -> None:
+        root = tk.Tk()
+        from src.utils import window_utils as wu
+
+        fake_old = wu.WindowInfo(2, (0, 0, 1, 1), "old")
+        wu._WINDOWS_CACHE = {"time": 0.0, "windows": [fake_old]}
+
+        def fake_refresh() -> list[wu.WindowInfo]:
+            time.sleep(0.1)
+            return [wu.WindowInfo(1, (0, 0, 1, 1), "new")]
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch.object(wu, "_refresh_windows", fake_refresh),
+            patch(
+                "src.views.click_overlay.get_window_under_cursor",
+                return_value=WindowInfo(None),
+            ),
+        ):
+            overlay = ClickOverlay(root)
+            start = time.time()
+            info = overlay._probe_point(0, 0)
+            self.assertLess(time.time() - start, 0.05)
+            self.assertEqual(info.pid, 2)
+            time.sleep(0.15)
+            info2 = overlay._probe_point(0, 0)
+            self.assertEqual(info2.pid, 1)
+            overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_update_rect_skips_colorkey_check(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
