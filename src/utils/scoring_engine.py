@@ -9,6 +9,16 @@ from typing import Deque, Dict, List, Tuple
 
 from .window_utils import WindowInfo, list_windows_at, prime_window_cache
 
+try:  # Optional NumPy acceleration
+    import numpy as _np
+except Exception:  # pragma: no cover - optional dependency
+    _np = None
+
+try:  # Optional Cython helpers for heat-map updates
+    from ._heatmap import decay_and_bump as _cy_decay_and_bump
+except Exception:  # pragma: no cover - extension may be absent
+    _cy_decay_and_bump = None
+
 
 @dataclass(slots=True)
 class Tuning:
@@ -110,7 +120,10 @@ class CursorHeatmap:
         self.decay = tuning.heatmap_decay
         self.w = width // self.res + 1
         self.h = height // self.res + 1
-        self.grid = [[0.0 for _ in range(self.w)] for _ in range(self.h)]
+        if _np is not None:
+            self.grid = _np.zeros((self.h, self.w), dtype=_np.float64)
+        else:  # pragma: no cover - slow fallback
+            self.grid = [[0.0 for _ in range(self.w)] for _ in range(self.h)]
         self._global_decay = 1.0
 
     def update(self, x: int, y: int) -> None:
@@ -121,15 +134,26 @@ class CursorHeatmap:
         """
         if self.tuning.heatmap_weight <= 0:
             return
-        self._global_decay *= self.decay
-        if self._global_decay < 1e-6:
-            for row in self.grid:
-                for i in range(len(row)):
-                    row[i] *= self._global_decay
-            self._global_decay = 1.0
         gx = min(int(x / self.res), self.w - 1)
         gy = min(int(y / self.res), self.h - 1)
-        self.grid[gy][gx] += 1.0 / self._global_decay
+        if _cy_decay_and_bump is not None and _np is not None:
+            self._global_decay = _cy_decay_and_bump(
+                self.grid, self.decay, self._global_decay, gx, gy
+            )
+            return
+        self._global_decay *= self.decay
+        if self._global_decay < 1e-6:
+            if _np is not None:
+                self.grid *= self._global_decay
+            else:  # pragma: no cover - slow fallback
+                for row in self.grid:
+                    for i in range(len(row)):
+                        row[i] *= self._global_decay
+            self._global_decay = 1.0
+        if _np is not None:
+            self.grid[gy, gx] += 1.0 / self._global_decay
+        else:  # pragma: no cover - slow fallback
+            self.grid[gy][gx] += 1.0 / self._global_decay
 
     def region_score(self, rect: Tuple[int, int, int, int] | None) -> float:
         if not rect:
@@ -194,9 +218,20 @@ class WindowTracker:
     def best_with_confidence(self) -> Tuple[WindowInfo | None, float]:
         if not self.scores:
             return None, 0.0
-        ordered = sorted(self.scores.items(), key=lambda i: i[1], reverse=True)
-        best_pid, best_score = ordered[0]
-        second_score = ordered[1][1] if len(ordered) > 1 else 0.0
+        if _np is not None:
+            pids = _np.fromiter(self.scores.keys(), dtype=_np.int64)
+            scores = _np.fromiter(self.scores.values(), dtype=_np.float64)
+            idx = int(scores.argmax())
+            best_pid = int(pids[idx])
+            best_score = float(scores[idx])
+            if scores.size > 1:
+                second_score = float(_np.partition(scores, -2)[-2])
+            else:
+                second_score = 0.0
+        else:  # pragma: no cover - fallback path
+            ordered = sorted(self.scores.items(), key=lambda i: i[1], reverse=True)
+            best_pid, best_score = ordered[0]
+            second_score = ordered[1][1] if len(ordered) > 1 else 0.0
         info = self.best()
         return info, best_score / (second_score or 1e-6)
 

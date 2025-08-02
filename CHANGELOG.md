@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.60 - 2025-08-26
+
+- **Perf:** Vectorize cursor heat-map updates and window tracker confidence
+  calculations with optional Cython helpers.
+
 ## 1.0.59 - 2025-08-26
 
 - **Fix:** Cancel in-flight window queries before launching new ones.
