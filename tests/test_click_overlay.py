@@ -1622,6 +1622,50 @@ class TestClickOverlay(unittest.TestCase):
             overlay.destroy()
             root.destroy()
 
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_process_update_skips_pointer_when_hooked(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            overlay.state = OverlayState.HOOKED
+            overlay._cursor_x = 10
+            overlay._cursor_y = 20
+            overlay.winfo_pointerx = unittest.mock.Mock(
+                side_effect=AssertionError("should not be called")
+            )  # type: ignore[assignment]
+            overlay.winfo_pointery = unittest.mock.Mock(
+                side_effect=AssertionError("should not be called")
+            )  # type: ignore[assignment]
+            with patch.object(overlay, "_update_rect", return_value=None):
+                overlay._process_update()
+            overlay.winfo_pointerx.assert_not_called()
+            overlay.winfo_pointery.assert_not_called()
+            self.assertEqual((overlay._cursor_x, overlay._cursor_y), (10, 20))
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_process_update_polls_pointer_when_unhooked(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        try:
+            overlay.state = OverlayState.POLLING
+            overlay._cursor_x = 1
+            overlay._cursor_y = 2
+            overlay.winfo_pointerx = unittest.mock.Mock(return_value=30)  # type: ignore[assignment]
+            overlay.winfo_pointery = unittest.mock.Mock(return_value=40)  # type: ignore[assignment]
+            with patch.object(overlay, "_update_rect", return_value=None):
+                overlay._process_update()
+            overlay.winfo_pointerx.assert_called_once()
+            overlay.winfo_pointery.assert_called_once()
+            self.assertEqual((overlay._cursor_x, overlay._cursor_y), (30, 40))
+        finally:
+            overlay.destroy()
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
