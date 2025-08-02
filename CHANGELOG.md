@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.46 - 2025-08-21
+
+- **Perf:** Poll the active window on a timer and serve cached results to
+  keep overlay updates off the UI thread.
+
 ## 1.0.45 - 2025-08-20
 
 - **Perf:** Keep X11 window enumeration on a background thread and return
