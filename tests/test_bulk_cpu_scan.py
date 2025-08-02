@@ -5,7 +5,7 @@ from src.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 def test_scan_proc_stat_self() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q)
     try:
         if not os.path.isdir("/proc"):
@@ -18,7 +18,7 @@ def test_scan_proc_stat_self() -> None:
 
 
 def test_bulk_cpu_threshold_param() -> None:
-    q: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, bulk_cpu_threshold=5, bulk_cpu_workers=2)
     try:
         assert watcher.bulk_cpu_threshold == 5

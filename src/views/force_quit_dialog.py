@@ -81,7 +81,9 @@ class ForceQuitDialog(BaseDialog):
         self.process_snapshot: dict[int, ProcessEntry] = {}
         self._row_cache: dict[int, tuple[tuple, tuple]] = {}
         self._changed_tags: dict[int, int] = {}
-        self._queue: Queue[tuple[dict[int, ProcessEntry], set[int]]] = Queue(maxsize=1)
+        self._queue: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue(maxsize=1)
+        self._enum_progress = 0.0
+        self._actions_enabled = False
         self.paused = False
         fps_env = os.getenv("FORCE_QUIT_FPS")
         if fps_env and fps_env.isdigit():
@@ -591,10 +593,12 @@ class ForceQuitDialog(BaseDialog):
         if has_cursor_window_support():
             actions.append(("Kill by Click", self._kill_by_click))
         actions.append(("Kill Zombies", self._kill_zombies))
+        self._action_buttons: list[ctk.CTkButton] = []
         for i, (text, cmd) in enumerate(actions):
-            btn = ctk.CTkButton(actions_scroll, text=text, command=cmd)
+            btn = ctk.CTkButton(actions_scroll, text=text, command=cmd, state=tk.DISABLED)
             btn.grid(row=i // 2, column=i % 2, padx=5, pady=5, sticky="ew")
             self.add_tooltip(btn, "Force terminate matching processes")
+            self._action_buttons.append(btn)
         actions_scroll.grid_columnconfigure(0, weight=1)
         actions_scroll.grid_columnconfigure(1, weight=1)
 
@@ -855,9 +859,13 @@ class ForceQuitDialog(BaseDialog):
         self.details_text.configure(state="disabled")
         self._toggle_details()
 
-        ctk.CTkButton(
-            monitor_tab, text="Force Quit Selected", command=self._kill_selected
-        ).pack(pady=(5, 0))
+        self.kill_selected_btn = ctk.CTkButton(
+            monitor_tab,
+            text="Force Quit Selected",
+            command=self._kill_selected,
+            state=tk.DISABLED,
+        )
+        self.kill_selected_btn.pack(pady=(5, 0))
 
         self.status_var = ctk.StringVar(value="0 processes")
         ctk.CTkLabel(monitor_tab, textvariable=self.status_var, font=self.font).pack(
@@ -882,7 +890,8 @@ class ForceQuitDialog(BaseDialog):
     def _drain_queue(self) -> None:
         changed = False
         while not self._queue.empty():
-            updates, removed = self._queue.get_nowait()
+            updates, removed, progress = self._queue.get_nowait()
+            self._enum_progress = progress
             if updates or removed:
                 changed = True
             self.process_snapshot.update(updates)
@@ -891,6 +900,16 @@ class ForceQuitDialog(BaseDialog):
                 self._changed_tags.pop(pid, None)
         if changed:
             self._snapshot_changed = True
+
+    def _update_kill_actions(self) -> None:
+        enable = self._enum_progress >= 1.0
+        if enable == self._actions_enabled:
+            return
+        state = tk.NORMAL if enable else tk.DISABLED
+        self.kill_selected_btn.configure(state=state)
+        for btn in self._action_buttons:
+            btn.configure(state=state)
+        self._actions_enabled = enable
 
     @staticmethod
     def _find_over_threshold(
@@ -1662,6 +1681,11 @@ class ForceQuitDialog(BaseDialog):
         self._watcher.adaptive_detail = enabled
 
     def _update_status(self, count: int) -> None:
+        if self._enum_progress < 1.0:
+            self.status_var.set(
+                f"Enumerating processes: {int(self._enum_progress * 100)}%"
+            )
+            return
         selected = len(self.tree.selection())
         total_cpu = sum(p.cpu for p in self.process_snapshot.values())
         total_mem = sum(p.mem for p in self.process_snapshot.values())
@@ -2219,6 +2243,8 @@ class ForceQuitDialog(BaseDialog):
             self._after_id = self.after(self.frame_delay, self._auto_refresh)
             return
         self._drain_queue()
+        self._update_kill_actions()
+        self._update_status(len(self.tree.get_children()))
         key = self._current_filter_key()
         if self._snapshot_changed or key != self._filter_cache:
             self._apply_filter_sort()

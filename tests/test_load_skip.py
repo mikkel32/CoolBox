@@ -5,7 +5,7 @@ from src.utils.process_monitor import ProcessWatcher
 
 
 def test_load_skip_params() -> None:
-    q: Queue[tuple[dict[int, object], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, load_threshold=50.0, load_cycles=3)
     try:
         assert watcher.load_threshold == 50.0
@@ -15,7 +15,7 @@ def test_load_skip_params() -> None:
 
 
 def test_should_pause_for_load(monkeypatch) -> None:
-    q: Queue[tuple[dict[int, object], set[int]]] = Queue()
+    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
     watcher = ProcessWatcher(q, load_threshold=10.0, load_cycles=2)
     called = []
 
