@@ -616,6 +616,11 @@ class ClickOverlay(tk.Toplevel):
 
     def _query_window_async(self, callback: Callable[[WindowInfo], None]) -> None:
         """Resolve the window under the cursor on the worker thread."""
+        if self._query_future is not None and not self._query_future.done():
+            self._query_future.cancel()
+            self._query_future.add_done_callback(
+                lambda f: f.exception() if not f.cancelled() else None
+            )
 
         x, y = int(self._cursor_x), int(self._cursor_y)
         future = self._executor.submit(self._query_window_at, x, y)
