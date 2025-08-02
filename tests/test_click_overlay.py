@@ -3,6 +3,7 @@ import time
 import unittest
 import threading
 import tkinter as tk
+from typing import Any
 from unittest.mock import patch
 
 from src.views.click_overlay import (
@@ -1533,56 +1534,29 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_active_window_query_async(self) -> None:
+    def test_active_window_subscription(self) -> None:
         root = tk.Tk()
+        holder: dict[str, Any] = {}
+
+        def fake_subscribe(cb):
+            holder["cb"] = cb
+
+            def unsub():
+                holder["unsub"] = True
+
+            return unsub
+
         with (
             patch("src.views.click_overlay.is_supported", return_value=False),
             patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
-            patch("src.views.click_overlay.get_active_window") as mock_active,
-            patch("src.views.click_overlay.ACTIVE_QUERY_MS", 0),
+            patch("src.views.click_overlay.subscribe_active_window", side_effect=fake_subscribe),
             patch.object(ClickOverlay, "_update_rect", return_value=None),
         ):
-            def slow_active():
-                time.sleep(0.2)
-                return WindowInfo(123)
-
-            mock_active.side_effect = slow_active
             overlay = ClickOverlay(root, interval=0.01)
-            overlay._last_active_query = time.monotonic() - 1
-            start = time.perf_counter()
-            overlay._process_update()
-            duration = time.perf_counter() - start
-            self.assertLess(duration, 0.2)
-            for _ in range(10):
-                root.update()
-                time.sleep(0.05)
+            holder["cb"](WindowInfo(123))
             self.assertEqual(overlay._active_pid, 123)
             overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_active_window_throttled(self) -> None:
-        root = tk.Tk()
-        with (
-            patch("src.views.click_overlay.is_supported", return_value=False),
-            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
-            patch("src.views.click_overlay.get_active_window", return_value=WindowInfo(1)) as mock_active,
-            patch("src.views.click_overlay.ACTIVE_QUERY_MS", 100),
-            patch.object(ClickOverlay, "_update_rect", return_value=None),
-        ):
-            overlay = ClickOverlay(root, interval=0.01)
-            overlay._last_active_query = time.monotonic() - 1
-            overlay._process_update()
-            time.sleep(0.01)
-            self.assertEqual(mock_active.call_count, 1)
-            overlay._process_update()
-            time.sleep(0.01)
-            self.assertEqual(mock_active.call_count, 1)
-            time.sleep(0.12)
-            overlay._process_update()
-            time.sleep(0.01)
-            self.assertEqual(mock_active.call_count, 2)
-            overlay.destroy()
+            self.assertTrue(holder.get("unsub"))
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")

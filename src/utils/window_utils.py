@@ -11,8 +11,7 @@ import threading
 import time
 from dataclasses import dataclass
 from ctypes import wintypes
-from typing import Any
-from typing import List
+from typing import Any, List, Callable
 
 try:  # pragma: no cover - optional dependency
     from Xlib import X, Xatom, display as xlib_display
@@ -52,6 +51,14 @@ _ACTIVE_WINDOW_CACHE: dict[str, Any] = {
     "info": WindowInfo(None),
 }
 _ACTIVE_WINDOW_CACHE_SEC = 0.3
+
+
+_ACTIVE_SUBSCRIBERS: list[Callable[[WindowInfo], None]] = []
+_ACTIVE_SUB_LOCK = threading.RLock()
+_ACTIVE_THREAD: threading.Thread | None = None
+_ACTIVE_STOP = threading.Event()
+_POLL_INTERVAL = 0.5
+_WIN_THREAD_ID: int | None = None
 
 
 def has_active_window_support() -> bool:
@@ -172,6 +179,160 @@ def get_active_window() -> WindowInfo:
     _ACTIVE_WINDOW_CACHE["time"] = now
     _ACTIVE_WINDOW_CACHE["info"] = info
     return info
+
+
+def _dispatch_active(info: WindowInfo) -> None:
+    with _ACTIVE_SUB_LOCK:
+        callbacks = list(_ACTIVE_SUBSCRIBERS)
+    for cb in callbacks:
+        try:
+            cb(info)
+        except Exception:
+            pass
+
+
+def _win_active_thread() -> None:
+    global _WIN_THREAD_ID
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+
+    WinEventProc = ctypes.WINFUNCTYPE(
+        None,
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.HWND,
+        wintypes.LONG,
+        wintypes.LONG,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    )
+
+    EVENT_SYSTEM_FOREGROUND = 0x0003
+    WINEVENT_OUTOFCONTEXT = 0x0000
+
+    def _info_from_hwnd(hwnd: wintypes.HWND) -> WindowInfo:
+        rect = wintypes.RECT()
+        geom = None
+        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            geom = (
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+            )
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        title_buf = ctypes.create_unicode_buffer(1024)
+        length = user32.GetWindowTextW(hwnd, title_buf, 1024)
+        title = title_buf.value if length else None
+        return WindowInfo(int(pid.value) if pid.value else None, geom, title)
+
+    def _callback(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
+        if event == EVENT_SYSTEM_FOREGROUND:
+            _dispatch_active(_info_from_hwnd(hwnd))
+
+    proc = WinEventProc(_callback)
+    hook = user32.SetWinEventHook(
+        EVENT_SYSTEM_FOREGROUND,
+        EVENT_SYSTEM_FOREGROUND,
+        0,
+        proc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT,
+    )
+    _WIN_THREAD_ID = kernel32.GetCurrentThreadId()
+    msg = wintypes.MSG()
+    while not _ACTIVE_STOP.is_set() and user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
+        user32.TranslateMessage(ctypes.byref(msg))
+        user32.DispatchMessageW(ctypes.byref(msg))
+    if hook:
+        user32.UnhookWinEvent(hook)
+
+
+def _mac_active_thread() -> None:
+    import Quartz
+
+    def _callback(proxy, type_, event, refcon):
+        _dispatch_active(_get_active_window_uncached())
+        return event
+
+    mask = (
+        Quartz.CGEventMaskBit(Quartz.kCGEventMouseMoved)
+        | Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseDown)
+        | Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown)
+    )
+    tap = Quartz.CGEventTapCreate(
+        Quartz.kCGSessionEventTap,
+        Quartz.kCGHeadInsertEventTap,
+        Quartz.kCGEventTapOptionListenOnly,
+        mask,
+        _callback,
+        None,
+    )
+    if not tap:
+        return
+    run_loop = Quartz.CFRunLoopGetCurrent()
+    source = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
+    Quartz.CFRunLoopAddSource(run_loop, source, Quartz.kCFRunLoopCommonModes)
+    Quartz.CGEventTapEnable(tap, True)
+    while not _ACTIVE_STOP.is_set():
+        Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, 0.1, True)
+    Quartz.CGEventTapEnable(tap, False)
+
+
+def _poll_active_thread() -> None:
+    last: int | None = None
+    while not _ACTIVE_STOP.is_set():
+        info = _get_active_window_uncached()
+        if info.pid != last:
+            last = info.pid
+            _dispatch_active(info)
+        time.sleep(_POLL_INTERVAL)
+
+
+def _ensure_active_thread() -> None:
+    global _ACTIVE_THREAD
+    if _ACTIVE_THREAD is not None:
+        return
+    if sys.platform.startswith("win"):
+        target = _win_active_thread
+    elif sys.platform == "darwin":
+        target = _mac_active_thread
+    else:
+        target = _poll_active_thread
+    _ACTIVE_THREAD = threading.Thread(target=target, daemon=True)
+    _ACTIVE_THREAD.start()
+
+
+def subscribe_active_window(
+    callback: Callable[[WindowInfo], None]
+) -> Callable[[], None]:
+    """Subscribe to foreground window changes."""
+
+    with _ACTIVE_SUB_LOCK:
+        _ACTIVE_SUBSCRIBERS.append(callback)
+        _ensure_active_thread()
+
+    def unsubscribe() -> None:
+        with _ACTIVE_SUB_LOCK:
+            try:
+                _ACTIVE_SUBSCRIBERS.remove(callback)
+            except ValueError:
+                pass
+            if not _ACTIVE_SUBSCRIBERS:
+                _ACTIVE_STOP.set()
+                if sys.platform.startswith("win") and _WIN_THREAD_ID is not None:
+                    try:
+                        ctypes.windll.user32.PostThreadMessageW(_WIN_THREAD_ID, 0x0012, 0, 0)
+                    except Exception:
+                        pass
+                if _ACTIVE_THREAD is not None:
+                    _ACTIVE_THREAD.join()
+                _ACTIVE_STOP.clear()
+                globals()["_ACTIVE_THREAD"] = None
+
+    return unsubscribe
 
 
 def get_window_under_cursor() -> WindowInfo:

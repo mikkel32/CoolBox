@@ -28,6 +28,7 @@ from src.utils.window_utils import (
     make_window_clickthrough,
     remove_window_clickthrough,
     set_window_colorkey,
+    subscribe_active_window,
     WindowInfo,
 )
 from src.utils.mouse_listener import get_global_listener, is_supported
@@ -56,17 +57,6 @@ FALLBACK_ALPHA = float(os.getenv("KILL_BY_CLICK_FALLBACK_ALPHA", "0.3"))
 # Minimum time between colorkey validations in milliseconds
 COLORKEY_RECHECK_MS = int(
     os.getenv("KILL_BY_CLICK_COLORKEY_RECHECK_MS", "1000")
-)
-
-# Interval between background active window polls in milliseconds
-# Use a relatively slow default to avoid hammering the window manager.
-ACTIVE_QUERY_MS = int(
-    os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_MS", "500")
-)
-
-# Minimum cursor movement in pixels before forcing an active window refresh
-ACTIVE_QUERY_DELTA = int(
-    os.getenv("KILL_BY_CLICK_ACTIVE_QUERY_DELTA", "40")
 )
 
 # Cache TTL for window probing in seconds
@@ -301,11 +291,9 @@ class ClickOverlay(tk.Toplevel):
         )
         # Share history with the scoring engine
         self.engine.active_history = self._active_history
-        # Cached active window info queried off the main thread.
+        # Active window tracking via subscription callback.
         self._active_pid: int | None = None
-        self._active_info: WindowInfo | None = None
-        self._active_future: Future[WindowInfo] | None = None
-        self._last_active_query = 0.0
+        self._unsubscribe_active = subscribe_active_window(self._on_active_window)
         self._destroyed = False
         self._query_future: Future[WindowInfo] | None = None
         self._last_pid: int | None = None
@@ -317,7 +305,6 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_x = 0
             self._cursor_y = 0
         self._last_move_pos = (self._cursor_x, self._cursor_y)
-        self._last_active_pos = (self._cursor_x, self._cursor_y)
         self._frame_times: deque[float] = deque(maxlen=60)
         self.avg_frame_ms = 0.0
         self._last_frame_start = 0.0
@@ -401,17 +388,25 @@ class ClickOverlay(tk.Toplevel):
         )
         return future.result()
 
-    def _set_active_info(self, info: WindowInfo) -> None:
-        """Store active window details returned from a worker thread."""
+    def _on_active_window(self, info: WindowInfo) -> None:
+        """Handle active window change notifications."""
 
-        self._active_info = info
         self._active_pid = info.pid
         if not self._destroyed:
+            now = time.monotonic()
+            pid = info.pid
+            if pid not in (self._own_pid, None):
+                if not self._active_history or self._active_history[-1][0] != pid:
+                    self._active_history.append((pid, now))
             self._queue_update()
 
     def destroy(self) -> None:  # type: ignore[override]
         """Ensure background threads exit before destroying the window."""
         self._destroyed = True
+        try:
+            self._unsubscribe_active()
+        except Exception:
+            pass
         super().destroy()
 
     def _ensure_colorkey(self) -> None:
@@ -550,26 +545,6 @@ class ClickOverlay(tk.Toplevel):
             self._cached_info = None
         self._cursor_x = x
         self._cursor_y = y
-        now = time.monotonic()
-        if (
-            self._active_future is None or self._active_future.done()
-        ) and (
-            now - self._last_active_query >= ACTIVE_QUERY_MS / 1000.0
-            or math.hypot(
-                self._cursor_x - self._last_active_pos[0],
-                self._cursor_y - self._last_active_pos[1],
-            )
-            > ACTIVE_QUERY_DELTA
-        ):
-            self._last_active_query = now
-            self._last_active_pos = (self._cursor_x, self._cursor_y)
-            self._active_future = self._score_async(
-                get_active_window, self._set_active_info
-            )
-        pid = self._active_pid
-        if pid not in (self._own_pid, None):
-            if not self._active_history or self._active_history[-1][0] != pid:
-                self._active_history.append((pid, now))
         start = time.perf_counter()
         self._last_frame_start = start
         self._update_rect()
