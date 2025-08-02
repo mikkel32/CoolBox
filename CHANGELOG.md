@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.38 - 2025-08-14
+
+- **Perf:** Refresh the active window PID asynchronously on a timer to keep the
+  click overlay responsive.
+
 ## 1.0.37 - 2025-08-13
 
 - **Perf:** Query the active window asynchronously with caching so the click
