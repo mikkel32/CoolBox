@@ -517,12 +517,9 @@ class ClickOverlay(tk.Toplevel):
             self.engine.heatmap.update(_e.x_root, _e.y_root)
             self._cursor_x = _e.x_root
             self._cursor_y = _e.y_root
-        else:
-            try:
-                self._cursor_x = self.winfo_pointerx()
-                self._cursor_y = self.winfo_pointery()
-            except Exception:
-                pass
+        elif self.state is OverlayState.POLLING:
+            self._cursor_x = self.winfo_pointerx()
+            self._cursor_y = self.winfo_pointery()
         if self.update_state is UpdateState.IDLE:
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
@@ -543,10 +540,10 @@ class ClickOverlay(tk.Toplevel):
 
     def _process_update(self) -> None:
         self.update_state = UpdateState.IDLE
-        try:
+        if self.state is OverlayState.POLLING:
             x = self.winfo_pointerx()
             y = self.winfo_pointery()
-        except Exception:
+        else:
             x = self._cursor_x
             y = self._cursor_y
         if x != self._cursor_x or y != self._cursor_y:

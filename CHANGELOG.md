@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.53 - 2025-08-26
+
+- **Fix:** Skip Tk pointer lookups when hooks are active and fall back to polling
+  only when hooks are unavailable.
+
 ## 1.0.52 - 2025-08-26
 
 - **Perf:** Prime window cache on cursor movement so the click overlay reacts
