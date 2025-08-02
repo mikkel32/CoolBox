@@ -111,6 +111,7 @@ class CursorHeatmap:
         self.w = width // self.res + 1
         self.h = height // self.res + 1
         self.grid = [[0.0 for _ in range(self.w)] for _ in range(self.h)]
+        self._global_decay = 1.0
 
     def update(self, x: int, y: int) -> None:
         """Decay the heat-map and bump the cell under ``(x, y)``.
@@ -120,12 +121,15 @@ class CursorHeatmap:
         """
         if self.tuning.heatmap_weight <= 0:
             return
+        self._global_decay *= self.decay
+        if self._global_decay < 1e-6:
+            for row in self.grid:
+                for i in range(len(row)):
+                    row[i] *= self._global_decay
+            self._global_decay = 1.0
         gx = min(int(x / self.res), self.w - 1)
         gy = min(int(y / self.res), self.h - 1)
-        for row in self.grid:
-            for i in range(len(row)):
-                row[i] *= self.decay
-        self.grid[gy][gx] += 1.0
+        self.grid[gy][gx] += 1.0 / self._global_decay
 
     def region_score(self, rect: Tuple[int, int, int, int] | None) -> float:
         if not rect:
@@ -142,7 +146,7 @@ class CursorHeatmap:
             for gx in range(gx1, gx2 + 1):
                 total += row[gx]
                 cells += 1
-        return total / max(cells, 1)
+        return total * self._global_decay / max(cells, 1)
 
 
 class WindowTracker:

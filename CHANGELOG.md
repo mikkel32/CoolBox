@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.49 - 2025-08-24
+
+- **Perf:** Switch cursor heatmap to lazy decay so only the active cell updates each frame.
+
 ## 1.0.48 - 2025-08-23
 
 - **Perf:** Use cached window lists for click overlay queries so enumeration never blocks.
