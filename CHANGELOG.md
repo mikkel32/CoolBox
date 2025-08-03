@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.3 - 2025-09-13
+
+- **Feat:** Scale click overlay debounce thresholds with cursor velocity.
+
 ## 1.2.2 - 2025-09-12
 
 - **Fix:** Avoid redundant selection when highlighting the same PID.

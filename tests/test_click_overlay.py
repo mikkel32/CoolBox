@@ -21,6 +21,8 @@ from src.views.click_overlay import (  # noqa: E402
     COLORKEY_RECHECK_MS,
     OverlayState,
     DEFAULT_INTERVAL,
+    MOVE_DEBOUNCE_MS,
+    MIN_MOVE_PX,
 )
 
 
@@ -1108,6 +1110,55 @@ class TestClickOverlay(unittest.TestCase):
             overlay.after_idle.assert_not_called()
             overlay.destroy()
             root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_move_thresholds_scale_with_velocity(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay._velocity = 0.0
+        low_ms, low_px = overlay._move_thresholds()
+        overlay._velocity = 500.0
+        high_ms, high_px = overlay._move_thresholds()
+
+        self.assertEqual((low_ms, low_px), (MOVE_DEBOUNCE_MS, MIN_MOVE_PX))
+        self.assertGreater(high_ms, low_ms)
+        self.assertGreater(high_px, low_px)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_move_respects_velocity_scaled_threshold(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.after_idle = unittest.mock.Mock()
+        overlay._last_move_time = 0.0
+        overlay._last_move_pos = (0, 0)
+
+        with patch("src.views.click_overlay.time.time", return_value=0.02):
+            overlay._velocity = 0.0
+            overlay._on_move(5, 0)
+
+        overlay.after_idle.assert_called_once_with(overlay._handle_move)
+
+        overlay.after_idle.reset_mock()
+        overlay._move_scheduled = False
+        overlay._pending_move = None
+        overlay._last_move_time = 0.0
+        overlay._last_move_pos = (0, 0)
+        overlay._velocity = 500.0
+
+        with patch("src.views.click_overlay.time.time", return_value=0.02):
+            overlay._on_move(5, 0)
+
+        overlay.after_idle.assert_not_called()
+
+        overlay.destroy()
+        root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_weighted_choice_prefers_active_pid(self) -> None:
