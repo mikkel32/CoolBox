@@ -1178,10 +1178,12 @@ class TestClickOverlay(unittest.TestCase):
             overlay = ClickOverlay(root)
 
         overlay.after_idle = unittest.mock.Mock()
-        overlay._on_move(55, 66)
+        overlay._last_move_time = time.time() - 0.01
+        overlay._last_move_pos = (0, 0)
+        overlay._on_move(5, 0)
 
         overlay.after_idle.assert_called_once_with(overlay._handle_move)
-        self.assertEqual(overlay._pending_move[:2], (55, 66))
+        self.assertEqual(overlay._pending_move[:2], (5, 0))
 
         overlay.destroy()
         root.destroy()
@@ -1249,6 +1251,30 @@ class TestClickOverlay(unittest.TestCase):
         with patch("src.views.click_overlay.time.time", return_value=0.02):
             overlay._on_move(5, 0)
 
+        overlay.after_idle.assert_not_called()
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_move_fast_motion_calls_handle_immediately(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.after_idle = unittest.mock.Mock()
+
+        def fake_handle() -> None:
+            overlay._move_scheduled = False
+
+        overlay._handle_move = unittest.mock.Mock(side_effect=fake_handle)
+        overlay._last_move_time = 0.0
+        overlay._last_move_pos = (0, 0)
+
+        with patch("src.views.click_overlay.time.time", return_value=0.01):
+            overlay._on_move(100, 0)
+
+        overlay._handle_move.assert_called_once()
         overlay.after_idle.assert_not_called()
 
         overlay.destroy()

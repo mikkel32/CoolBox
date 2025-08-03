@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.9 - 2025-09-19
+
+- **Perf:** Process fast pointer moves immediately for smoother hover updates.
+
 ## 1.2.8 - 2025-09-18
 
 - **Fix:** Clamp delay smoothing to the minimum interval to avoid negative scheduling after slow frames.
