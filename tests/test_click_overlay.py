@@ -1128,6 +1128,28 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_stays_above_other_windows(self) -> None:
+        root = tk.Tk()
+        other = tk.Toplevel(root)
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        overlay.deiconify()
+        overlay.lift()
+        overlay.update_idletasks()
+        overlay.wait_visibility()
+        with patch.object(overlay, "lift") as lift_mock:
+            overlay._update_rect(WindowInfo(1, (0, 0, 10, 10)))
+            lift_mock.assert_not_called()
+        is_above = int(
+            root.tk.call("wm", "stackorder", "isabove", overlay._w, other._w)
+        )
+        self.assertEqual(is_above, 1)
+        self.assertTrue(overlay.attributes("-topmost"))
+        overlay.destroy()
+        other.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_queue_update_records_coordinates(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

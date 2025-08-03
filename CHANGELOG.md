@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.14 - 2025-09-24
+
+- **Fix:** Lift click overlay once during selection and drop redundant z-order checks.
+
 ## 1.2.13 - 2025-09-23
 
 - **Perf:** Cache window probes by cursor position with configurable granularity.
