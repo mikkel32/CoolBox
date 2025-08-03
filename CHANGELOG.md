@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.15 - 2025-09-25
+
+- **Refactor:** Split overlay update into gaze, crosshair, label and hover helpers.
+
 ## 1.2.14 - 2025-09-24
 
 - **Fix:** Lift click overlay once during selection and drop redundant z-order checks.
