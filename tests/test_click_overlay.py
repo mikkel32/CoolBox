@@ -21,7 +21,6 @@ from src.views.click_overlay import (  # noqa: E402
     COLORKEY_RECHECK_MS,
     OverlayState,
     DEFAULT_INTERVAL,
-    MOVE_DEBOUNCE_MIN_MS,
 )
 from src.views.force_quit_dialog import ForceQuitDialog  # noqa: E402
 
@@ -1332,6 +1331,22 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_move_no_debounce_when_disabled(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.set_move_debounce_ms(0)
+        overlay.after_idle = unittest.mock.Mock()
+        overlay._last_move_time = time.time()
+        overlay._last_move_pos = (0, 0)
+        overlay._on_move(0, 0)
+
+        overlay.after_idle.assert_called_once_with(overlay._handle_move)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_queue_update_debounced_when_below_threshold(self) -> None:
         with patch.dict(
             os.environ,
@@ -1389,7 +1404,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._velocity = 500.0
         high_ms, high_px = overlay._move_thresholds()
 
-        self.assertEqual((low_ms, low_px), (MOVE_DEBOUNCE_MIN_MS, overlay._min_move_px))
+        self.assertEqual((low_ms, low_px), (overlay._move_debounce_ms, overlay._min_move_px))
         self.assertGreater(high_ms, low_ms)
         self.assertGreater(high_px, low_px)
 

@@ -238,14 +238,10 @@ PROBE_CACHE_GRANULARITY = _load_int(
     "KILL_BY_CLICK_PROBE_GRID", "kill_by_click_probe_grid", 5
 )
 
-# Minimum debounce thresholds. Actual values scale with cursor velocity and
-# display DPI but will not drop below these minimums. Override via
-# ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` / ``kill_by_click_move_debounce_ms`` and
-# ``KILL_BY_CLICK_MIN_MOVE_PX`` / ``kill_by_click_min_move_px`` which is handled
-# per instance.
-MOVE_DEBOUNCE_MIN_MS = _load_int(
-    "KILL_BY_CLICK_MOVE_DEBOUNCE_MS", "kill_by_click_move_debounce_ms", 8
-)
+# Base move debounce derived from screen refresh rate (half a frame).
+# Users may override via ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` /
+# ``kill_by_click_move_debounce_ms`` and adjust per instance at runtime.
+DEFAULT_MOVE_DEBOUNCE_MS = int(1000 / (get_screen_refresh_rate() * 2))
 
 # Rendering backend selection ("canvas", "qt" or "qtquick")
 DEFAULT_BACKEND = _load_str(
@@ -746,6 +742,11 @@ class ClickOverlay(tk.Toplevel):
         )
         self._min_move_px = max(
             1, int(round(logical_move_px * (self._dpi / 96.0)))
+        )
+        self._move_debounce_ms = _load_int(
+            "KILL_BY_CLICK_MOVE_DEBOUNCE_MS",
+            "kill_by_click_move_debounce_ms",
+            DEFAULT_MOVE_DEBOUNCE_MS,
         )
         self.engine = ScoringEngine(
             tuning,
@@ -1257,18 +1258,33 @@ class ClickOverlay(tk.Toplevel):
         """Scale probe cache TTL inversely with cursor velocity."""
         self._probe_cache_ttl = PROBE_CACHE_TTL / (1.0 + self._velocity)
 
+    def set_move_debounce_ms(self, ms: int | None = None) -> None:
+        """Adjust base move debounce in milliseconds.
+
+        Passing ``None`` reloads the value from configuration and screen refresh
+        rate. The value is clamped to zero allowing debounce to be disabled for
+        zero-lag operation.
+        """
+        if ms is None:
+            ms = _load_int(
+                "KILL_BY_CLICK_MOVE_DEBOUNCE_MS",
+                "kill_by_click_move_debounce_ms",
+                DEFAULT_MOVE_DEBOUNCE_MS,
+            )
+        self._move_debounce_ms = max(0, int(ms))
+
     def _move_thresholds(self) -> tuple[float, float]:
         """Return debounce thresholds scaled by cursor velocity and DPI.
 
         Thresholds grow with pointer velocity and display DPI while never
-        dropping below :data:`MOVE_DEBOUNCE_MIN_MS` or the per-instance
+        dropping below ``self._move_debounce_ms`` or the per-instance
         ``_min_move_px``. This keeps slow, precise movements responsive on
         low-DPI screens while reducing update frequency during fast motion or on
         high-DPI displays.
         """
         vel_scale = max(1.0, self._velocity / 100.0)
         dpi_scale = self._dpi / 96.0 if getattr(self, "_dpi", 0) else 1.0
-        ms = max(MOVE_DEBOUNCE_MIN_MS, MOVE_DEBOUNCE_MIN_MS * vel_scale * dpi_scale)
+        ms = self._move_debounce_ms * max(1.0, vel_scale * dpi_scale)
         px = max(self._min_move_px, self._min_move_px * vel_scale)
         return ms, px
 

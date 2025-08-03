@@ -60,10 +60,12 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   start or aren't available it falls back to normal bindings and briefly ignores
   mouse events while polling the window under the cursor at ``KILL_BY_CLICK_INTERVAL``
   and tracks pointer coordinates from hook callbacks or motion events to keep
-  updates smooth without flicker. ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` sets the
-  minimum time between cursor updates while ``KILL_BY_CLICK_MIN_MOVE_PX`` (in
-  logical pixels) ignores subpixel jitter and scales with display DPI. Large or
-  fast cursor moves bypass this debounce and refresh immediately. Set
+  updates smooth without flicker. The minimum time between cursor updates
+  defaults to half the screen's refresh interval but can be overridden with
+  ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` (set to ``0`` to disable entirely) while
+  ``KILL_BY_CLICK_MIN_MOVE_PX`` (in logical pixels) ignores subpixel jitter and
+  scales with display DPI. Large or fast cursor moves bypass this debounce and
+  refresh immediately. Set
   ``KILL_BY_CLICK_INTERVAL`` to control the
   base refresh rate (defaults to ``0.008`` seconds) or pass ``--interval`` when using
   ``scripts/kill_by_click.py``. The refresh interval expands and contracts
