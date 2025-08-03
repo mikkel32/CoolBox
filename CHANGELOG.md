@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.6 - 2025-08-10
+
+- **Test:** Exercise motion debouncing and frame-time auto-tuning.
+
 ## 1.3.5 - 2025-08-09
 
 - **Fix:** Reload click overlay defaults and reset timing fields each run to
