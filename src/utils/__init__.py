@@ -45,6 +45,7 @@ from .file_manager import (
     delete_dir,
 )
 from .process_monitor import ProcessEntry, ProcessWatcher
+from .process_cache import ProcessCache
 from .network import (
     PortInfo,
     HTTPInfo,
@@ -217,6 +218,7 @@ __all__ = [
     "file_manager",
     "ProcessEntry",
     "ProcessWatcher",
+    "ProcessCache",
     "center_window",
     "get_screen_refresh_rate",
     "kill_process",

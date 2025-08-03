@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.66 - 2025-08-28
+
+- **Feat:** Cache running processes and refresh on OS notifications, rebuilding
+  the snapshot only when updates fail.
+
 ## 1.0.65 - 2025-08-27
 
 - **Refactor:** Replace shell-based process termination with direct API calls
