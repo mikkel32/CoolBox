@@ -113,6 +113,29 @@ class TestWindowUtils(unittest.TestCase):
         res2 = filter_windows_at(12, 12, wins)
         self.assertEqual(res2, [wins[1]])
 
+    def test_filter_windows_skips_small_and_tooltip(self):
+        from src.utils import window_utils as wu
+
+        small = wu.WindowInfo(1, (0, 0, 5, 5), "tiny")
+        normal = wu.WindowInfo(2, (0, 0, 50, 50), "normal")
+        tooltip = wu.WindowInfo(3, (0, 0, 50, 50), "tooltip window")
+
+        with mock.patch.object(wu, "_MIN_WINDOW_WIDTH", 10), mock.patch.object(
+            wu, "_MIN_WINDOW_HEIGHT", 10
+        ):
+            wu._TRANSIENT_PIDS.clear()
+            res = wu.filter_windows_at(1, 1, [small, normal])
+            self.assertEqual(res, [normal])
+            self.assertIn(1, wu._TRANSIENT_PIDS)
+
+        wu._TRANSIENT_PIDS.clear()
+        with mock.patch.object(wu, "_MIN_WINDOW_WIDTH", 0), mock.patch.object(
+            wu, "_MIN_WINDOW_HEIGHT", 0
+        ):
+            res = wu.filter_windows_at(1, 1, [tooltip, normal])
+            self.assertEqual(res, [normal])
+            self.assertIn(3, wu._TRANSIENT_PIDS)
+
     def test_x11_shortcuts(self):
         from src.utils import window_utils as wu
 

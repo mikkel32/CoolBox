@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.1.5 - 2025-09-08
+
+- **Feat:** Skip tiny or menu/tooltip windows and ignore their PIDs when scoring.
+
 ## 1.1.4 - 2025-09-07
 
 - **Perf:** Introduce off-screen buffer with selective canvas updates and frame

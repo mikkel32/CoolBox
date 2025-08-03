@@ -45,6 +45,29 @@ _RECENT_WINDOWS: deque[WindowInfo] = deque()
 _RECENT_LOCK = threading.RLock()
 
 
+_MIN_WINDOW_WIDTH = 0
+_MIN_WINDOW_HEIGHT = 0
+_TRANSIENT_PIDS: set[int] = set()
+_CFG_LOADED = False
+
+
+def _load_thresholds() -> None:
+    """Load size thresholds from ``Config`` lazily to avoid import cycles."""
+
+    global _CFG_LOADED, _MIN_WINDOW_WIDTH, _MIN_WINDOW_HEIGHT
+    if _CFG_LOADED:
+        return
+    _CFG_LOADED = True
+    try:  # pragma: no cover - defensive
+        from src.config import Config
+
+        cfg = Config()
+        _MIN_WINDOW_WIDTH = int(cfg.get("window_min_width", 0) or 0)
+        _MIN_WINDOW_HEIGHT = int(cfg.get("window_min_height", 0) or 0)
+    except Exception:
+        pass
+
+
 def _close_window_handle(info: WindowInfo) -> None:
     """Release any OS resources held for ``info``."""
 
@@ -825,13 +848,30 @@ def filter_windows_at(x: int, y: int, windows: List[WindowInfo]) -> List[WindowI
     This helper performs only a simple bounds check and performs no I/O,
     making it safe to use from the UI thread.
     """
-
+    _load_thresholds()
     results: List[WindowInfo] = []
     for win in windows:
         rect = win.rect
-        if rect and rect[0] <= x <= rect[0] + rect[2] and rect[1] <= y <= rect[1] + rect[3]:
+        if not rect:
+            continue
+        if rect[2] < _MIN_WINDOW_WIDTH or rect[3] < _MIN_WINDOW_HEIGHT:
+            if win.pid is not None:
+                _TRANSIENT_PIDS.add(win.pid)
+            continue
+        title = (win.title or "").lower()
+        if "tooltip" in title or "menu" in title:
+            if win.pid is not None:
+                _TRANSIENT_PIDS.add(win.pid)
+            continue
+        if rect[0] <= x <= rect[0] + rect[2] and rect[1] <= y <= rect[1] + rect[3]:
             results.append(win)
     return results
+
+
+def is_transient_pid(pid: int | None) -> bool:
+    """Return ``True`` if *pid* was marked as transient."""
+
+    return pid is not None and pid in _TRANSIENT_PIDS
 
 
 def _fallback_list_windows_at(

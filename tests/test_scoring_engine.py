@@ -23,3 +23,15 @@ def test_zorder_stack_limited_depth() -> None:
     ) as lwa, patch("src.utils.scoring_engine.prime_window_cache"):
         engine.score_samples(samples, 5.0, 5.0, 0.0, deque(), None)
         lwa.assert_called_once_with(5, 5, len(samples))
+
+
+def test_score_samples_drops_transients() -> None:
+    engine = ScoringEngine(tuning, 100, 100, own_pid=0)
+    samples = [WindowInfo(1, (0, 0, 10, 10)), WindowInfo(2, (0, 0, 10, 10))]
+    from src.utils import window_utils as wu
+
+    wu._TRANSIENT_PIDS.clear()
+    wu._TRANSIENT_PIDS.add(1)
+    weights = engine.score_samples(samples, 0.0, 0.0, 0.0, deque(), None)
+    assert 1 not in weights
+    assert 2 in weights

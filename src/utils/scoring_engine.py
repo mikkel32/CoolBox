@@ -7,7 +7,12 @@ from collections import deque
 from dataclasses import dataclass, fields
 from typing import Deque, Dict, List, Tuple
 
-from .window_utils import WindowInfo, list_windows_at, prime_window_cache
+from .window_utils import (
+    WindowInfo,
+    list_windows_at,
+    prime_window_cache,
+    is_transient_pid,
+)
 
 try:  # Optional NumPy acceleration
     import numpy as _np
@@ -269,8 +274,14 @@ class ScoringEngine:
     ) -> Dict[int, float]:
         weights: Dict[int, float] = dict(self.tracker.scores)
         active = initial_active_pid
+        if is_transient_pid(active):
+            active = None
 
-        relevant_samples = [s for s in samples if s.pid not in (self.own_pid, None)]
+        relevant_samples = [
+            s
+            for s in samples
+            if s.pid not in (self.own_pid, None) and not is_transient_pid(s.pid)
+        ]
         if _cy_score_samples is not None:
             weights = _cy_score_samples(
                 relevant_samples,
@@ -333,6 +344,8 @@ class ScoringEngine:
 
             power = 1.0
             for pid in reversed(self.pid_history):
+                if is_transient_pid(pid):
+                    continue
                 vel_factor = 1.0 / (1.0 + velocity * self.tuning.velocity_scale)
                 w = self.tuning.history_weight * power * vel_factor
                 if pid == active:
@@ -342,11 +355,17 @@ class ScoringEngine:
 
         if self.tuning.stability_weight:
             for pid, count in self.pid_stability.items():
+                if is_transient_pid(pid):
+                    continue
                 weights[pid] = (
                     weights.get(pid, 0.0) + count * self.tuning.stability_weight
                 )
 
-        if self.tuning.streak_weight and self.current_pid is not None:
+        if (
+            self.tuning.streak_weight
+            and self.current_pid is not None
+            and not is_transient_pid(self.current_pid)
+        ):
             weights[self.current_pid] = (
                 weights.get(self.current_pid, 0.0)
                 + self.current_streak * self.tuning.streak_weight
@@ -355,11 +374,15 @@ class ScoringEngine:
         now = time.monotonic()
         if self.tuning.recency_weight:
             for pid, last in self.tracker.last_seen.items():
+                if is_transient_pid(pid):
+                    continue
                 weights[pid] = weights.get(pid, 0.0) + self.tuning.recency_weight / (
                     now - last + 1e-6
                 )
         if self.tuning.duration_weight:
             for pid, dur in self.tracker.durations.items():
+                if is_transient_pid(pid):
+                    continue
                 weights[pid] = weights.get(pid, 0.0) + dur * self.tuning.duration_weight
 
         if self.tuning.zorder_weight:
@@ -384,11 +407,15 @@ class ScoringEngine:
 
         if self.tuning.gaze_weight:
             for pid, dur in self.gaze_duration.items():
+                if is_transient_pid(pid):
+                    continue
                 weights[pid] = weights.get(pid, 0.0) + dur * self.tuning.gaze_weight
 
         if self.tuning.active_history_weight and self.active_history:
             power = 1.0
             for pid, _ in reversed(self.active_history):
+                if is_transient_pid(pid):
+                    continue
                 weights[pid] = (
                     weights.get(pid, 0.0) + self.tuning.active_history_weight * power
                 )
