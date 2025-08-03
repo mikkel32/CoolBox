@@ -290,8 +290,8 @@ class CoolBoxApp:
             return
 
         self.force_quit_window = ForceQuitDialog(self)
-        self.force_quit_window.protocol(
-            "WM_DELETE_WINDOW", self._on_force_quit_closed
+        self.force_quit_window.bind(
+            "<Destroy>", lambda _e: setattr(self, "force_quit_window", None)
         )
 
     def open_security_center(self) -> None:
@@ -366,11 +366,6 @@ class CoolBoxApp:
                 dlg.refresh_theme()
             elif not dlg.winfo_exists():
                 self.dialogs.remove(dlg)
-
-    def _on_force_quit_closed(self) -> None:
-        if self.force_quit_window is not None and self.force_quit_window.winfo_exists():
-            self.force_quit_window.destroy()
-        self.force_quit_window = None
 
     def _on_quick_settings_closed(self) -> None:
         if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():

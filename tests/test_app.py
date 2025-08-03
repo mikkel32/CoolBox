@@ -129,6 +129,17 @@ class TestCoolBoxApp(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_force_quit_clears_reference(self) -> None:
+        app = CoolBoxApp()
+        app.open_force_quit()
+        window = app.force_quit_window
+        self.assertIsNotNone(window)
+        if window is not None:
+            window.destroy()
+        self.assertIsNone(app.force_quit_window)
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_open_security_center_method(self) -> None:
         app = CoolBoxApp()
         patches = [
