@@ -978,6 +978,8 @@ class ForceQuitDialog(BaseDialog):
     @staticmethod
     def force_kill(pid: int, *, timeout: float = 3.0) -> bool:
         """Forcefully terminate ``pid`` and return ``True`` if it exited."""
+        if pid == os.getpid():
+            return False
         if kill_process(pid, timeout=timeout):
             return True
         # escalate to killing the entire tree if the direct kill failed
@@ -986,13 +988,17 @@ class ForceQuitDialog(BaseDialog):
     @classmethod
     def force_kill_multiple(cls, pids: list[int]) -> int:
         """Kill multiple PIDs concurrently and return number successfully killed."""
+        self_pid = os.getpid()
 
         def kill_one(pid: int) -> bool:
+            if pid == self_pid:
+                return False
             try:
                 return cls.force_kill(pid)
             except Exception:
                 return False
 
+        pids = [p for p in pids if p != self_pid]
         if not pids:
             return 0
         if len(pids) == 1:
@@ -2234,8 +2240,11 @@ class ForceQuitDialog(BaseDialog):
                 result = exc
             self.after(0, lambda: self._finish_kill_by_click(ctx, result))
 
-        self._overlay_thread = threading.Thread(target=run, daemon=True)
-        self._overlay_thread.start()
+        thread = threading.Thread(target=run, daemon=True)
+        self._overlay_thread = thread
+        thread.start()
+        if os.environ.get("COOLBOX_LIGHTWEIGHT"):
+            thread.join()
 
     def _finish_kill_by_click(
         self,
@@ -2249,13 +2258,14 @@ class ForceQuitDialog(BaseDialog):
             raise result
         pid, title = result
         ctx.__exit__(None, None, None)
-        self._overlay_thread = None
         if pid is None:
+            self._overlay_thread = None
             return
         if not overlay.skip_confirm:
             if not messagebox.askyesno(
                 "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
             ):
+                self._overlay_thread = None
                 return
         ok = self.force_kill(pid)
         if ok:
@@ -2264,6 +2274,7 @@ class ForceQuitDialog(BaseDialog):
             messagebox.showerror(
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
             )
+        self._overlay_thread = None
         self._populate()
 
     def cancel_kill_by_click(self) -> None:
