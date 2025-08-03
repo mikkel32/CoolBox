@@ -1233,6 +1233,39 @@ class TestForceQuit(unittest.TestCase):
             overlay.choose.assert_called_once()
             overlay.reset.assert_called_once()
 
+    def test_kill_by_click_exception_cleanup(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = False
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.after_idle = mock.Mock()
+        dialog._update_hover = mock.Mock()
+        dialog._highlight_pid = mock.Mock()
+        overlay = mock.Mock()
+        overlay.choose.side_effect = RuntimeError("boom")
+        overlay.reset = mock.Mock()
+        overlay.set_highlight_color = mock.Mock()
+        overlay.interval = None
+        overlay.min_interval = None
+        overlay.max_interval = None
+        overlay.delay_scale = None
+        dialog._overlay = overlay
+        dialog.initialize_click_overlay()
+
+        with mock.patch("src.views.force_quit_dialog.messagebox"):
+            with self.assertRaises(RuntimeError):
+                dialog._kill_by_click()
+        dialog.withdraw.assert_called_once()
+        dialog.deiconify.assert_called_once()
+        dialog._watcher.pause.assert_called_once()
+        dialog._watcher.resume.assert_called_once()
+        overlay.reset.assert_called_once()
+        dialog._highlight_pid.assert_called_with(None, None)
+        dialog.after_idle.assert_called_with(dialog._update_hover)
+
     def test_kill_by_click_skip_confirm(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
         dialog.accent = "#f00"

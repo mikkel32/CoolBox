@@ -21,6 +21,7 @@ import time
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
+from typing import Any, Optional
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter import ttk
@@ -2164,32 +2165,52 @@ class ForceQuitDialog(BaseDialog):
             "delay_scale": getattr(overlay, "delay_scale", None),
         }
 
+    class _OverlayContext:
+        """Context manager to manage Kill-by-Click overlay lifecycle."""
+
+        def __init__(self, dialog: "ForceQuitDialog", overlay: ClickOverlay):
+            self.dialog = dialog
+            self.overlay = overlay
+            self.paused = dialog.paused
+
+        def __enter__(self) -> ClickOverlay:
+            if not self.paused:
+                self.dialog._safe_pause()
+            self.dialog.withdraw()
+            if hasattr(self.dialog, "tk"):
+                self.dialog.update_idletasks()
+            return self.overlay
+
+        def __exit__(
+            self,
+            exc_type: Optional[type[BaseException]],
+            exc: Optional[BaseException],
+            tb: Optional[Any],
+        ) -> bool:
+            if getattr(self.overlay, "on_hover", None) is not None:
+                try:
+                    self.overlay.on_hover(None, None)
+                except Exception:
+                    pass
+            try:
+                self.overlay.reset()
+            finally:
+                self.dialog.deiconify()
+                if not self.paused:
+                    self.dialog._safe_resume()
+                self.dialog.after_idle(self.dialog._update_hover)
+            return False
+
     def _kill_by_click(self) -> None:
         """Launch the click-to-kill overlay and terminate the selected window."""
-        paused = self.paused
-        if not paused:
-            self._safe_pause()
-
         self.initialize_click_overlay()
         overlay = self._overlay
 
-        # Hide the dialog first so the overlay appears instantly without
-        # waiting for geometry updates.
-        self.withdraw()
-        if hasattr(self, "tk"):
-            self.update_idletasks()
-        try:
+        with self._OverlayContext(self, overlay) as overlay:
             pid, title = overlay.choose()
             if pid is None:
                 fallback = self._get_window_under_cursor()
                 pid, title = fallback.pid, fallback.title
-        finally:
-            overlay.reset()
-            self.deiconify()
-            self._highlight_pid(None)
-            if not paused:
-                self._safe_resume()
-            self.after_idle(self._update_hover)
 
         if pid is None:
             messagebox.showerror(
