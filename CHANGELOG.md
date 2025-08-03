@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.3.4 - 2025-08-08
+
+- **Fix:** Ensure mouse hooks and event bindings are cleaned up with
+  `try`/`finally` blocks to avoid leaking listeners.
+- **Test:** Add regression test verifying cleanup when click handler
+  raises an exception.
+
 ## 1.3.3 - 2025-08-07
 
 - **Feat:** Auto-tune click overlay intervals on first run, cache calibrated
