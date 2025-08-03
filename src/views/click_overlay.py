@@ -106,6 +106,18 @@ COLORKEY_RECHECK_MS = int(
 # Cache TTL for window probing in seconds
 PROBE_CACHE_TTL = float(os.getenv("KILL_BY_CLICK_PROBE_TTL", "0.1"))
 
+# Minimum time between handling pointer moves in milliseconds.
+# Set ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` or configuration key
+# ``kill_by_click_move_debounce_ms`` to adjust.
+MOVE_DEBOUNCE_MS = _load_int(
+    "KILL_BY_CLICK_MOVE_DEBOUNCE_MS", "kill_by_click_move_debounce_ms", 8
+)
+
+# Ignore pointer motion smaller than this many pixels.
+# Tunable via ``KILL_BY_CLICK_MIN_MOVE_PX`` or
+# ``kill_by_click_min_move_px``.
+MIN_MOVE_PX = _load_int("KILL_BY_CLICK_MIN_MOVE_PX", "kill_by_click_min_move_px", 2)
+
 
 _COLOR_CACHE: dict[str, str] = {}
 
@@ -685,15 +697,22 @@ class ClickOverlay(tk.Toplevel):
         """Record a mouse move from the pynput hook.
 
         The listener runs in an OS thread so heavy work is deferred to the
-        Tk event loop using :meth:`after_idle`.
+        Tk event loop using :meth:`after_idle`. Small, rapid movements are
+        ignored based on :data:`MOVE_DEBOUNCE_MS` and :data:`MIN_MOVE_PX`.
         """
-        self._pending_move = (x, y, time.time())
-        if not self._move_scheduled:
-            self._move_scheduled = True
-            try:
-                self.after_idle(self._handle_move)
-            except Exception:
-                self._move_scheduled = False
+        now = time.time()
+        self._pending_move = (x, y, now)
+        if self._move_scheduled:
+            return
+        dt_ms = (now - self._last_move_time) * 1000.0
+        dist = math.hypot(x - self._last_move_pos[0], y - self._last_move_pos[1])
+        if dt_ms < MOVE_DEBOUNCE_MS and dist < MIN_MOVE_PX:
+            return
+        self._move_scheduled = True
+        try:
+            self.after_idle(self._handle_move)
+        except Exception:
+            self._move_scheduled = False
 
     def _handle_move(self) -> None:
         """Process the latest pending move on the Tk thread."""

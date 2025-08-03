@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.76 - 2025-08-31
+
+- **Feat:** Debounce pointer motion with configurable ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS``
+  and ``KILL_BY_CLICK_MIN_MOVE_PX`` thresholds.
+
 ## 1.0.74 - 2025-08-30
 
 - **Perf:** Vectorize weighted confidence scoring with NumPy and expose a Python wrapper for seamless integration.

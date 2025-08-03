@@ -947,6 +947,25 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_move_debounced_when_below_threshold(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"KILL_BY_CLICK_MOVE_DEBOUNCE_MS": "50", "KILL_BY_CLICK_MIN_MOVE_PX": "20"},
+        ):
+            root = tk.Tk()
+            with patch("src.views.click_overlay.is_supported", return_value=False):
+                overlay = ClickOverlay(root)
+
+            overlay.after_idle = unittest.mock.Mock()
+            overlay._last_move_time = time.time()
+            overlay._last_move_pos = (0, 0)
+            overlay._on_move(1, 1)
+
+            overlay.after_idle.assert_not_called()
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_weighted_choice_prefers_active_pid(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
