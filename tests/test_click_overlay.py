@@ -21,8 +21,8 @@ from src.views.click_overlay import (  # noqa: E402
     COLORKEY_RECHECK_MS,
     OverlayState,
     DEFAULT_INTERVAL,
-    MOVE_DEBOUNCE_MS,
-    MIN_MOVE_PX,
+    MOVE_DEBOUNCE_MIN_MS,
+    MOVE_MIN_PX,
 )
 from src.views.force_quit_dialog import ForceQuitDialog  # noqa: E402
 
@@ -1154,7 +1154,7 @@ class TestClickOverlay(unittest.TestCase):
 
         overlay.after_idle = lambda cb: cb()
         overlay._process_update = unittest.mock.Mock()
-        overlay._heatmap.update = unittest.mock.Mock()
+        overlay.engine.heatmap.update = unittest.mock.Mock()
         overlay._last_move_pos = (0, 0)
         overlay._last_move_time = time.time() - 0.1
 
@@ -1165,7 +1165,7 @@ class TestClickOverlay(unittest.TestCase):
 
         self.assertEqual(overlay._path_history[-1], (20, 10))
         self.assertGreater(overlay._velocity, 0)
-        overlay._heatmap.update.assert_called_once_with(20, 10)
+        overlay.engine.heatmap.update.assert_called_once_with(20, 10)
         overlay._process_update.assert_called_once()
 
         overlay.destroy()
@@ -1208,17 +1208,41 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_move_thresholds_scale_with_velocity(self) -> None:
+    def test_queue_update_debounced_when_below_threshold(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"KILL_BY_CLICK_MOVE_DEBOUNCE_MS": "50", "KILL_BY_CLICK_MIN_MOVE_PX": "20"},
+        ):
+            root = tk.Tk()
+            with patch("src.views.click_overlay.is_supported", return_value=False):
+                overlay = ClickOverlay(root)
+
+            overlay.after_idle = unittest.mock.Mock()
+            overlay._last_move_time = time.time()
+            overlay._last_move_pos = (0, 0)
+            event = tk.Event()
+            event.x_root = 1
+            event.y_root = 1
+            overlay._queue_update(event)
+
+            overlay.after_idle.assert_not_called()
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_move_thresholds_scale_with_velocity_and_dpi(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._velocity = 0.0
+        overlay._dpi = 96.0
         low_ms, low_px = overlay._move_thresholds()
         overlay._velocity = 500.0
+        overlay._dpi = 192.0
         high_ms, high_px = overlay._move_thresholds()
 
-        self.assertEqual((low_ms, low_px), (MOVE_DEBOUNCE_MS, MIN_MOVE_PX))
+        self.assertEqual((low_ms, low_px), (MOVE_DEBOUNCE_MIN_MS, MOVE_MIN_PX))
         self.assertGreater(high_ms, low_ms)
         self.assertGreater(high_px, low_px)
 
@@ -1487,7 +1511,7 @@ class TestClickOverlay(unittest.TestCase):
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
-        overlay._heatmap.region_score = lambda r: 5.0 if r and r[0] == 0 else 0.1
+        overlay.engine.heatmap.region_score = lambda r: 5.0 if r and r[0] == 0 else 0.1
         samples = [
             WindowInfo(1, (0, 0, 10, 10), "one"),
             WindowInfo(2, (20, 20, 10, 10), "two"),
