@@ -9,6 +9,7 @@ import ctypes
 import os
 import tkinter as tk
 from tkinter import ttk
+from types import SimpleNamespace
 
 import psutil
 import heapq
@@ -1224,6 +1225,9 @@ class TestForceQuit(unittest.TestCase):
         overlay.reset = mock.Mock()
         overlay.apply_defaults = mock.Mock()
         dialog._overlay = overlay
+        dialog.app = SimpleNamespace(config={})
+        dialog._configure_overlay()
+        overlay.apply_defaults.assert_called_once()
 
         with mock.patch("src.views.force_quit_dialog.messagebox") as MB:
             dialog._kill_by_click()
@@ -1257,7 +1261,9 @@ class TestForceQuit(unittest.TestCase):
         overlay.delay_scale = None
         overlay.apply_defaults = mock.Mock()
         dialog._overlay = overlay
-        dialog.initialize_click_overlay()
+        dialog.app = SimpleNamespace(config={})
+        dialog._configure_overlay()
+        overlay.apply_defaults.assert_called_once()
 
         with mock.patch("src.views.force_quit_dialog.messagebox"):
             with self.assertRaises(RuntimeError):
@@ -1291,16 +1297,18 @@ class TestForceQuit(unittest.TestCase):
         overlay.reset = mock.Mock()
         overlay.apply_defaults = mock.Mock()
         dialog._overlay = overlay
+        dialog.app = SimpleNamespace(config={})
 
         with (
             mock.patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
             mock.patch("src.views.force_quit_dialog.messagebox") as MB,
         ):
+            dialog._configure_overlay()
             dialog._kill_by_click()
             MB.askyesno.assert_not_called()
             MB.showinfo.assert_called_once()
             dialog.force_kill.assert_called_once_with(123)
-            overlay.apply_defaults.assert_called_once()
+        overlay.apply_defaults.assert_called_once()
 
     def test_kill_by_click_per_run_isolation(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1334,6 +1342,9 @@ class TestForceQuit(unittest.TestCase):
         overlay.choose.side_effect = choose_side_effect
         overlay.reset.side_effect = reset_side_effect
         dialog._overlay = overlay
+        dialog.app = SimpleNamespace(config={})
+        dialog._configure_overlay()
+        self.assertEqual(overlay.apply_defaults.call_count, 1)
 
         with mock.patch("src.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
@@ -1342,8 +1353,36 @@ class TestForceQuit(unittest.TestCase):
             dialog._kill_by_click()
             self.assertEqual(overlay.interval, default_interval)
 
-        self.assertEqual(overlay.apply_defaults.call_count, 2)
+        self.assertEqual(overlay.apply_defaults.call_count, 1)
         self.assertEqual(overlay.reset.call_count, 2)
+
+    def test_configure_overlay_applies_updates(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog._highlight_pid = mock.Mock()
+        overlay = mock.Mock()
+        overlay.apply_defaults = mock.Mock()
+        overlay.skip_confirm = False
+        dialog._overlay = overlay
+        dialog.app = SimpleNamespace(config={})
+
+        with mock.patch.dict(
+            os.environ,
+            {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "0", "KILL_BY_CLICK_HIGHLIGHT": "blue"},
+        ):
+            dialog._configure_overlay()
+            self.assertFalse(overlay.skip_confirm)
+            self.assertEqual(overlay.set_highlight_color.call_args_list[-1][0][0], "blue")
+
+        with mock.patch.dict(
+            os.environ,
+            {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1", "KILL_BY_CLICK_HIGHLIGHT": "green"},
+        ):
+            dialog._configure_overlay()
+            self.assertTrue(overlay.skip_confirm)
+            self.assertEqual(overlay.set_highlight_color.call_args_list[-1][0][0], "green")
+
+        self.assertEqual(overlay.apply_defaults.call_count, 2)
 
     def test_highlight_pid_skips_duplicate_selection(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)

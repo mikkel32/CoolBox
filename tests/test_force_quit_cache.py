@@ -73,7 +73,7 @@ class TestForceQuitCache(unittest.TestCase):
             mock.patch("src.views.force_quit_dialog.prime_window_cache"),
             mock.patch("src.views.force_quit_dialog.ClickOverlay", DummyOverlay),
             mock.patch.object(ForceQuitDialog, "_auto_refresh"),
-            mock.patch.object(ForceQuitDialog, "initialize_click_overlay", return_value=None),
+            mock.patch.object(ForceQuitDialog, "_configure_overlay", return_value=None),
         ):
             dialog = ForceQuitDialog(app)
             self.assertTrue(dialog._overlay.warmed)

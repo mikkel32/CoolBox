@@ -92,7 +92,7 @@ class ForceQuitDialog(BaseDialog):
             max_interval=max_interval,
         )
         self._overlay.reset()
-        self.initialize_click_overlay()
+        self._configure_overlay()
         try:
             self._overlay._refresh_window_cache(
                 int(getattr(self._overlay, "_cursor_x", 0)),
@@ -2157,36 +2157,29 @@ class ForceQuitDialog(BaseDialog):
             )
         self._populate()
 
-    def initialize_click_overlay(self) -> None:
-        """Configure the click overlay once using environment variables."""
-        if hasattr(self, "_overlay_settings"):
-            return
-        color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
-        color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
-        interval_env = os.getenv("KILL_BY_CLICK_INTERVAL")
+    def _configure_overlay(self) -> None:
+        """Apply environment and configuration settings to the overlay."""
         overlay = self._overlay
-        overlay.on_hover = self._highlight_pid
-        overlay.set_highlight_color(color)
-        if interval_env is not None:
-            try:
-                overlay.interval = float(interval_env)
-            except ValueError:
-                overlay.interval = KILL_BY_CLICK_INTERVAL
-        for name in ("min_interval", "max_interval", "delay_scale"):
-            env = os.getenv(f"KILL_BY_CLICK_{name.upper()}")
-            if env is None:
-                continue
-            try:
-                setattr(overlay, name, float(env))
-            except ValueError:
-                pass
-        self._overlay_settings = {
-            "color": color,
-            "interval": getattr(overlay, "interval", None),
-            "min_interval": getattr(overlay, "min_interval", None),
-            "max_interval": getattr(overlay, "max_interval", None),
-            "delay_scale": getattr(overlay, "delay_scale", None),
-        }
+        overlay.apply_defaults()
+        cfg = self.app.config if hasattr(self.app, "config") else {}
+        color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
+        if hasattr(cfg, "get"):
+            color = cfg.get("kill_by_click_highlight", color)
+        color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
+        skip_env = os.getenv("FORCE_QUIT_CLICK_SKIP_CONFIRM")
+        skip_cfg = cfg.get("force_quit_click_skip_confirm") if hasattr(cfg, "get") else None
+        if skip_env is not None:
+            skip_confirm = skip_env.lower() not in {"0", "false", "no"}
+        elif skip_cfg is not None:
+            skip_confirm = bool(skip_cfg)
+        else:
+            skip_confirm = getattr(overlay, "skip_confirm", False)
+        settings = {"color": color, "skip_confirm": skip_confirm}
+        if settings != getattr(self, "_overlay_settings", None):
+            overlay.on_hover = self._highlight_pid
+            overlay.set_highlight_color(color)
+            overlay.skip_confirm = skip_confirm
+            self._overlay_settings = settings
 
     class _OverlayContext:
         """Context manager to manage Kill-by-Click overlay lifecycle."""
@@ -2226,9 +2219,7 @@ class ForceQuitDialog(BaseDialog):
 
     def _kill_by_click(self) -> None:
         """Launch the click-to-kill overlay and terminate the selected window."""
-        self.initialize_click_overlay()
         overlay = self._overlay
-        overlay.apply_defaults()
 
         with self._OverlayContext(self, overlay) as overlay:
             pid, title = overlay.choose()
@@ -2241,11 +2232,7 @@ class ForceQuitDialog(BaseDialog):
                 "Force Quit", "Unable to determine window", parent=self
             )
             return
-        skip_confirm_env = os.getenv("FORCE_QUIT_CLICK_SKIP_CONFIRM")
-        skip_confirm = False
-        if skip_confirm_env and skip_confirm_env.lower() not in {"0", "false", "no"}:
-            skip_confirm = True
-        if not skip_confirm:
+        if not overlay.skip_confirm:
             if not messagebox.askyesno(
                 "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
             ):
