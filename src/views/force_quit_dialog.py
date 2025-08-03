@@ -124,7 +124,6 @@ class ForceQuitDialog(BaseDialog):
         self.attributes("-topmost", on_top)
         self._after_id: int | None = None
         self._debounce_id: int | None = None
-        self._hover_after_id: int | None = None
         self.process_snapshot: dict[int, ProcessEntry] = {}
         self._row_cache: dict[int, tuple[tuple, tuple]] = {}
         self._changed_tags: dict[int, int] = {}
@@ -1788,13 +1787,11 @@ class ForceQuitDialog(BaseDialog):
         self._hover_iid = iid
         self._apply_hover_tag()
 
-    def _on_hover(self, _event) -> None:
-        if self._hover_after_id is not None:
-            self.after_cancel(self._hover_after_id)
-        self._hover_after_id = self.after(100, self._update_hover)
+    def _on_hover(self, event) -> None:
+        iid = self.tree.identify_row(event.y)
+        self._set_hover_row(iid)
 
     def _update_hover(self) -> None:
-        self._hover_after_id = None
         x, y = self.winfo_pointerxy()
         widget = self.winfo_containing(x, y)
         if widget is self.tree or widget in self.tree.winfo_children():

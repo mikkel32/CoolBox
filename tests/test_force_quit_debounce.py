@@ -1,9 +1,6 @@
 import types
 from unittest import mock
 
-import types
-from unittest import mock
-
 from src.views.force_quit_dialog import ForceQuitDialog
 
 
@@ -37,30 +34,20 @@ def test_populate_debounce():
     dialog._apply_filter_sort.assert_called_once()
 
 
-def test_hover_debounce():
+def test_hover_immediate():
     dialog = ForceQuitDialog.__new__(ForceQuitDialog)
-    callbacks = []
+    dialog.tree = mock.Mock()
+    dialog._set_hover_row = mock.Mock()
+    dialog.after = mock.Mock()
+    dialog.after_cancel = mock.Mock()
 
-    def fake_after(delay: int, func):
-        callbacks.append((delay, func))
-        return f"id{len(callbacks)}"
+    dialog.tree.identify_row.side_effect = ["row1", "row2"]
 
-    cancelled = []
+    evt1 = types.SimpleNamespace(y=5)
+    evt2 = types.SimpleNamespace(y=10)
+    dialog._on_hover(evt1)
+    dialog._on_hover(evt2)
 
-    def fake_after_cancel(ident: str) -> None:
-        cancelled.append(ident)
-
-    dialog.after = fake_after
-    dialog.after_cancel = fake_after_cancel
-    dialog._update_hover = mock.Mock()
-    dialog._hover_after_id = None
-
-    evt = types.SimpleNamespace(y=5)
-    dialog._on_hover(evt)
-    dialog._on_hover(evt)
-
-    assert [d for d, _ in callbacks] == [100, 100]
-    assert cancelled == ["id1"]
-
-    callbacks[-1][1]()
-    dialog._update_hover.assert_called_once()
+    assert dialog._set_hover_row.call_args_list == [mock.call("row1"), mock.call("row2")]
+    dialog.after.assert_not_called()
+    dialog.after_cancel.assert_not_called()

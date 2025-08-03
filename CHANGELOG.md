@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.7 - 2025-08-11
+
+- **Fix:** Update Force Quit hover handling to highlight rows immediately on motion.
+- **Test:** Verify hover highlight updates on every Motion event without delay.
+
 ## 1.3.6 - 2025-08-10
 
 - **Test:** Exercise motion debouncing and frame-time auto-tuning.
