@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.70 - 2025-08-29
+
+- **Feat:** Add basic rendering mode toggle that disables compositing effects and drop shadows for legacy GPU compatibility.
+- **Feat:** Provide GPU usage benchmarking utility.
+
 ## 1.0.69 - 2025-08-28
 
 - **Feat:** Introduce thread manager with logger, process and monitor threads to detect deadlocks.

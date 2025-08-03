@@ -33,6 +33,7 @@ class Config:
             "show_toolbar": True,
             "show_statusbar": True,
             "show_menu": True,
+            "basic_rendering": False,
             "section_states": {},
             "force_quit_cpu_alert": 80.0,
             "force_quit_mem_alert": 500.0,

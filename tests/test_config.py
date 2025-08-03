@@ -68,6 +68,13 @@ def test_menu_default(monkeypatch):
     assert cfg.get("show_menu") is True
 
 
+def test_basic_rendering_default(monkeypatch):
+    tmp = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(Path, "home", lambda: tmp)
+    cfg = Config()
+    assert cfg.get("basic_rendering") is False
+
+
 def test_force_quit_defaults(monkeypatch):
     tmp = Path(tempfile.mkdtemp())
     monkeypatch.setattr(Path, "home", lambda: tmp)

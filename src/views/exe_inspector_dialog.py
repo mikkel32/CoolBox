@@ -116,25 +116,26 @@ class ExeInspectorDialog(BaseDialog):
         )
         self.logo_label.pack(padx=15, pady=5)
         
-        # Title with shadow effect
+        # Title with optional shadow effect
         title_frame = ctk.CTkFrame(logo_section, fg_color=self.bg_glass_2)
         title_frame.pack(side="left", padx=(15, 0))
         
-        # Shadow text
-        title_shadow = ctk.CTkLabel(
-            title_frame,
-            text=f"AEGIS://SHIELD/{self.path.name.upper()}",
-            font=("Consolas", 16, "bold"),
-            text_color=self.bg_glass_4
-        )
-        title_shadow.place(x=2, y=2)
-        
+        # Shadow text (optional)
+        if not self.app.config.get("basic_rendering", False):
+            title_shadow = ctk.CTkLabel(
+                title_frame,
+                text=f"AEGIS://SHIELD/{self.path.name.upper()}",
+                font=("Consolas", 16, "bold"),
+                text_color=self.bg_glass_4,
+            )
+            title_shadow.place(x=2, y=2)
+
         # Main title
         title_main = ctk.CTkLabel(
             title_frame,
             text=f"AEGIS://SHIELD/{self.path.name.upper()}",
             font=("Consolas", 16, "bold"),
-            text_color=self.accent_cyan
+            text_color=self.accent_cyan,
         )
         title_main.pack()
         

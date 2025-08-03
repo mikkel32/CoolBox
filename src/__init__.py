@@ -1,5 +1,7 @@
 """Public package interface for CoolBox."""
 
+__version__ = "1.0.70"
+
 import os
 
 if not os.environ.get("COOLBOX_LIGHTWEIGHT"):

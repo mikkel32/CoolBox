@@ -225,6 +225,22 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_basic_render_disables_transparency(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, basic_render=True)
+        try:
+            self.assertFalse(overlay._has_colorkey)
+            try:
+                key = overlay.attributes("-transparentcolor")
+            except Exception:
+                key = None
+            self.assertIsNone(key)
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_auto_tune_interval_persists(self) -> None:
         tmp = Path(tempfile.mkdtemp())
         with patch.dict(os.environ, {}, clear=True):
