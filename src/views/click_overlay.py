@@ -714,7 +714,12 @@ class ClickOverlay(tk.Toplevel):
         # Share history with the scoring engine
         self.engine.active_history = self._active_history
         # Active window tracking via subscription callback.
-        self._active_pid: int | None = None
+        try:
+            self._active_window = get_active_window()
+            self._active_pid = self._active_window.pid
+        except Exception:
+            self._active_window = WindowInfo(None)
+            self._active_pid = None
         self._unsubscribe_active = subscribe_active_window(self._on_active_window)
         self._destroyed = False
         self._query_future: Future[WindowInfo] | None = None
@@ -849,6 +854,7 @@ class ClickOverlay(tk.Toplevel):
     def _on_active_window(self, info: WindowInfo) -> None:
         """Handle active window change notifications."""
 
+        self._active_window = info
         self._active_pid = info.pid
         if not self._destroyed:
             now = time.monotonic()
@@ -990,6 +996,9 @@ class ClickOverlay(tk.Toplevel):
         When called from ``<Motion>`` events this also updates velocity and
         tracking fields so fallback bindings behave like the hook-based path.
         """
+        # Refresh active PID from the cached window to avoid polling the OS
+        active = self._active_window
+        self._active_pid = active.pid
         if isinstance(_e, tk.Event):
             now = time.time()
             dt = now - self._last_move_time
@@ -1269,7 +1278,7 @@ class ClickOverlay(tk.Toplevel):
         if info is None:
             if self._query_future is None:
                 self._query_window_async(self._update_rect)
-            info = self._last_info or WindowInfo(None)
+            info = self._last_info or self._active_window or WindowInfo(None)
         if not getattr(self, "_raised", False):
             self.lift()
             self._raised = True
@@ -1398,7 +1407,7 @@ class ClickOverlay(tk.Toplevel):
                 elif self._last_info is not None:
                     info = self._last_info
                 else:
-                    info = get_active_window()
+                    info = self._active_window
         else:
             self._last_info = info
 
@@ -1520,7 +1529,7 @@ class ClickOverlay(tk.Toplevel):
         self._initial_active_pid = self._active_pid
         if self._initial_active_pid is None:
             try:
-                self._initial_active_pid = get_active_window().pid
+                self._initial_active_pid = self._active_window.pid
             except Exception:
                 self._initial_active_pid = None
         self.protocol("WM_DELETE_WINDOW", self.close)
