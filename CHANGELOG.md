@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.1.1 - 2025-09-05
+
+- **Fix:** Pre-initialize click overlay and global mouse listener in Force Quit
+  dialog and stop hooks when the dialog closes.
+
 ## 1.1.0 - 2025-09-04
 
 - **Feat:** Replace exponential smoothing with a configurable Kalman filter for
