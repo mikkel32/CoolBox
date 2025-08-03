@@ -128,6 +128,7 @@ from .security import (
     kill_process_by_port,
     kill_port_range,
 )
+from .thread_manager import ThreadManager
 
 from . import file_manager
 
@@ -246,4 +247,5 @@ __all__ = [
     "ScoringEngine",
     "Tuning",
     "tuning",
+    "ThreadManager",
 ]
