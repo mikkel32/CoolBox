@@ -1136,8 +1136,15 @@ class ClickOverlay(tk.Toplevel):
         if dt_ms < thr_ms and dist < thr_px:
             return
         self._move_scheduled = True
+        fast_dist = thr_px * 5
+        base_vel = float("inf") if thr_ms <= 0 else (thr_px / thr_ms) * 1000.0
+        inst_vel = float("inf") if dt_ms <= 0 else (dist / dt_ms) * 1000.0
+        fast_vel = base_vel * 4
         try:
-            self.after_idle(self._handle_move)
+            if dist >= fast_dist or inst_vel >= fast_vel:
+                self._handle_move()
+            else:
+                self.after_idle(self._handle_move)
         except Exception:
             self._move_scheduled = False
 
