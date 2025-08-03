@@ -106,6 +106,23 @@ def _load_str(env: str, key: str, default: str) -> str:
     return default
 
 
+def _load_bool(env: str, key: str, default: bool) -> bool:
+    """Return a bool loaded from ``env`` or configuration ``key``."""
+    val = os.getenv(env)
+    if val is not None:
+        if val.lower() in {"1", "true", "yes", "on"}:
+            return True
+        if val.lower() in {"0", "false", "no", "off"}:
+            return False
+    try:
+        cfg_val = CFG.get(key)
+        if cfg_val is not None:
+            return bool(cfg_val)
+    except Exception:
+        pass
+    return default
+
+
 # Allow the refresh interval to be configured via an environment
 # variable. Falling back to half the screen refresh period keeps the
 # overlay snappy (120 FPS on a 60 Hz display) while providing an easy
@@ -325,6 +342,7 @@ class ClickOverlay(tk.Toplevel):
         skip_confirm: bool | None = None,
         on_hover: Callable[[int | None, str | None], None] | None = None,
         basic_render: bool = False,
+        adaptive_interval: bool | None = None,
         _backend: str | None = None,
     ) -> None:
         super().__init__(parent)
@@ -410,6 +428,13 @@ class ClickOverlay(tk.Toplevel):
             pass
         self.probe_attempts = probe_attempts
         self.timeout = timeout
+        if adaptive_interval is None:
+            adaptive_interval = _load_bool(
+                "KILL_BY_CLICK_AUTO_INTERVAL",
+                "kill_by_click_auto_interval",
+                True,
+            )
+        self.adaptive_interval = adaptive_interval
         self.interval = interval
         if min_interval is None:
             self.min_interval = _load_calibrated(
@@ -750,6 +775,14 @@ class ClickOverlay(tk.Toplevel):
         delay = max(min(delay, max_ms), min_ms)
         return int(delay)
 
+    def _retune_interval(self) -> None:
+        """Adjust refresh intervals based on recent frame rendering times."""
+        avg_sec = self.avg_frame_ms / 1000.0
+        interval = max(DEFAULT_INTERVAL, avg_sec * 2)
+        self.min_interval = max(avg_sec * 1.2, 0.001)
+        self.max_interval = interval * 5
+        self.interval = max(min(interval, self.max_interval), self.min_interval)
+
     def _process_update(self) -> None:
         self.update_state = UpdateState.IDLE
         if self.state is OverlayState.POLLING:
@@ -773,6 +806,8 @@ class ClickOverlay(tk.Toplevel):
         self._frame_count += 1
         if self._frame_count % self._frame_times.maxlen == 0:
             log(f"ClickOverlay avg frame {self.avg_frame_ms:.2f}ms")
+            if self.adaptive_interval:
+                self._retune_interval()
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
