@@ -1,6 +1,7 @@
 import unittest
 from unittest import mock
 import time
+from typing import Callable
 
 from src.utils.window_utils import (
     WindowInfo,
@@ -50,7 +51,10 @@ class TestWindowUtils(unittest.TestCase):
             time.sleep(0.1)
             return [WindowInfo(1, (0, 0, 1, 1), "new")]
 
-        with mock.patch.object(wu, "_refresh_windows", fake_enum):
+        with (
+            mock.patch.object(wu, "_refresh_windows", fake_enum),
+            mock.patch.object(wu, "subscribe_window_change", return_value=None),
+        ):
             start = time.time()
             res = wu._fallback_list_windows_at(0, 0)
             self.assertLess(time.time() - start, 0.05)
@@ -58,6 +62,33 @@ class TestWindowUtils(unittest.TestCase):
             time.sleep(0.15)
             res2 = wu._fallback_list_windows_at(0, 0)
             self.assertEqual(res2[0].pid, 1)
+
+    def test_window_change_event_refreshes_cache(self):
+        from src.utils import window_utils as wu
+
+        fake_old = WindowInfo(1, (0, 0, 1, 1), "old")
+        fake_new = WindowInfo(2, (0, 0, 1, 1), "new")
+        callbacks: list[Callable[[], None]] = []
+
+        def fake_subscribe(cb):
+            callbacks.append(cb)
+            return lambda: None
+
+        wu._WINDOWS_CACHE = {"time": time.time(), "windows": [fake_old]}
+        wu._WINDOWS_THREAD = None
+        wu._WINDOWS_EVENT_UNSUB = None
+        wu._WINDOWS_EVENTS_SUPPORTED = False
+        wu._WINDOWS_REFRESH.clear()
+        wu._RECENT_WINDOWS.clear()
+
+        with (
+            mock.patch.object(wu, "subscribe_window_change", fake_subscribe),
+            mock.patch.object(wu, "_refresh_windows", lambda: [fake_new]),
+        ):
+            self.assertEqual(wu.list_windows_at(0, 0), [fake_old])
+            callbacks[0]()
+            time.sleep(0.1)
+            self.assertEqual(wu.list_windows_at(0, 0), [fake_new])
 
     def test_filter_windows_at(self):
         wins = [

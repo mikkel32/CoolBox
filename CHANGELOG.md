@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.82 - 2025-09-04
+
+- **Perf:** Refresh window cache on OS events and query cache for window lookups,
+  polling only when events are unavailable.
+
 ## 1.0.81 - 2025-09-04
 
 - **Perf:** Offload click overlay scoring and window probing to a background
