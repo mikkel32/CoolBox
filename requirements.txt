@@ -3,7 +3,6 @@ pillow>=11.0.0
 python-dotenv>=1.0.0
 colorama>=0.4.6
 rich>=13.0.0
-cython>=0.29.0
 matplotlib>=3.7.0
 requests>=2.31.0
 pyperclip>=1.8.2
