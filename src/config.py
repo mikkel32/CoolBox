@@ -123,6 +123,7 @@ class Config:
             "kill_by_click_interval": None,
             "kill_by_click_min_interval": None,
             "kill_by_click_max_interval": None,
+            "kill_by_click_auto_interval": True,
         }
 
         # Load configuration

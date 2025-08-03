@@ -5,6 +5,7 @@ import threading
 import tkinter as tk
 from typing import Any
 from unittest.mock import Mock, patch
+from collections import deque
 from concurrent.futures import Future
 from pathlib import Path
 import tempfile
@@ -16,6 +17,7 @@ from src.views.click_overlay import (
     WindowInfo,
     COLORKEY_RECHECK_MS,
     OverlayState,
+    DEFAULT_INTERVAL,
 )
 
 
@@ -274,6 +276,45 @@ class TestClickOverlay(unittest.TestCase):
                 self.assertAlmostEqual(cfg.get("kill_by_click_interval"), interval)
                 self.assertAlmostEqual(cfg.get("kill_by_click_min_interval"), min_i)
                 self.assertAlmostEqual(cfg.get("kill_by_click_max_interval"), max_i)
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_adaptive_interval_toggle(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, adaptive_interval=True)
+        try:
+            overlay.after = Mock()
+            overlay._update_rect = Mock()
+            overlay.interval = 0.1
+            overlay.min_interval = 0.05
+            overlay.max_interval = 1.0
+            overlay._frame_times = deque([80.0, 80.0], maxlen=3)
+            overlay._frame_count = 2
+            with patch("time.perf_counter", side_effect=[0.0, 0.08]):
+                overlay._process_update()
+            expected = max(DEFAULT_INTERVAL, 0.08 * 2)
+            self.assertAlmostEqual(overlay.interval, expected, places=3)
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, adaptive_interval=False)
+        try:
+            overlay.after = Mock()
+            overlay._update_rect = Mock()
+            overlay.interval = 0.1
+            overlay.min_interval = 0.05
+            overlay.max_interval = 1.0
+            overlay._frame_times = deque([80.0, 80.0], maxlen=3)
+            overlay._frame_count = 2
+            with patch("time.perf_counter", side_effect=[0.0, 0.08]):
+                overlay._process_update()
+            self.assertEqual(overlay.interval, 0.1)
+        finally:
+            overlay.destroy()
+            root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_move_primes_window_cache(self) -> None:
