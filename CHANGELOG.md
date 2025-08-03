@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.7 - 2025-09-17
+
+- **Refactor:** Manage Kill-by-Click overlay cleanup with a context manager.
+
 ## 1.2.6 - 2025-09-16
 
 - **Refactor:** Centralize overlay highlight color updates and tests.
