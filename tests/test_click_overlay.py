@@ -51,6 +51,19 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_colorkey_failure_still_deiconifies(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch.object(ClickOverlay, "_maybe_ensure_colorkey", side_effect=tk.TclError),
+            patch.object(ClickOverlay, "deiconify") as mock_deiconify,
+        ):
+            overlay = ClickOverlay(root)
+        mock_deiconify.assert_called_once()
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_env_sets_default_highlight(self) -> None:
         with patch.dict(os.environ, {"KILL_BY_CLICK_HIGHLIGHT": "green"}):
             root = tk.Tk()
