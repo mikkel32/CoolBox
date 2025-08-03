@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.73 - 2025-08-30
+
+- **Perf:** Use configurable thread pool for click overlay tasks, leveraging available CPU cores.
+
 ## 1.0.72 - 2025-08-30
 
 - **Feat:** Display watchdog spinner during kill operations, allow cancellation on timeout and log kill duration metrics.

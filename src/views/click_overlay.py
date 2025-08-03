@@ -36,12 +36,34 @@ from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
 from src.config import Config
 
-EXECUTOR = ThreadPoolExecutor(max_workers=1)
+CFG = Config()
+
+
+def _load_int(env: str, key: str, default: int) -> int:
+    """Return an int loaded from ``env`` or configuration ``key``."""
+    val = os.getenv(env)
+    if val is not None:
+        try:
+            return int(val)
+        except ValueError:
+            pass
+    try:
+        cfg_val = CFG.get(key)
+        if cfg_val is not None:
+            return int(cfg_val)
+    except Exception:
+        pass
+    return default
+
+
+EXECUTOR = ThreadPoolExecutor(
+    max_workers=_load_int(
+        "KILL_BY_CLICK_WORKERS", "kill_by_click_workers", os.cpu_count() or 1
+    )
+)
 atexit.register(EXECUTOR.shutdown, cancel_futures=True)
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
-
-CFG = Config()
 
 
 def _load_calibrated(env: str, key: str, default: float) -> float:
