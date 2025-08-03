@@ -42,6 +42,7 @@ from src.utils.window_utils import (
 )
 from src.utils.mouse_listener import get_global_listener, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
+from src.utils.hover_tracker import HoverTracker
 from ._fast_confidence import weighted_confidence as _weighted_confidence_np
 from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
@@ -707,16 +708,14 @@ class ClickOverlay(tk.Toplevel):
         self._last_move_pos = (0, 0)
         self._move_scheduled = False
         self._pending_move: tuple[int, int, float] | None = None
-        self._pid_stability: dict[int, int] = {}
-        self._pid_history = deque(maxlen=tuning.pid_history_size)
-        self._info_history = deque(maxlen=tuning.pid_history_size)
-        self._current_pid: int | None = None
-        self._current_streak: int = 0
+        self._hover = HoverTracker()
+        # Expose internal trackers for backwards compatibility with tests
+        self._gaze_duration = self._hover.gaze_duration
+        self._pid_history = self._hover.pid_history
+        self._info_history = self._hover.info_history
+        self._pid_stability = self._hover.pid_stability
         self._click_x = 0
         self._click_y = 0
-        self._gaze_duration: dict[int, float] = {}
-        self._hover_start = time.monotonic()
-        self._last_gaze_pid: int | None = None
         self._active_history: deque[tuple[int, float]] = deque(
             maxlen=tuning.active_history_size
         )
@@ -1057,9 +1056,21 @@ class ClickOverlay(tk.Toplevel):
                 self._cursor_x = fx
                 self._cursor_y = fy
                 self._velocity = math.hypot(vx, vy)
+        _ = self._update_hover_tracker()
         if self.update_state is UpdateState.IDLE:
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
+
+    def _update_hover_tracker(self) -> WindowInfo | None:
+        """Update hover statistics and return a stable guess if available."""
+        info = self._query_window()
+        self._hover.update(info, self._own_pid)
+        if info.pid not in (self._own_pid, None):
+            self._last_info = info
+            self._track_async(info)
+        elif info.pid is None:
+            self._last_info = None
+        return self._hover.stable_info(self._velocity)
 
     def _next_delay(self) -> int:
         """Return the delay in milliseconds until the next update."""
@@ -1356,7 +1367,6 @@ class ClickOverlay(tk.Toplevel):
             info = self._last_info or self._active_window or WindowInfo(None)
         self.pid = info.pid
         self.title_text = info.title
-        self._track_gaze(info)
 
         px = int(self._cursor_x)
         py = int(self._cursor_y)
@@ -1381,38 +1391,6 @@ class ClickOverlay(tk.Toplevel):
         self._buffer["label_text"] = text
         self._buffer["pid"] = info.pid
         self._handle_hover(hover_changed)
-
-    def _track_gaze(self, info: WindowInfo) -> None:
-        """Update gaze tracking statistics and history."""
-        now = time.monotonic()
-        if self._last_gaze_pid is not None and self._last_gaze_pid != info.pid:
-            dur = now - self._hover_start
-            if self._last_gaze_pid not in (self._own_pid, None):
-                self._gaze_duration[self._last_gaze_pid] = (
-                    self._gaze_duration.get(self._last_gaze_pid, 0.0) + dur
-                )
-            self._hover_start = now
-        self._last_gaze_pid = info.pid
-        for pid in list(self._gaze_duration):
-            self._gaze_duration[pid] *= tuning.gaze_decay
-            if self._gaze_duration[pid] < tuning.score_min:
-                del self._gaze_duration[pid]
-        if info.pid not in (self._own_pid, None):
-            self._last_info = info
-            self._pid_history.append(info.pid)
-            self._info_history.append(info)
-            self._track_async(info)
-            self._pid_stability[info.pid] = self._pid_stability.get(info.pid, 0) + 1
-            for pid in list(self._pid_stability):
-                if pid != info.pid:
-                    self._pid_stability[pid] = max(0, self._pid_stability[pid] - 1)
-            if info.pid == self._current_pid:
-                self._current_streak += 1
-            else:
-                self._current_pid = info.pid
-                self._current_streak = 1
-        elif info.pid is None:
-            self._last_info = None
 
     def _draw_crosshair(
         self,
@@ -1475,18 +1453,7 @@ class ClickOverlay(tk.Toplevel):
 
     def _stable_info(self) -> WindowInfo | None:
         """Return a best guess based solely on recent hover history."""
-        if not self._pid_stability:
-            return None
-        pid, count = max(self._pid_stability.items(), key=lambda i: i[1])
-        threshold = tuning.stability_threshold + int(
-            self._velocity * tuning.vel_stab_scale
-        )
-        if count < threshold:
-            return None
-        for info in reversed(self._info_history):
-            if info.pid == pid:
-                return info
-        return WindowInfo(pid)
+        return self._hover.stable_info(self._velocity)
 
     def _confirm_window(self) -> WindowInfo:
         """Re-query the click location after the overlay closes."""
@@ -1574,12 +1541,7 @@ class ClickOverlay(tk.Toplevel):
         self._last_info = None
         with self._state_lock:
             self._cached_info = None
-        self._current_pid = None
-        self._current_streak = 0
-        self._pid_stability.clear()
-        self._pid_history.clear()
-        self._info_history.clear()
-        self._gaze_duration.clear()
+        self._hover.reset()
         self._path_history.clear()
         self._point_cache.clear()
         self._active_history.clear()
