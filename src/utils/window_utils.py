@@ -416,6 +416,79 @@ def subscribe_active_window(
     return unsubscribe
 
 
+def subscribe_window_change(
+    callback: Callable[[], None]
+) -> Callable[[], None] | None:
+    """Subscribe to global window change events.
+
+    The callback is invoked whenever a top-level window is created, destroyed,
+    moved or resized.  Returns an unsubscribe function or ``None`` when the
+    current platform does not support such notifications.
+    """
+
+    if sys.platform.startswith("win"):
+        try:
+            user32 = ctypes.windll.user32
+            WINEVENT_OUTOFCONTEXT = 0x0000
+            EVENT_MIN = 0x00000001
+            EVENT_MAX = 0x7FFFFFFF
+
+            WinEventProcType = ctypes.WINFUNCTYPE(
+                None,
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.HWND,
+                wintypes.LONG,
+                wintypes.LONG,
+                wintypes.DWORD,
+                wintypes.DWORD,
+            )
+
+            stop = threading.Event()
+
+            def _proc(hook, event, hwnd, obj, child, thread, time_ms):  # pragma: no cover - OS callback
+                if hwnd and obj == 0:
+                    try:
+                        callback()
+                    except Exception:
+                        pass
+
+            proc = WinEventProcType(_proc)
+            hook = user32.SetWinEventHook(
+                EVENT_MIN,
+                EVENT_MAX,
+                0,
+                proc,
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            )
+            if not hook:
+                return None
+
+            def _pump() -> None:
+                msg = wintypes.MSG()
+                while not stop.is_set():
+                    while user32.PeekMessageW(ctypes.byref(msg), 0, 0, 0, 1):
+                        user32.TranslateMessage(ctypes.byref(msg))
+                        user32.DispatchMessageW(ctypes.byref(msg))
+                    time.sleep(0.1)
+                user32.UnhookWinEvent(hook)
+
+            thread = threading.Thread(target=_pump, daemon=True)
+            thread.start()
+
+            def unsubscribe() -> None:
+                stop.set()
+                thread.join()
+
+            return unsubscribe
+        except Exception:
+            return None
+
+    return None
+
+
 def get_window_under_cursor() -> WindowInfo:
     """Return information about the window under the mouse cursor."""
     if sys.platform.startswith("win"):
