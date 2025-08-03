@@ -1356,6 +1356,34 @@ class ClickOverlay(tk.Toplevel):
             info = self._last_info or self._active_window or WindowInfo(None)
         self.pid = info.pid
         self.title_text = info.title
+        self._track_gaze(info)
+
+        px = int(self._cursor_x)
+        py = int(self._cursor_y)
+        sw = self._screen_w
+        sh = self._screen_h
+        cursor_changed = (px, py) != self._buffer["cursor"]
+        updates: dict[str, tuple[int, ...] | str] = {}
+        self._draw_crosshair(updates, px, py, sw, sh, cursor_changed)
+        rect, text, window_changed, hover_changed = self._update_label(info, updates)
+
+        if cursor_changed or window_changed or hover_changed:
+            if self.show_label and self.label is not None:
+                pos = self._calc_label_pos(px, py, sw, sh)
+                if pos is not None:
+                    updates["label_pos"] = pos
+        else:
+            return
+
+        self._apply_updates(updates)
+        self._buffer["cursor"] = (px, py)
+        self._buffer["rect"] = rect
+        self._buffer["label_text"] = text
+        self._buffer["pid"] = info.pid
+        self._handle_hover(hover_changed)
+
+    def _track_gaze(self, info: WindowInfo) -> None:
+        """Update gaze tracking statistics and history."""
         now = time.monotonic()
         if self._last_gaze_pid is not None and self._last_gaze_pid != info.pid:
             dur = now - self._hover_start
@@ -1386,12 +1414,16 @@ class ClickOverlay(tk.Toplevel):
         elif info.pid is None:
             self._last_info = None
 
-        px = int(self._cursor_x)
-        py = int(self._cursor_y)
-        sw = self._screen_w
-        sh = self._screen_h
-        cursor_changed = (px, py) != self._buffer["cursor"]
-        updates: dict[str, tuple[int, ...] | str] = {}
+    def _draw_crosshair(
+        self,
+        updates: dict[str, tuple[int, ...] | str],
+        px: int,
+        py: int,
+        sw: int,
+        sh: int,
+        cursor_changed: bool,
+    ) -> None:
+        """Populate updates with crosshair coordinates."""
         if (
             self.show_crosshair
             and self.hline is not None
@@ -1402,6 +1434,12 @@ class ClickOverlay(tk.Toplevel):
             updates["vline"] = (px, 0, px, sh)
             self._buffer["screen"] = (sw, sh)
 
+    def _update_label(
+        self,
+        info: WindowInfo,
+        updates: dict[str, tuple[int, ...] | str],
+    ) -> tuple[tuple[int, int, int, int], str, bool, bool]:
+        """Update overlay rectangle and label text."""
         if info.pid is None or not info.rect:
             rect = (-5, -5, -5, -5)
             text = ""
@@ -1425,20 +1463,10 @@ class ClickOverlay(tk.Toplevel):
         ):
             updates["label_text"] = text
         hover_changed = text_changed or info.pid != self._buffer["pid"]
+        return rect, text, window_changed, hover_changed
 
-        if cursor_changed or window_changed or hover_changed:
-            if self.show_label and self.label is not None:
-                pos = self._calc_label_pos(px, py, sw, sh)
-                if pos is not None:
-                    updates["label_pos"] = pos
-        else:
-            return
-
-        self._apply_updates(updates)
-        self._buffer["cursor"] = (px, py)
-        self._buffer["rect"] = rect
-        self._buffer["label_text"] = text
-        self._buffer["pid"] = info.pid
+    def _handle_hover(self, hover_changed: bool) -> None:
+        """Invoke the hover callback when the target window changes."""
         if hover_changed and self.on_hover is not None:
             try:
                 self.on_hover(self.pid, self.title_text)
