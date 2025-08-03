@@ -2,11 +2,6 @@
 
 ## Unreleased
 
-## 1.3.15 - 2025-08-03
-
-- **Fix:** Prevent Force Quit operations from terminating the current process.
-- **Dev:** Import optional Cython build tools via ``importlib`` to satisfy static analyzers.
-
 ## 1.3.14 - 2025-08-03
 
 - **Fix:** Skip terminating the current process when killing the active or cursor window.

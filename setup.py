@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.3.15"
+__version__ = "1.3.14"
 
 import argparse
 import os
@@ -212,12 +212,11 @@ DEV_PACKAGES = ["debugpy", "flake8"]
 
 def build_extensions() -> None:
     """Attempt to build optional Cython extensions."""
+
     try:
-        import importlib
+        from Cython.Build import cythonize
         from setuptools import Extension
         import numpy
-        cython_build = importlib.import_module("Cython.Build")
-        cythonize = getattr(cython_build, "cythonize")
     except Exception as exc:  # pragma: no cover - build tools missing
         log(f"Skipping Cython build: {exc}")
         return
