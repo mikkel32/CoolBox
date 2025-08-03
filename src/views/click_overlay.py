@@ -671,13 +671,10 @@ class ClickOverlay(tk.Toplevel):
         try:
             self.update_idletasks()
             self.deiconify()
+            if not self.basic_render:
+                self._maybe_ensure_colorkey(force=True)
         except Exception:
             pass
-        if not self.basic_render:
-            try:
-                self._maybe_ensure_colorkey(force=True)
-            except Exception:
-                pass
         self.probe_attempts = probe_attempts
         self.timeout = timeout
         if adaptive_interval is None:

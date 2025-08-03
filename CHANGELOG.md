@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-## 1.3.16 - 2025-08-03
-
-- **Fix:** Ensure ClickOverlay window shows even when transparency color key is unsupported.
-
 ## 1.3.15 - 2025-08-03
 
 - **Fix:** Prevent Force Quit executable kills from terminating parent processes.
