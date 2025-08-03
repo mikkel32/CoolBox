@@ -43,7 +43,7 @@ from src.utils.mouse_listener import get_global_listener
 
 # Import the click overlay early so its heavy dependencies are loaded
 # before the first "Kill by Click" invocation.
-from .click_overlay import ClickOverlay
+from .click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
 
 class ForceQuitDialog(BaseDialog):
@@ -61,6 +61,7 @@ class ForceQuitDialog(BaseDialog):
             self, basic_render=self.app.config.get("basic_rendering", False)
         )
         self._overlay.reset()
+        self.initialize_click_overlay()
 
         width_env = os.getenv("FORCE_QUIT_WIDTH")
         height_env = os.getenv("FORCE_QUIT_HEIGHT")
@@ -2112,19 +2113,13 @@ class ForceQuitDialog(BaseDialog):
             )
         self._populate()
 
-    def _kill_by_click(self) -> None:
-        """Launch the click-to-kill overlay and terminate the selected window."""
-
-        from .click_overlay import KILL_BY_CLICK_INTERVAL
-
-        paused = self.paused
-        if not paused:
-            self._safe_pause()
-
+    def initialize_click_overlay(self) -> None:
+        """Configure the click overlay once using environment variables."""
+        if hasattr(self, "_overlay_settings"):
+            return
         color = getattr(self, "hover_color", None) or getattr(self, "accent", "red")
         color = os.getenv("KILL_BY_CLICK_HIGHLIGHT", color)
         interval_env = os.getenv("KILL_BY_CLICK_INTERVAL")
-
         overlay = self._overlay
         overlay.on_hover = self._highlight_pid
         overlay.canvas.itemconfigure(overlay.rect, outline=color)
@@ -2144,6 +2139,22 @@ class ForceQuitDialog(BaseDialog):
                 setattr(overlay, name, float(env))
             except ValueError:
                 pass
+        self._overlay_settings = {
+            "color": color,
+            "interval": getattr(overlay, "interval", None),
+            "min_interval": getattr(overlay, "min_interval", None),
+            "max_interval": getattr(overlay, "max_interval", None),
+            "delay_scale": getattr(overlay, "delay_scale", None),
+        }
+
+    def _kill_by_click(self) -> None:
+        """Launch the click-to-kill overlay and terminate the selected window."""
+        paused = self.paused
+        if not paused:
+            self._safe_pause()
+
+        self.initialize_click_overlay()
+        overlay = self._overlay
 
         # Hide the dialog first so the overlay appears instantly without
         # waiting for geometry updates.

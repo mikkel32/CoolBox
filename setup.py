@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__version__ = "1.2.1"
+
 import argparse
 import os
 import subprocess
