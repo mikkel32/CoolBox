@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.1.0 - 2025-09-04
+
+- **Feat:** Replace exponential smoothing with a configurable Kalman filter for
+  click overlay cursor tracking.
+
 ## 1.0.83 - 2025-09-04
 
 - **Perf:** Use ``WindowFromPoint`` on Windows for direct lookups and avoid
