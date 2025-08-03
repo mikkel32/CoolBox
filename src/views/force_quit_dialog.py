@@ -893,11 +893,12 @@ class ForceQuitDialog(BaseDialog):
                 self.hover_color = darken_color(self.accent, factor)
         self.tree.tag_configure("hover", background=self.hover_color)
         self._hover_iid: str | None = None
+        self._last_motion: tuple[int, int] | None = None
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
         self.tree.bind("<<TreeviewSelect>>", self._on_selection)
         self.tree.bind("<Motion>", self._on_hover)
-        self.tree.bind("<Leave>", lambda e: self._set_hover_row(None))
+        self.tree.bind("<Leave>", self._on_tree_leave)
 
         self.details_frame = ctk.CTkFrame(monitor_tab)
         self.details_frame.pack(fill="both", padx=10, pady=(5, 0))
@@ -1788,16 +1789,22 @@ class ForceQuitDialog(BaseDialog):
         self._apply_hover_tag()
 
     def _on_hover(self, event) -> None:
+        if event.widget is not self.tree:
+            return
+        self._last_motion = (event.x, event.y)
         iid = self.tree.identify_row(event.y)
         self._set_hover_row(iid)
 
+    def _on_tree_leave(self, _event) -> None:
+        self._last_motion = None
+        self._set_hover_row(None)
+
     def _update_hover(self) -> None:
-        x, y = self.winfo_pointerxy()
-        widget = self.winfo_containing(x, y)
-        if widget is self.tree or widget in self.tree.winfo_children():
-            iid = self.tree.identify_row(y - self.tree.winfo_rooty())
-        else:
-            iid = None
+        if not self._last_motion:
+            self._set_hover_row(None)
+            return
+        _, y = self._last_motion
+        iid = self.tree.identify_row(y)
         self._set_hover_row(iid)
 
     def _highlight_pid(self, pid: int | None, _title: str | None = None) -> None:

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.8 - 2025-08-12
+
+- **Refactor:** Use motion event coordinates for hover tracking, avoiding global pointer queries.
+- **Test:** Ensure hover updates do not rely on global pointer lookups.
+
 ## 1.3.7 - 2025-08-11
 
 - **Fix:** Update Force Quit hover handling to highlight rows immediately on motion.

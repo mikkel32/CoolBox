@@ -43,11 +43,29 @@ def test_hover_immediate():
 
     dialog.tree.identify_row.side_effect = ["row1", "row2"]
 
-    evt1 = types.SimpleNamespace(y=5)
-    evt2 = types.SimpleNamespace(y=10)
+    evt1 = types.SimpleNamespace(x=0, y=5, widget=dialog.tree)
+    evt2 = types.SimpleNamespace(x=0, y=10, widget=dialog.tree)
     dialog._on_hover(evt1)
     dialog._on_hover(evt2)
 
     assert dialog._set_hover_row.call_args_list == [mock.call("row1"), mock.call("row2")]
     dialog.after.assert_not_called()
     dialog.after_cancel.assert_not_called()
+
+
+def test_update_hover_no_global_pointer_calls():
+    dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+    dialog.tree = mock.Mock()
+    dialog._set_hover_row = mock.Mock()
+    dialog.winfo_pointerxy = mock.Mock(side_effect=AssertionError("should not be called"))
+    dialog.winfo_containing = mock.Mock(side_effect=AssertionError("should not be called"))
+
+    dialog.tree.identify_row.return_value = "row"
+
+    evt = types.SimpleNamespace(x=0, y=5, widget=dialog.tree)
+    dialog._on_hover(evt)
+    dialog._update_hover()
+
+    dialog.winfo_pointerxy.assert_not_called()
+    dialog.winfo_containing.assert_not_called()
+    dialog._set_hover_row.assert_called_with("row")
