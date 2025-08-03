@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.3.14"
+__version__ = "1.3.15"
 
 import argparse
 import os
@@ -214,7 +214,10 @@ def build_extensions() -> None:
     """Attempt to build optional Cython extensions."""
 
     try:
-        from Cython.Build import cythonize
+        import importlib
+
+        cython_build = importlib.import_module("Cython.Build")
+        cythonize = cython_build.cythonize
         from setuptools import Extension
         import numpy
     except Exception as exc:  # pragma: no cover - build tools missing
