@@ -359,3 +359,8 @@
 - **Fix:** Parse hex color strings without consulting Tk, ensuring reliable
   transparent color keys.
 
+## 1.1.3 - 2025-08-03
+
+- **Feat:** Support QtQuick/OpenGL overlay backend with shared drawing
+  interface and runtime selection via ``KILL_BY_CLICK_BACKEND``.
+

@@ -15,17 +15,18 @@ import re
 import tkinter as tk
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, Protocol
 from enum import Enum, auto
 from threading import Lock
 import atexit
 
 try:  # pragma: no cover - optional dependency
-    from PyQt5 import QtCore, QtWidgets
+    from PyQt5 import QtCore, QtWidgets, QtQuick, QtOpenGL, QtGui
 except Exception:  # pragma: no cover - optional dependency
-    QtCore = QtWidgets = None
+    QtCore = QtWidgets = QtQuick = QtOpenGL = QtGui = None
 
 QT_AVAILABLE = QtWidgets is not None
+QT_QUICK_AVAILABLE = QtQuick is not None
 
 from src.utils.window_utils import (
     get_active_window,
@@ -157,7 +158,7 @@ MOVE_DEBOUNCE_MS = _load_int(
 # ``kill_by_click_min_move_px``.
 MIN_MOVE_PX = _load_int("KILL_BY_CLICK_MIN_MOVE_PX", "kill_by_click_min_move_px", 2)
 
-# Rendering backend selection ("canvas" or "qt")
+# Rendering backend selection ("canvas", "qt" or "qtquick")
 DEFAULT_BACKEND = _load_str(
     "KILL_BY_CLICK_BACKEND", "kill_by_click_backend", "canvas"
 ).lower()
@@ -244,6 +245,123 @@ def _normalize_color(widget: tk.Misc, color: str) -> str:
     return result
 
 
+class CanvasAPI(Protocol):
+    """Minimal drawing interface shared by overlay backends."""
+
+    def create_rectangle(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    def create_line(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    def create_text(self, *args: Any, **kwargs: Any) -> Any: ...
+
+    def coords(self, item: Any, *args: Any) -> Any: ...
+
+    def itemconfigure(self, item: Any, **kwargs: Any) -> Any: ...
+
+    def bbox(self, item: Any) -> Any: ...
+
+
+class TkCanvas(CanvasAPI):
+    """Adapter exposing ``tk.Canvas`` through ``CanvasAPI``."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._canvas = tk.Canvas(*args, **kwargs)
+
+    # Delegate standard methods to the underlying canvas
+    def __getattr__(self, name: str) -> Any:  # pragma: no cover - trivial
+        return getattr(self._canvas, name)
+
+    # Explicitly expose API methods for type checkers
+    def create_rectangle(self, *args: Any, **kwargs: Any) -> Any:
+        return self._canvas.create_rectangle(*args, **kwargs)
+
+    def create_line(self, *args: Any, **kwargs: Any) -> Any:
+        return self._canvas.create_line(*args, **kwargs)
+
+    def create_text(self, *args: Any, **kwargs: Any) -> Any:
+        return self._canvas.create_text(*args, **kwargs)
+
+    def coords(self, item: Any, *args: Any) -> Any:
+        return self._canvas.coords(item, *args)
+
+    def itemconfigure(self, item: Any, **kwargs: Any) -> Any:
+        return self._canvas.itemconfigure(item, **kwargs)
+
+    def bbox(self, item: Any) -> Any:
+        return self._canvas.bbox(item)
+
+
+if QT_AVAILABLE:
+
+    class QtCanvas(CanvasAPI):  # pragma: no cover - GUI heavy
+        """``CanvasAPI`` implementation using ``QGraphicsScene``."""
+
+        def __init__(self, parent: QtWidgets.QWidget) -> None:
+            scene = QtWidgets.QGraphicsScene(parent)
+            view = QtWidgets.QGraphicsView(scene, parent)
+            view.setStyleSheet("background: transparent")
+            view.setFrameShape(QtWidgets.QFrame.NoFrame)
+            view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            if QtOpenGL is not None:
+                try:
+                    view.setViewport(QtOpenGL.QGLWidget())
+                except Exception:
+                    pass
+            self._view = view
+            self._scene = scene
+
+        def widget(self) -> QtWidgets.QWidget:
+            return self._view
+
+        def create_rectangle(
+            self, x1: float, y1: float, x2: float, y2: float, *, outline: str = "red", width: int = 1
+        ) -> Any:
+            pen = QtGui.QPen(QtGui.QColor(outline))
+            pen.setWidth(width)
+            rect = self._scene.addRect(x1, y1, x2 - x1, y2 - y1, pen)
+            return rect
+
+        def create_line(
+            self, x1: float, y1: float, x2: float, y2: float, *, fill: str = "red", dash: Any | None = None
+        ) -> Any:
+            pen = QtGui.QPen(QtGui.QColor(fill))
+            if dash:
+                pen.setStyle(QtCore.Qt.DashLine)
+            line = self._scene.addLine(x1, y1, x2, y2, pen)
+            return line
+
+        def create_text(self, x: float, y: float, *, text: str = "", fill: str = "red", font: Any | None = None, anchor: str | None = None) -> Any:
+            item = self._scene.addText(text)
+            item.setDefaultTextColor(QtGui.QColor(fill))
+            item.setPos(x, y)
+            return item
+
+        def coords(self, item: Any, *args: Any) -> Any:
+            if hasattr(item, "setRect") and len(args) == 4:
+                item.setRect(*args)
+            elif hasattr(item, "setLine") and len(args) == 4:
+                item.setLine(*args)
+            elif hasattr(item, "setPos") and len(args) >= 2:
+                item.setPos(args[0], args[1])
+
+        def itemconfigure(self, item: Any, **kwargs: Any) -> Any:
+            if "text" in kwargs and hasattr(item, "setPlainText"):
+                item.setPlainText(kwargs["text"])
+            if "width" in kwargs and hasattr(item, "setPen"):
+                pen = item.pen()
+                pen.setWidth(kwargs["width"])
+                item.setPen(pen)
+            if "fill" in kwargs and hasattr(item, "setDefaultTextColor"):
+                item.setDefaultTextColor(QtGui.QColor(kwargs["fill"]))
+
+        def bbox(self, item: Any) -> Any:
+            if hasattr(item, "boundingRect"):
+                rect = item.boundingRect()
+                return rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height()
+            return None
+
+
 class UpdateState(Enum):
     IDLE = auto()
     PENDING = auto()
@@ -277,22 +395,43 @@ if QT_AVAILABLE:
             self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
             self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
             self.showFullScreen()
-            self._label = None
+            self.canvas = QtCanvas(self)
+            self.canvas.widget().setGeometry(self.rect())
+            self.canvas.widget().show()
+            self.rect = self.canvas.create_rectangle(0, 0, 1, 1, outline=highlight, width=2)
+            self.hline = self.canvas.create_line(0, 0, 0, 0, fill=highlight)
+            self.vline = self.canvas.create_line(0, 0, 0, 0, fill=highlight)
+            self.label = None
             if show_label:
-                self._label = QtWidgets.QLabel(self)
-                self._label.setStyleSheet(f"color: {highlight}")
-                self._label.move(10, 10)
+                self.label = self.canvas.create_text(10, 10, text="", fill=highlight)
 
         def close(self) -> None:  # pragma: no cover - GUI heavy
             super().close()
             if not QtWidgets.QApplication.topLevelWidgets():
                 self._app.quit()
 
+    if QT_QUICK_AVAILABLE:
+
+        class QtQuickClickOverlay(QtClickOverlay):  # pragma: no cover - GUI heavy
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                self.backend = "qtquick"
+
+    else:  # pragma: no cover - Qt optional
+
+        class QtQuickClickOverlay:  # type: ignore
+            def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+                raise RuntimeError("QtQuick backend not available")
+
 else:  # pragma: no cover - Qt optional
 
     class QtClickOverlay:  # type: ignore
         def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
             raise RuntimeError("Qt backend not available")
+
+    class QtQuickClickOverlay:  # type: ignore
+        def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+            raise RuntimeError("QtQuick backend not available")
 
 
 class ClickOverlay(tk.Toplevel):
@@ -317,8 +456,8 @@ class ClickOverlay(tk.Toplevel):
         Optional callback invoked with ``(pid, title)`` when the hovered window
         changes.
     backend:
-        Rendering backend to use (``"canvas"`` or ``"qt"``). Defaults to
-        ``KILL_BY_CLICK_BACKEND`` or ``"canvas"``.
+        Rendering backend to use (``"canvas"``, ``"qt"`` or ``"qtquick"``).
+        Defaults to ``KILL_BY_CLICK_BACKEND`` or ``"canvas"``.
     """
 
     def __new__(
@@ -327,8 +466,10 @@ class ClickOverlay(tk.Toplevel):
         *args: Any,
         backend: str | None = None,
         **kwargs: Any,
-    ) -> "ClickOverlay | QtClickOverlay":
+    ) -> "ClickOverlay | QtClickOverlay | QtQuickClickOverlay":
         selected = (backend or DEFAULT_BACKEND).lower()
+        if selected in {"qtquick", "opengl"} and QT_QUICK_AVAILABLE:
+            return QtQuickClickOverlay(parent, *args, **kwargs)
         if selected == "qt" and QT_AVAILABLE:
             return QtClickOverlay(parent, *args, **kwargs)
         return super().__new__(cls)
@@ -452,7 +593,7 @@ class ClickOverlay(tk.Toplevel):
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself
         # becomes transparent via the color key.
-        self.canvas = tk.Canvas(
+        self.canvas = TkCanvas(
             self, bg=self._bg_color, highlightthickness=0, cursor="crosshair"
         )
         self.canvas.pack(fill="both", expand=True)
