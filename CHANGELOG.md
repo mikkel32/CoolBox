@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.13 - 2025-09-23
+
+- **Perf:** Cache window probes by cursor position with configurable granularity.
+
 ## 1.2.12 - 2025-09-22
 
 - **Feat:** Calibrate click overlay intervals on Force Quit startup and cache results.

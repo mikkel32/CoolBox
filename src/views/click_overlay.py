@@ -146,6 +146,11 @@ COLORKEY_RECHECK_MS = int(
 # Base cache TTL for window probing in seconds
 PROBE_CACHE_TTL = float(os.getenv("KILL_BY_CLICK_PROBE_TTL", "0.1"))
 
+# Grid size in pixels for position-based probe caching
+PROBE_CACHE_GRANULARITY = _load_int(
+    "KILL_BY_CLICK_PROBE_GRID", "kill_by_click_probe_grid", 5
+)
+
 # Minimum debounce thresholds. Actual values scale with cursor velocity and
 # display DPI but will not drop below these minimums. Override via
 # ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` / ``kill_by_click_move_debounce_ms`` and
@@ -695,6 +700,8 @@ class ClickOverlay(tk.Toplevel):
         self._initial_active_pid: int | None = None
         self._velocity = 0.0
         self._probe_cache_ttl = PROBE_CACHE_TTL
+        self._probe_cache_px = PROBE_CACHE_GRANULARITY
+        self._point_cache: dict[tuple[int, int], tuple[WindowInfo, float]] = {}
         self._path_history: deque[tuple[int, int]] = deque(maxlen=tuning.path_history)
         self._last_move_time = time.time()
         self._last_move_pos = (0, 0)
@@ -1251,8 +1258,16 @@ class ClickOverlay(tk.Toplevel):
     def _probe_point(self, x: int, y: int) -> WindowInfo:
         """Return window info at ``(x, y)`` with smart caching."""
         now = time.monotonic()
-        rect = self._window_cache_rect
         ttl = self._probe_cache_ttl
+        key = (x // self._probe_cache_px, y // self._probe_cache_px)
+        for k, (_, ts) in list(self._point_cache.items()):
+            if now - ts >= ttl:
+                del self._point_cache[k]
+        cached = self._point_cache.get(key)
+        if cached and now - cached[1] < ttl:
+            return cached[0]
+
+        rect = self._window_cache_rect
         if (
             rect
             and rect[0] <= x < rect[0] + rect[2]
@@ -1274,11 +1289,16 @@ class ClickOverlay(tk.Toplevel):
                 wins = [top]
                 self._set_window_cache(wins)
         if not wins:
-            return WindowInfo(None)
-        for win in wins:
-            if win.pid not in (self._own_pid, None):
-                return win
-        return wins[0]
+            info = WindowInfo(None)
+        else:
+            for win in wins:
+                if win.pid not in (self._own_pid, None):
+                    info = win
+                    break
+            else:
+                info = wins[0]
+        self._point_cache[key] = (info, now)
+        return info
 
     def _query_window_at(self, x: int, y: int) -> WindowInfo:
         """Return the window info at ``(x, y)`` in screen coordinates.
@@ -1536,6 +1556,7 @@ class ClickOverlay(tk.Toplevel):
         self._info_history.clear()
         self._gaze_duration.clear()
         self._path_history.clear()
+        self._point_cache.clear()
         self._active_history.clear()
         self._move_scheduled = False
         self._pending_move = None
