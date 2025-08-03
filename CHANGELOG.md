@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.0 - 2025-08-04
+
+- **Feat:** Optionally show executable names and icons in the click overlay via `KILL_BY_CLICK_APP_LABELS`.
+
 ## 1.2.17 - 2025-08-03
 
 - **Perf:** Use `canvas.move` for cursor translations and skip tiny movements.

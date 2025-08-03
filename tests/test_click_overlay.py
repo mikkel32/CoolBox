@@ -117,6 +117,33 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_enriched_label_uses_process_name(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        with patch("src.views.click_overlay.ENRICH_LABELS", True), patch(
+            "src.views.click_overlay._process_details", return_value=("proc", None)
+        ) as pd:
+            overlay._update_rect(WindowInfo(123, (0, 0, 10, 10), "win"))
+            self.assertEqual(overlay._buffer["label_text"], "proc")
+            pd.assert_called_once_with(123)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_enriched_label_respects_flag(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        with patch("src.views.click_overlay.ENRICH_LABELS", False), patch(
+            "src.views.click_overlay._process_details"
+        ) as pd:
+            overlay._update_rect(WindowInfo(123, (0, 0, 10, 10), "win"))
+            pd.assert_not_called()
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_crosshair_updates_skipped_when_disabled(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

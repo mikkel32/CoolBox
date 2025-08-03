@@ -19,14 +19,13 @@ from typing import Optional, Callable, Any, Protocol
 from enum import Enum, auto
 from threading import Lock
 import atexit
+import psutil
+from PIL import Image, ImageTk
 
 try:  # pragma: no cover - optional dependency
     from PyQt5 import QtCore, QtWidgets, QtQuick, QtOpenGL, QtGui
 except Exception:  # pragma: no cover - optional dependency
     QtCore = QtWidgets = QtQuick = QtOpenGL = QtGui = None
-
-QT_AVAILABLE = QtWidgets is not None
-QT_QUICK_AVAILABLE = QtQuick is not None
 
 from src.utils.window_utils import (
     get_active_window,
@@ -47,6 +46,9 @@ from ._fast_confidence import weighted_confidence as _weighted_confidence_np
 from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
 from src.config import Config
+
+QT_AVAILABLE = QtWidgets is not None
+QT_QUICK_AVAILABLE = QtQuick is not None
 
 CFG = Config()
 
@@ -76,6 +78,35 @@ EXECUTOR = ThreadPoolExecutor(
 atexit.register(EXECUTOR.shutdown, cancel_futures=True)
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
+
+# Enable enriched labels with process names/icons when environment flag is set
+ENRICH_LABELS = os.getenv("KILL_BY_CLICK_APP_LABELS", "").lower() not in (
+    "",
+    "0",
+    "false",
+    "no",
+)
+
+_PROCESS_CACHE: dict[int, tuple[str, ImageTk.PhotoImage | None]] = {}
+
+
+def _process_details(pid: int) -> tuple[str, ImageTk.PhotoImage | None]:
+    """Return process name and optional icon for ``pid``."""
+    if pid in _PROCESS_CACHE:
+        return _PROCESS_CACHE[pid]
+    name = ""
+    icon_img: ImageTk.PhotoImage | None = None
+    try:
+        proc = psutil.Process(pid)
+        name = proc.name()
+        exe = proc.exe()
+        if exe and exe.lower().endswith((".ico", ".png")):
+            img = Image.open(exe).resize((16, 16))
+            icon_img = ImageTk.PhotoImage(img)
+    except Exception:
+        pass
+    _PROCESS_CACHE[pid] = (name, icon_img)
+    return name, icon_img
 
 
 def _load_calibrated(env: str, key: str, default: float) -> float:
@@ -251,17 +282,17 @@ def _normalize_color(widget: tk.Misc, color: str) -> str:
 class CanvasAPI(Protocol):
     """Minimal drawing interface shared by overlay backends."""
 
-    def create_rectangle(self, *args: Any, **kwargs: Any) -> Any: ...
+    def create_rectangle(self, *args: Any, **kwargs: Any) -> Any: ...  # noqa: E704
 
-    def create_line(self, *args: Any, **kwargs: Any) -> Any: ...
+    def create_line(self, *args: Any, **kwargs: Any) -> Any: ...  # noqa: E704
 
-    def create_text(self, *args: Any, **kwargs: Any) -> Any: ...
+    def create_text(self, *args: Any, **kwargs: Any) -> Any: ...  # noqa: E704
 
-    def coords(self, item: Any, *args: Any) -> Any: ...
+    def coords(self, item: Any, *args: Any) -> Any: ...  # noqa: E704
 
-    def itemconfigure(self, item: Any, **kwargs: Any) -> Any: ...
+    def itemconfigure(self, item: Any, **kwargs: Any) -> Any: ...  # noqa: E704
 
-    def bbox(self, item: Any) -> Any: ...
+    def bbox(self, item: Any) -> Any: ...  # noqa: E704
 
 
 class TkCanvas(CanvasAPI):
@@ -617,8 +648,12 @@ class ClickOverlay(tk.Toplevel):
                 text="",
                 font=("TkDefaultFont", 10, "bold"),
             )
+            self.icon_item = None
+            self.icon_img: ImageTk.PhotoImage | None = None
         else:
             self.label = None
+            self.icon_item = None
+            self.icon_img = None
         # Fade in now that the window is fully configured. If the color key
         # cannot be applied the overlay remains semi-transparent so the user
         # can still see the screen.
@@ -754,6 +789,7 @@ class ClickOverlay(tk.Toplevel):
             "rect": (-5, -5, -5, -5),
             "label_text": "",
             "label_pos": (0, 0),
+            "icon_pos": (0, 0),
             "pid": None,
             "hline": (0, 0, 0, 0),
             "vline": (0, 0, 0, 0),
@@ -1042,6 +1078,27 @@ class ClickOverlay(tk.Toplevel):
             self.canvas.move(self.label, dx, dy)
             self._buffer["label_pos"] = new
             regions.append(self.canvas.bbox(self.label))
+        if "icon" in updates:
+            img = updates["icon"]
+            if img is None and self.icon_item is not None:
+                self.canvas.delete(self.icon_item)
+                self.icon_item = None
+                self.icon_img = None
+            elif img is not None:
+                if self.icon_item is None:
+                    self.icon_item = self.canvas.create_image(0, 0, image=img, anchor="nw")
+                else:
+                    self.canvas.itemconfigure(self.icon_item, image=img)
+                self.icon_img = img
+                regions.append(self.canvas.bbox(self.icon_item))
+        if "icon_pos" in updates and self.icon_item is not None:
+            new = updates["icon_pos"]
+            old = self._buffer.get("icon_pos", (0, 0))
+            dx = new[0] - old[0]
+            dy = new[1] - old[1]
+            self.canvas.move(self.icon_item, dx, dy)
+            self._buffer["icon_pos"] = new
+            regions.append(self.canvas.bbox(self.icon_item))
         end = time.perf_counter()
         log(
             f"ClickOverlay updated {len(regions)} regions in {(end - start) * 1000:.2f}ms"
@@ -1423,6 +1480,8 @@ class ClickOverlay(tk.Toplevel):
                 pos = self._calc_label_pos(px, py, sw, sh)
                 if pos is not None:
                     updates["label_pos"] = pos
+                    if ENRICH_LABELS and self.icon_item is not None:
+                        updates["icon_pos"] = (pos[0] - 20, pos[1])
         else:
             return
 
@@ -1472,6 +1531,11 @@ class ClickOverlay(tk.Toplevel):
                 info.rect[1] + info.rect[3],
             )
             text = info.title or (f"PID {info.pid}" if info.pid else "")
+            if ENRICH_LABELS and info.pid is not None:
+                name, icon_img = _process_details(info.pid)
+                if name:
+                    text = name
+                updates["icon"] = icon_img
 
         window_changed = rect != self._buffer["rect"] or info.pid != self._buffer["pid"]
         text_changed = text != self._buffer["label_text"]
