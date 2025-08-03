@@ -41,13 +41,9 @@ from src.utils.helpers import (
 )
 from src.utils.mouse_listener import get_global_listener
 
-import importlib
-
-# Preload the click overlay module so its heavy dependencies are
-# ready when "Kill by Click" is launched. This avoids the noticeable
-# delay caused by importing ``pynput`` and related modules on the
-# first invocation.
-importlib.import_module("src.views.click_overlay")
+# Import the click overlay early so its heavy dependencies are loaded
+# before the first "Kill by Click" invocation.
+from .click_overlay import ClickOverlay
 
 
 class ForceQuitDialog(BaseDialog):
@@ -55,7 +51,17 @@ class ForceQuitDialog(BaseDialog):
 
     def __init__(self, app):
         super().__init__(app, title="Force Quit", resizable=(True, True))
-        get_global_listener().start()
+        # Start the global mouse listener immediately so hooks are ready
+        # before any click-to-kill actions.
+        self._listener = get_global_listener()
+        self._listener.start()
+        # Instantiate the overlay in advance so showing it later is instant.
+        prime_window_cache()
+        self._overlay = ClickOverlay(
+            self, basic_render=self.app.config.get("basic_rendering", False)
+        )
+        self._overlay.reset()
+
         width_env = os.getenv("FORCE_QUIT_WIDTH")
         height_env = os.getenv("FORCE_QUIT_HEIGHT")
         sort_env = os.getenv("FORCE_QUIT_SORT")
@@ -881,14 +887,6 @@ class ForceQuitDialog(BaseDialog):
         # Apply current styling
         self.refresh_fonts()
         self.refresh_theme()
-
-        from .click_overlay import ClickOverlay
-
-        prime_window_cache()
-        self._overlay = ClickOverlay(
-            self, basic_render=self.app.config.get("basic_rendering", False)
-        )
-        self._overlay.reset()
 
         self._auto_refresh()
 
@@ -2353,4 +2351,13 @@ class ForceQuitDialog(BaseDialog):
         self._watcher.stop()
         self._watcher.join(timeout=1.0)
         self._row_cache.clear()
+        # Clean up overlay and global mouse hooks
+        try:
+            self._overlay.close()
+        except Exception:
+            pass
+        try:
+            self._listener.stop()
+        except Exception:
+            pass
         self.destroy()
