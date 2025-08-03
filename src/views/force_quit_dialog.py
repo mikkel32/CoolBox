@@ -1128,10 +1128,14 @@ class ForceQuitDialog(BaseDialog):
         cls, regex: re.Pattern[str], *, exclude_self: bool = True
     ) -> int:
         """Kill processes whose executable path matches regex."""
-        self_pid = os.getpid() if exclude_self else None
+        exclude: set[int]
+        if exclude_self:
+            exclude = {os.getpid(), os.getppid()}
+        else:
+            exclude = set()
         pids: list[int] = []
         for proc in psutil.process_iter(["pid", "exe"]):
-            if exclude_self and proc.pid == self_pid:
+            if proc.pid in exclude:
                 continue
             exe = proc.info.get("exe") or ""
             if exe and regex.search(exe):

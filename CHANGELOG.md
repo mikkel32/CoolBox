@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.15 - 2025-08-03
+
+- **Fix:** Prevent Force Quit executable kills from terminating parent processes.
+- **Fix:** Dynamically import optional Cython build dependency.
+
 ## 1.3.14 - 2025-08-03
 
 - **Fix:** Skip terminating the current process when killing the active or cursor window.

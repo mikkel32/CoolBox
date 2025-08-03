@@ -160,6 +160,17 @@ class TestForceQuit(unittest.TestCase):
         self.assertGreaterEqual(count, 1)
         self.assertFalse(psutil.pid_exists(proc.pid))
 
+    def test_force_kill_by_executable_excludes_parent(self) -> None:
+        regex = re.compile(re.escape(sys.executable))
+        parent_pid = os.getppid()
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        time.sleep(0.1)
+        self.assertTrue(psutil.pid_exists(proc.pid))
+        ForceQuitDialog.force_kill_by_executable(regex)
+        time.sleep(0.1)
+        self.assertFalse(psutil.pid_exists(proc.pid))
+        self.assertTrue(psutil.pid_exists(parent_pid))
+
     def test_force_kill_by_user(self) -> None:
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
         user = psutil.Process(proc.pid).username()
