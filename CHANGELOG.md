@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.16 - 2025-08-03
+
+- **Refactor:** Extract hover tracking into reusable `HoverTracker` class.
+
 ## 1.2.15 - 2025-09-25
 
 - **Refactor:** Split overlay update into gaze, crosshair, label and hover helpers.
