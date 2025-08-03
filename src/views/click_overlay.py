@@ -1354,9 +1354,6 @@ class ClickOverlay(tk.Toplevel):
             if self._query_future is None:
                 self._query_window_async(self._update_rect)
             info = self._last_info or self._active_window or WindowInfo(None)
-        if not getattr(self, "_raised", False):
-            self.lift()
-            self._raised = True
         self.pid = info.pid
         self.title_text = info.title
         now = time.monotonic()
@@ -1596,9 +1593,9 @@ class ClickOverlay(tk.Toplevel):
                 make_window_clickthrough(self)
             self._maybe_ensure_colorkey(force=True)
             self.deiconify()
+            self.lift()
             self.update_idletasks()
             self.wait_visibility()
-            self.lift()
         except Exception:
             pass
         self.bind("<Escape>", self.close)
