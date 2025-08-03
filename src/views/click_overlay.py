@@ -146,17 +146,14 @@ COLORKEY_RECHECK_MS = int(
 # Base cache TTL for window probing in seconds
 PROBE_CACHE_TTL = float(os.getenv("KILL_BY_CLICK_PROBE_TTL", "0.1"))
 
-# Minimum time between handling pointer moves in milliseconds.
-# Set ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` or configuration key
-# ``kill_by_click_move_debounce_ms`` to adjust.
-MOVE_DEBOUNCE_MS = _load_int(
+# Minimum debounce thresholds. Actual values scale with cursor velocity and
+# display DPI but will not drop below these minimums. Override via
+# ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` / ``kill_by_click_move_debounce_ms`` and
+# ``KILL_BY_CLICK_MIN_MOVE_PX`` / ``kill_by_click_min_move_px``.
+MOVE_DEBOUNCE_MIN_MS = _load_int(
     "KILL_BY_CLICK_MOVE_DEBOUNCE_MS", "kill_by_click_move_debounce_ms", 8
 )
-
-# Ignore pointer motion smaller than this many pixels.
-# Tunable via ``KILL_BY_CLICK_MIN_MOVE_PX`` or
-# ``kill_by_click_min_move_px``.
-MIN_MOVE_PX = _load_int("KILL_BY_CLICK_MIN_MOVE_PX", "kill_by_click_min_move_px", 2)
+MOVE_MIN_PX = _load_int("KILL_BY_CLICK_MIN_MOVE_PX", "kill_by_click_min_move_px", 2)
 
 # Rendering backend selection ("canvas", "qt" or "qtquick")
 DEFAULT_BACKEND = _load_str(
@@ -684,6 +681,10 @@ class ClickOverlay(tk.Toplevel):
         self._cached_info: WindowInfo | None = None
         self._screen_w = self.winfo_screenwidth()
         self._screen_h = self.winfo_screenheight()
+        try:
+            self._dpi = float(self.winfo_fpixels("1i"))
+        except Exception:
+            self._dpi = 96.0
         self.engine = ScoringEngine(
             tuning,
             self._screen_w,
@@ -1013,6 +1014,13 @@ class ClickOverlay(tk.Toplevel):
         if isinstance(_e, tk.Event):
             now = time.time()
             dt = now - self._last_move_time
+            dist = math.hypot(
+                _e.x_root - self._last_move_pos[0],
+                _e.y_root - self._last_move_pos[1],
+            )
+            thr_ms, thr_px = self._move_thresholds()
+            if dt * 1000.0 < thr_ms and dist < thr_px:
+                return
             self._last_move_time = now
             self._last_move_pos = (_e.x_root, _e.y_root)
             self._path_history.append((_e.x_root, _e.y_root))
@@ -1024,12 +1032,19 @@ class ClickOverlay(tk.Toplevel):
                 self._cursor_y = fy
                 self._velocity = math.hypot(vx, vy)
         elif self.state is OverlayState.POLLING:
+            mx = self.winfo_pointerx()
+            my = self.winfo_pointery()
+            now = time.time()
+            dt = now - self._last_move_time
+            dist = math.hypot(mx - self._last_move_pos[0], my - self._last_move_pos[1])
+            thr_ms, thr_px = self._move_thresholds()
+            if dt * 1000.0 < thr_ms and dist < thr_px:
+                return
+            self._last_move_time = now
+            self._last_move_pos = (mx, my)
+            self._path_history.append((mx, my))
+            self.engine.heatmap.update(mx, my)
             with self._state_lock:
-                mx = self.winfo_pointerx()
-                my = self.winfo_pointery()
-                now = time.time()
-                dt = now - self._last_move_time
-                self._last_move_time = now
                 fx, vx = self._kf_x.update(mx, dt)
                 fy, vy = self._kf_y.update(my, dt)
                 self._cursor_x = fx
@@ -1109,22 +1124,26 @@ class ClickOverlay(tk.Toplevel):
         self._probe_cache_ttl = PROBE_CACHE_TTL / (1.0 + self._velocity)
 
     def _move_thresholds(self) -> tuple[float, float]:
-        """Return debounce thresholds scaled by cursor velocity.
+        """Return debounce thresholds scaled by cursor velocity and DPI.
 
-        The base :data:`MOVE_DEBOUNCE_MS` and :data:`MIN_MOVE_PX` values are
-        multiplied by a factor derived from :attr:`_velocity`. Higher cursor
-        speeds result in larger thresholds, reducing the frequency of updates
-        during rapid motion while keeping slow, precise movements responsive.
+        Thresholds grow with pointer velocity and display DPI while never
+        dropping below :data:`MOVE_DEBOUNCE_MIN_MS` or :data:`MOVE_MIN_PX`.
+        This keeps slow, precise movements responsive on low-DPI screens while
+        reducing update frequency during fast motion or on high-DPI displays.
         """
-        scale = max(1.0, self._velocity / 100.0)
-        return MOVE_DEBOUNCE_MS * scale, MIN_MOVE_PX * scale
+        vel_scale = max(1.0, self._velocity / 100.0)
+        dpi_scale = self._dpi / 96.0 if getattr(self, "_dpi", 0) else 1.0
+        scale = vel_scale * dpi_scale
+        ms = max(MOVE_DEBOUNCE_MIN_MS, MOVE_DEBOUNCE_MIN_MS * scale)
+        px = max(MOVE_MIN_PX, MOVE_MIN_PX * scale)
+        return ms, px
 
     def _on_move(self, x: int, y: int) -> None:
         """Record a mouse move from the pynput hook.
 
         The listener runs in an OS thread so heavy work is deferred to the
         Tk event loop using :meth:`after_idle`. Small, rapid movements are
-        ignored based on :data:`MOVE_DEBOUNCE_MS` and :data:`MIN_MOVE_PX`.
+        ignored based on dynamic thresholds from :meth:`_move_thresholds`.
         """
         now = time.time()
         self._pending_move = (x, y, now)

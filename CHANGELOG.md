@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.11 - 2025-09-21
+
+- **Perf:** Scale pointer move debounce and pixel thresholds by cursor velocity and display DPI with configurable minimum caps.
+
 ## 1.2.10 - 2025-09-20
 
 - **Perf:** Warm click overlay window cache on dialog startup for faster initial selection.
