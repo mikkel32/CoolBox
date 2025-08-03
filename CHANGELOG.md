@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.77 - 2025-09-01
+
+- **Feat:** Add optional OpenGL/Qt overlay backend selectable via ``KILL_BY_CLICK_BACKEND``.
+
 ## 1.0.76 - 2025-08-31
 
 - **Feat:** Debounce pointer motion with configurable ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS``
