@@ -989,19 +989,58 @@ class ClickOverlay(tk.Toplevel):
         start = time.perf_counter()
         regions = []
         if "hline" in updates and self.hline is not None:
-            self.canvas.coords(self.hline, *updates["hline"])
+            new = updates["hline"]
+            old = self._buffer.get("hline")
+            if (
+                old is not None
+                and new[2] - new[0] == old[2] - old[0]
+                and new[3] - new[1] == old[3] - old[1]
+            ):
+                dx = new[0] - old[0]
+                dy = new[1] - old[1]
+                self.canvas.move(self.hline, dx, dy)
+            else:
+                self.canvas.coords(self.hline, *new)
+            self._buffer["hline"] = new
             regions.append(self.canvas.bbox(self.hline))
         if "vline" in updates and self.vline is not None:
-            self.canvas.coords(self.vline, *updates["vline"])
+            new = updates["vline"]
+            old = self._buffer.get("vline")
+            if (
+                old is not None
+                and new[2] - new[0] == old[2] - old[0]
+                and new[3] - new[1] == old[3] - old[1]
+            ):
+                dx = new[0] - old[0]
+                dy = new[1] - old[1]
+                self.canvas.move(self.vline, dx, dy)
+            else:
+                self.canvas.coords(self.vline, *new)
+            self._buffer["vline"] = new
             regions.append(self.canvas.bbox(self.vline))
         if "rect" in updates:
-            self.canvas.coords(self.rect, *updates["rect"])
+            new = updates["rect"]
+            old = self._buffer["rect"]
+            if (
+                new[2] - new[0] == old[2] - old[0]
+                and new[3] - new[1] == old[3] - old[1]
+            ):
+                dx = new[0] - old[0]
+                dy = new[1] - old[1]
+                self.canvas.move(self.rect, dx, dy)
+            else:
+                self.canvas.coords(self.rect, *new)
             regions.append(self.canvas.bbox(self.rect))
         if "label_text" in updates and self.label is not None:
             self.canvas.itemconfigure(self.label, text=updates["label_text"])
             regions.append(self.canvas.bbox(self.label))
         if "label_pos" in updates and self.label is not None:
-            self.canvas.coords(self.label, *updates["label_pos"])
+            new = updates["label_pos"]
+            old = self._buffer.get("label_pos", (0, 0))
+            dx = new[0] - old[0]
+            dy = new[1] - old[1]
+            self.canvas.move(self.label, dx, dy)
+            self._buffer["label_pos"] = new
             regions.append(self.canvas.bbox(self.label))
         end = time.perf_counter()
         log(
@@ -1372,12 +1411,14 @@ class ClickOverlay(tk.Toplevel):
         py = int(self._cursor_y)
         sw = self._screen_w
         sh = self._screen_h
-        cursor_changed = (px, py) != self._buffer["cursor"]
+        dist = math.hypot(px - self._buffer["cursor"][0], py - self._buffer["cursor"][1])
+        cursor_moved = dist >= MOVE_MIN_PX
         updates: dict[str, tuple[int, ...] | str] = {}
-        self._draw_crosshair(updates, px, py, sw, sh, cursor_changed)
+        self._draw_crosshair(updates, px, py, sw, sh, cursor_moved)
         rect, text, window_changed, hover_changed = self._update_label(info, updates)
-
-        if cursor_changed or window_changed or hover_changed:
+        if dist < MOVE_MIN_PX and not window_changed:
+            return
+        if cursor_moved or window_changed or hover_changed:
             if self.show_label and self.label is not None:
                 pos = self._calc_label_pos(px, py, sw, sh)
                 if pos is not None:
@@ -1389,6 +1430,8 @@ class ClickOverlay(tk.Toplevel):
         self._buffer["cursor"] = (px, py)
         self._buffer["rect"] = rect
         self._buffer["label_text"] = text
+        if "label_pos" in updates:
+            self._buffer["label_pos"] = updates["label_pos"]
         self._buffer["pid"] = info.pid
         self._handle_hover(hover_changed)
 
