@@ -866,10 +866,28 @@ def _fallback_list_windows_at(
     return result
 
 
-def list_windows_at(x: int, y: int) -> List[WindowInfo]:
-    """Return windows at ``(x, y)`` ordered from front to back."""
+def list_windows_at(x: int, y: int, depth: int | None = None) -> List[WindowInfo]:
+    """Return up to ``depth`` windows at ``(x, y)`` from front to back.
 
-    return _fallback_list_windows_at(x, y)
+    When ``depth`` is ``1`` the function avoids the cached enumeration and
+    uses :func:`get_window_at` for a fast lookup.  When ``depth`` is ``None``
+    or greater than ``1`` the stacked windows are collected from the shared
+    cache.  On Windows the top window is always resolved with
+    ``WindowFromPoint`` to ensure accurate z-ordering.
+    """
+
+    if depth == 1:
+        info = get_window_at(x, y)
+        return [info] if info.pid is not None or info.handle is not None else []
+
+    stack = _fallback_list_windows_at(x, y)
+    if sys.platform.startswith("win"):
+        top = get_window_at(x, y)
+        if top.handle is not None:
+            stack = [top] + [w for w in stack if w.handle != top.handle]
+    if depth is not None:
+        stack = stack[:depth]
+    return stack
 
 
 def make_window_clickthrough(win: Any) -> bool:

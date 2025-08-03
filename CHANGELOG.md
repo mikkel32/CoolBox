@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.0.83 - 2025-09-04
+
+- **Perf:** Use ``WindowFromPoint`` on Windows for direct lookups and avoid
+  enumerating stacked windows unless deeper z-order data is requested.
+- **Perf:** Skip stack queries in ``ScoringEngine`` when scoring a single
+  window.
+
 ## 1.0.82 - 2025-09-04
 
 - **Perf:** Refresh window cache on OS events and query cache for window lookups,

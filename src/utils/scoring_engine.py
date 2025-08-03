@@ -342,14 +342,24 @@ class ScoringEngine:
                 weights[pid] = weights.get(pid, 0.0) + dur * self.tuning.duration_weight
 
         if self.tuning.zorder_weight:
-            prime_window_cache()
-            stack = list_windows_at(int(cursor_x), int(cursor_y))
-            for idx, info in enumerate(stack):
-                if info.pid is None:
-                    continue
-                weights[info.pid] = weights.get(
-                    info.pid, 0.0
-                ) + self.tuning.zorder_weight / (idx + 1)
+            if len(samples) <= 1:
+                for info in samples:
+                    if info.pid is None:
+                        continue
+                    weights[info.pid] = weights.get(
+                        info.pid, 0.0
+                    ) + self.tuning.zorder_weight
+            else:
+                prime_window_cache()
+                stack = list_windows_at(
+                    int(cursor_x), int(cursor_y), len(samples)
+                )
+                for idx, info in enumerate(stack):
+                    if info.pid is None:
+                        continue
+                    weights[info.pid] = weights.get(
+                        info.pid, 0.0
+                    ) + self.tuning.zorder_weight / (idx + 1)
 
         if self.tuning.gaze_weight:
             for pid, dur in self.gaze_duration.items():
