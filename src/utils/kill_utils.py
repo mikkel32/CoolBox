@@ -3,8 +3,8 @@ from __future__ import annotations
 """Robust cross-platform process termination helpers."""
 
 import os
-import shutil
 import time
+import signal
 from contextlib import contextmanager
 try:
     import psutil
@@ -14,21 +14,31 @@ except ImportError:  # pragma: no cover - runtime dependency check
     psutil = ensure_psutil()
 _psutil_process = psutil.Process
 from .helpers import log
-from .process_utils import run_command
 
 
-def _taskkill(pid: int) -> None:
-    run_command(["taskkill", "/F", "/T", "/PID", str(pid)], check=False)
+def _kill_cmd(pid: int) -> bool:
+    if os.name == "nt":
+        try:
+            import ctypes
 
-
-def _kill_cmd(pid: int) -> None:
-    if os.name != "nt":
-        if os.getuid() != 0 and shutil.which("sudo"):
-            run_command(["sudo", "-n", "kill", "-9", str(pid)], check=False)
-        else:
-            run_command(["kill", "-9", str(pid)], check=False)
-    else:
-        _taskkill(pid)
+            PROCESS_TERMINATE = 0x0001
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+            if not handle:
+                return False
+            try:
+                if kernel32.TerminateProcess(handle, 1) == 0:
+                    return False
+            finally:
+                kernel32.CloseHandle(handle)
+            return True
+        except Exception:
+            return False
+    try:
+        os.kill(pid, signal.SIGKILL)
+        return True
+    except Exception:
+        return False
 
 
 @contextmanager
@@ -110,7 +120,8 @@ def kill_process(pid: int, *, timeout: float = 3.0) -> bool:
 
     def hard(p: psutil.Process) -> bool:
         try:
-            _kill_cmd(p.pid)
+            if not _kill_cmd(p.pid):
+                return False
             p.wait(timeout=timeout / 3)
             return True
         except Exception:

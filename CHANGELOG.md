@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.65 - 2025-08-27
+
+- **Refactor:** Replace shell-based process termination with direct API calls
+  and surface failure to callers.
+
 ## 1.0.64 - 2025-08-26
 
 - **Feat:** Boost kill priority to reduce termination latency and restore
