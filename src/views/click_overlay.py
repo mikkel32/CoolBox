@@ -1093,6 +1093,17 @@ class ClickOverlay(tk.Toplevel):
         self.update_state = UpdateState.IDLE
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
+    def _move_thresholds(self) -> tuple[float, float]:
+        """Return debounce thresholds scaled by cursor velocity.
+
+        The base :data:`MOVE_DEBOUNCE_MS` and :data:`MIN_MOVE_PX` values are
+        multiplied by a factor derived from :attr:`_velocity`. Higher cursor
+        speeds result in larger thresholds, reducing the frequency of updates
+        during rapid motion while keeping slow, precise movements responsive.
+        """
+        scale = max(1.0, self._velocity / 100.0)
+        return MOVE_DEBOUNCE_MS * scale, MIN_MOVE_PX * scale
+
     def _on_move(self, x: int, y: int) -> None:
         """Record a mouse move from the pynput hook.
 
@@ -1106,7 +1117,8 @@ class ClickOverlay(tk.Toplevel):
             return
         dt_ms = (now - self._last_move_time) * 1000.0
         dist = math.hypot(x - self._last_move_pos[0], y - self._last_move_pos[1])
-        if dt_ms < MOVE_DEBOUNCE_MS and dist < MIN_MOVE_PX:
+        thr_ms, thr_px = self._move_thresholds()
+        if dt_ms < thr_ms and dist < thr_px:
             return
         self._move_scheduled = True
         try:
