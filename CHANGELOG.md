@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.2.12 - 2025-09-22
+
+- **Feat:** Calibrate click overlay intervals on Force Quit startup and cache results.
+- **Fix:** Clamp click overlay delays to tuned interval bounds.
+
 ## 1.2.11 - 2025-09-21
 
 - **Perf:** Scale pointer move debounce and pixel thresholds by cursor velocity and display DPI with configurable minimum caps.

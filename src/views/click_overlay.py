@@ -1056,7 +1056,8 @@ class ClickOverlay(tk.Toplevel):
 
     def _next_delay(self) -> int:
         """Return the delay in milliseconds until the next update."""
-        base_ms = self.interval * 1000.0
+        interval = max(min(self.interval, self.max_interval), self.min_interval)
+        base_ms = interval * 1000.0
         min_ms = self.min_interval * 1000.0
         max_ms = self.max_interval * 1000.0
         # Scale the refresh rate using a smooth curve so large
@@ -1072,8 +1073,6 @@ class ClickOverlay(tk.Toplevel):
         """Adjust refresh intervals based on recent frame rendering times."""
         avg_sec = self.avg_frame_ms / 1000.0
         interval = max(DEFAULT_INTERVAL, avg_sec * 2)
-        self.min_interval = max(avg_sec * 1.2, 0.001)
-        self.max_interval = interval * 5
         self.interval = max(min(interval, self.max_interval), self.min_interval)
 
     def _process_update(self) -> None:

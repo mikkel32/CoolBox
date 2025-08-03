@@ -37,6 +37,28 @@ class TestClickOverlayDelay(unittest.TestCase):
         self.assertEqual(first, int(overlay.min_interval * 1000))
         self.assertEqual(second, int(overlay.min_interval * 1000))
 
+    def test_next_delay_respects_interval_bounds(self) -> None:
+        overlay = self._create_overlay()
+        overlay.min_interval = 0.01
+        overlay.max_interval = 0.05
+        overlay.interval = 0.2
+        overlay._velocity = 0.0
+        delay = overlay._next_delay()
+        self.assertEqual(delay, int(overlay.max_interval * 1000))
+
+    def test_retune_interval_respects_bounds(self) -> None:
+        overlay = self._create_overlay()
+        overlay.min_interval = 0.01
+        overlay.max_interval = 0.05
+        overlay.avg_frame_ms = 1000.0
+        overlay._retune_interval()
+        self.assertEqual(overlay.interval, overlay.max_interval)
+        self.assertEqual(overlay.min_interval, 0.01)
+        self.assertEqual(overlay.max_interval, 0.05)
+        overlay.avg_frame_ms = 1.0
+        overlay._retune_interval()
+        self.assertEqual(overlay.interval, overlay.min_interval)
+
 
 if __name__ == "__main__":
     unittest.main()
