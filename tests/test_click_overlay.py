@@ -275,6 +275,17 @@ class TestClickOverlay(unittest.TestCase):
                 overlay.destroy()
                 root.destroy()
 
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_backend_env_falls_back_to_canvas_qtquick(self) -> None:
+        with patch.dict(os.environ, {"KILL_BY_CLICK_BACKEND": "qtquick"}):
+            root = tk.Tk()
+            overlay = ClickOverlay(root)
+            try:
+                self.assertEqual(getattr(overlay, "backend", ""), "canvas")
+            finally:
+                overlay.destroy()
+                root.destroy()
+
     def test_backend_selects_qt_when_available(self) -> None:
         class DummyOverlay:
             def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -285,6 +296,17 @@ class TestClickOverlay(unittest.TestCase):
         ):
             overlay = ClickOverlay(None, backend="qt")
             self.assertEqual(getattr(overlay, "backend", ""), "qt")
+
+    def test_backend_selects_qtquick_when_available(self) -> None:
+        class DummyOverlay:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.backend = "qtquick"
+
+        with patch("src.views.click_overlay.QT_QUICK_AVAILABLE", True), patch(
+            "src.views.click_overlay.QtQuickClickOverlay", DummyOverlay
+        ):
+            overlay = ClickOverlay(None, backend="qtquick")
+            self.assertEqual(getattr(overlay, "backend", ""), "qtquick")
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_basic_render_disables_transparency(self) -> None:
