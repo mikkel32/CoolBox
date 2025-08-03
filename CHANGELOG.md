@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.16 - 2025-08-03
+
+- **Fix:** Replace print with warning when transparent color key is unavailable to avoid premature exit.
+
 ## 1.3.15 - 2025-08-03
 
 - **Fix:** Prevent Force Quit executable kills from terminating parent processes.
