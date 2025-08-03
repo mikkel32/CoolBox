@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.67 - 2025-08-28
+
+- **Perf:** Debounce process list refresh and hover updates to reduce redundant renders.
+
 ## 1.0.66 - 2025-08-28
 
 - **Feat:** Cache running processes and refresh on OS notifications, rebuilding
