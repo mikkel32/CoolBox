@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.14 - 2025-08-03
+
+- **Fix:** Skip terminating the current process when killing the active or cursor window.
+- **Build:** Add Cython to dependencies for optional extensions.
+
 ## 1.3.13 - 2025-08-03
 
 - **Feat:** Derive move debounce from refresh rate with runtime override and
