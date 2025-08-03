@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.3.10 - 2025-08-13
+
+- **Refactor:** Centralize click overlay configuration and apply updates when
+  settings change.
+- **Test:** Verify overlay configuration reacts to environment changes.
+
 ## 1.3.8 - 2025-08-12
 
 - **Refactor:** Use motion event coordinates for hover tracking, avoiding global pointer queries.

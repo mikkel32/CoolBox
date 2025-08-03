@@ -467,7 +467,7 @@ class TestClickOverlay(unittest.TestCase):
                 with (
                     patch("src.views.force_quit_dialog.get_global_listener") as mock_listener,
                     patch("src.views.force_quit_dialog.prime_window_cache"),
-                    patch.object(ForceQuitDialog, "initialize_click_overlay"),
+                    patch.object(ForceQuitDialog, "_configure_overlay"),
                     patch.object(ForceQuitDialog, "_auto_refresh"),
                     patch(
                         "src.views.force_quit_dialog.ClickOverlay.auto_tune_interval",
@@ -495,7 +495,7 @@ class TestClickOverlay(unittest.TestCase):
                 with (
                     patch("src.views.force_quit_dialog.get_global_listener") as mock_listener,
                     patch("src.views.force_quit_dialog.prime_window_cache"),
-                    patch.object(ForceQuitDialog, "initialize_click_overlay"),
+                    patch.object(ForceQuitDialog, "_configure_overlay"),
                     patch.object(ForceQuitDialog, "_auto_refresh"),
                     patch(
                         "src.views.force_quit_dialog.ClickOverlay.auto_tune_interval"
