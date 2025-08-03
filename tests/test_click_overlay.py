@@ -1130,6 +1130,45 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_listener_stops_on_click_exception(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=True),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=True),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
+        ):
+            overlay = ClickOverlay(root)
+
+        overlay._update_rect = lambda e=None: None
+
+        listener = Mock()
+
+        def start_side_effect(on_move=None, on_click=None):
+            if on_click is not None:
+                on_click(0, 0, True)
+            return True
+
+        listener.start.side_effect = start_side_effect
+        listener.stop = Mock()
+
+        with (
+            patch("src.views.click_overlay.get_global_listener", return_value=listener),
+            patch.object(overlay, "unbind", wraps=overlay.unbind) as unbind_mock,
+        ):
+            overlay._click = Mock(side_effect=RuntimeError("boom"))
+            with self.assertRaises(RuntimeError):
+                overlay.choose()
+
+        listener.stop.assert_called_once()
+        self.assertTrue(unbind_mock.called)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_choose_starts_tracker_when_no_hooks(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
