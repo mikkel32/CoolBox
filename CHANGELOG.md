@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.2 - 2025-09-12
+
+- **Fix:** Avoid redundant selection when highlighting the same PID.
+
 ## 1.2.1 - 2025-09-11
 
 - **Refactor:** Initialize kill-by-click overlay once and reuse configuration.

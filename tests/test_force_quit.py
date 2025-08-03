@@ -1299,6 +1299,19 @@ class TestForceQuit(unittest.TestCase):
                 self.assertEqual(kbc_calls, kbc_calls_after)
                 overlay.canvas.itemconfigure.assert_not_called()
 
+    def test_highlight_pid_skips_duplicate_selection(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        tree = mock.Mock()
+        tree.exists.return_value = True
+        tree.selection.return_value = ("123",)
+        dialog.tree = tree
+        dialog._set_hover_row = mock.Mock()
+        dialog._show_details = mock.Mock()
+
+        dialog._highlight_pid(123)
+
+        tree.selection_set.assert_not_called()
+
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_hover_highlights_row(self) -> None:
         root = tk.Tk()
