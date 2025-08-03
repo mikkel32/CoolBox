@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.71 - 2025-08-30
+
+- **Feat:** Add native global input hooks for mouse and keyboard with early event filtering.
+
 ## 1.0.70 - 2025-08-29
 
 - **Feat:** Add basic rendering mode toggle that disables compositing effects and drop shadows for legacy GPU compatibility.
