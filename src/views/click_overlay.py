@@ -208,6 +208,7 @@ class ClickOverlay(tk.Toplevel):
         delay_scale: float | None = None,
         skip_confirm: bool | None = None,
         on_hover: Callable[[int | None, str | None], None] | None = None,
+        basic_render: bool = False,
     ) -> None:
         super().__init__(parent)
         self._closed = tk.BooleanVar(value=False)
@@ -215,12 +216,14 @@ class ClickOverlay(tk.Toplevel):
         if env in ("0", "false", "no"):
             show_label = False
         self.show_label = show_label
+        self.basic_render = basic_render
         # Hide until fully configured to avoid a brief black flash
         self.withdraw()
-        try:
-            self.attributes("-alpha", 0.0)
-        except Exception:
-            pass
+        if not self.basic_render:
+            try:
+                self.attributes("-alpha", 0.0)
+            except Exception:
+                pass
         # Configure fullscreen before enabling override-redirect to avoid
         # "can't set fullscreen attribute" errors on some platforms.
         self.attributes("-topmost", True)
@@ -250,9 +253,10 @@ class ClickOverlay(tk.Toplevel):
 
         if is_supported():
             make_window_clickthrough(self)
-        # Validate and restore the transparent color key to avoid a fullscreen
-        # black window if the system drops support.
-        self._maybe_ensure_colorkey(force=True)
+        if not self.basic_render:
+            # Validate and restore the transparent color key to avoid a fullscreen
+            # black window if the system drops support.
+            self._maybe_ensure_colorkey(force=True)
 
         # Using an empty string for the canvas background causes a TclError on
         # some platforms. Use the chosen background color so the canvas itself
@@ -282,7 +286,8 @@ class ClickOverlay(tk.Toplevel):
         try:
             self.update_idletasks()
             self.deiconify()
-            self._maybe_ensure_colorkey(force=True)
+            if not self.basic_render:
+                self._maybe_ensure_colorkey(force=True)
         except Exception:
             pass
         self.probe_attempts = probe_attempts
@@ -489,6 +494,8 @@ class ClickOverlay(tk.Toplevel):
         the color key cannot be set the overlay falls back to a semi-transparent
         window instead of remaining fully invisible.
         """
+        if self.basic_render:
+            return
         try:
             if not self._has_colorkey:
                 self._has_colorkey = set_window_colorkey(self)
@@ -516,6 +523,8 @@ class ClickOverlay(tk.Toplevel):
 
     def _maybe_ensure_colorkey(self, *, force: bool = False) -> None:
         """Revalidate the transparent color key when necessary."""
+        if self.basic_render:
+            return
         now = time.monotonic()
         try:
             key = _normalize_color(self, self.attributes("-transparentcolor"))

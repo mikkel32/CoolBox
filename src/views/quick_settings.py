@@ -20,6 +20,7 @@ class QuickSettingsDialog(BaseDialog):
         self.menu_var = ctk.BooleanVar(value=app.config.get("show_menu", True))
         self.toolbar_var = ctk.BooleanVar(value=app.config.get("show_toolbar", True))
         self.status_var = ctk.BooleanVar(value=app.config.get("show_statusbar", True))
+        self.basic_render_var = ctk.BooleanVar(value=app.config.get("basic_rendering", False))
         self.theme_var = ctk.StringVar(value=app.config.get("appearance_mode", "dark").title())
         self.color_var = ctk.StringVar(value=app.config.get("color_theme", "blue"))
         self.accent_var = ctk.StringVar(
@@ -34,14 +35,18 @@ class QuickSettingsDialog(BaseDialog):
         self.add_tooltip(sw_toolbar, "Toggle the toolbar")
         sw_status = self.grid_switch(container, "Show Status Bar", self.status_var, 3)
         self.add_tooltip(sw_status, "Toggle the status bar")
-        self.grid_separator(container, 4)
+        sw_basic = self.grid_switch(
+            container, "Basic Rendering", self.basic_render_var, 4
+        )
+        self.add_tooltip(sw_basic, "Disable compositing effects for compatibility")
+        self.grid_separator(container, 5)
 
         theme_seg = self.grid_segmented(
             container,
             "Appearance:",
             self.theme_var,
             ["Light", "Dark", "System"],
-            5,
+            6,
             command=self._change_theme,
         )
         self.add_tooltip(theme_seg, "Preview appearance mode")
@@ -50,7 +55,7 @@ class QuickSettingsDialog(BaseDialog):
             "Color Theme:",
             self.color_var,
             ["blue", "green", "dark-blue"],
-            6,
+            7,
             command=self._change_color_theme,
         )
         self.add_tooltip(color_seg, "Preview color theme")
@@ -59,19 +64,19 @@ class QuickSettingsDialog(BaseDialog):
             container,
             "Accent Color...",
             self._choose_accent,
-            7,
+            8,
             columnspan=1,
         )
         self.accent_display = ctk.CTkLabel(container, textvariable=self.accent_var)
         self._mark_font_role(self.accent_display, "normal")
-        self.accent_display.grid(row=7, column=1, sticky="w", padx=self.gpadx, pady=self.gpady)
+        self.accent_display.grid(row=8, column=1, sticky="w", padx=self.gpadx, pady=self.gpady)
         self.add_tooltip(accent_btn, "Select custom accent color")
 
         slider, lbl = self.grid_slider(
             container,
             "Font Size:",
             self.font_size_var,
-            8,
+            9,
             from_=10,
             to=20,
         )
@@ -88,7 +93,7 @@ class QuickSettingsDialog(BaseDialog):
         slider.configure(command=_update_preview)
 
         self.preview = ctk.CTkFrame(container)
-        self.preview.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self.preview.grid(row=10, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         self.preview.grid_columnconfigure(1, weight=1)
         lbl_preview = self.grid_label(self.preview, "Preview:", 0, columnspan=2)
         lbl_preview.configure(font=self.section_font)
@@ -98,7 +103,7 @@ class QuickSettingsDialog(BaseDialog):
         self._update_accent_preview()
 
         btn_frame = ctk.CTkFrame(container, fg_color="transparent")
-        btn_frame.grid(row=10, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=11, column=0, columnspan=2, pady=10)
         btn_frame.grid_columnconfigure((0, 1, 2), weight=1)
         self.apply_btn = self.grid_button(btn_frame, "Apply", self._apply, 0, column=0, columnspan=1)
         self.add_tooltip(self.apply_btn, "Save settings")
@@ -139,6 +144,7 @@ class QuickSettingsDialog(BaseDialog):
         cfg.set("show_menu", self.menu_var.get())
         cfg.set("show_toolbar", self.toolbar_var.get())
         cfg.set("show_statusbar", self.status_var.get())
+        cfg.set("basic_rendering", self.basic_render_var.get())
         cfg.set("appearance_mode", self.theme_var.get().lower())
         cfg.set("color_theme", self.color_var.get())
         theme_cfg = cfg.get("theme", {})
@@ -160,6 +166,7 @@ class QuickSettingsDialog(BaseDialog):
         self.menu_var.set(cfg.get("show_menu", True))
         self.toolbar_var.set(cfg.get("show_toolbar", True))
         self.status_var.set(cfg.get("show_statusbar", True))
+        self.basic_render_var.set(cfg.get("basic_rendering", False))
         self.theme_var.set(cfg.get("appearance_mode", "dark").title())
         self.color_var.set(cfg.get("color_theme", "blue"))
         self.accent_var.set(cfg.get("theme", {}).get("accent_color", "#007acc"))

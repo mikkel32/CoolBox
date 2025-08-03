@@ -129,6 +129,7 @@ from .security import (
     kill_port_range,
 )
 from .thread_manager import ThreadManager
+from .gpu import benchmark_gpu_usage
 
 from . import file_manager
 
@@ -248,4 +249,5 @@ __all__ = [
     "Tuning",
     "tuning",
     "ThreadManager",
+    "benchmark_gpu_usage",
 ]

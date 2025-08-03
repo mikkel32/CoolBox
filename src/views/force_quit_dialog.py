@@ -883,7 +883,9 @@ class ForceQuitDialog(BaseDialog):
         from .click_overlay import ClickOverlay
 
         prime_window_cache()
-        self._overlay = ClickOverlay(self)
+        self._overlay = ClickOverlay(
+            self, basic_render=self.app.config.get("basic_rendering", False)
+        )
         self._overlay.reset()
 
         self._auto_refresh()
