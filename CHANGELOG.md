@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.3 - 2025-08-07
+
+- **Feat:** Auto-tune click overlay intervals on first run, cache calibrated
+  values, and expose recalibration via CLI or dialog actions.
+
 ## 1.3.2 - 2025-08-06
 
 - **Feat:** Scale minimum cursor movement by screen DPI and expose per-instance

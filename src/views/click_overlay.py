@@ -120,6 +120,44 @@ def _process_details(pid: int) -> tuple[str, ImageTk.PhotoImage | None]:
     return name, icon_img
 
 
+def _auto_tune_interval(samples: int = 60) -> tuple[float, float, float]:
+    """Calibrate refresh intervals based on average frame render time."""
+    root = tk.Tk()
+    root.withdraw()
+    canvas = tk.Canvas(root)
+    canvas.pack()
+    root.update_idletasks()
+    times: list[float] = []
+    for _ in range(max(1, samples)):
+        start = time.perf_counter()
+        root.update()
+        end = time.perf_counter()
+        times.append(end - start)
+    root.destroy()
+    avg = sum(times) / len(times)
+    interval = max(DEFAULT_INTERVAL, avg * 2)
+    min_interval = max(avg * 1.2, 0.001)
+    max_interval = interval * 5
+    os.environ["KILL_BY_CLICK_INTERVAL"] = str(interval)
+    os.environ["KILL_BY_CLICK_MIN_INTERVAL"] = str(min_interval)
+    os.environ["KILL_BY_CLICK_MAX_INTERVAL"] = str(max_interval)
+    try:
+        CFG.set("kill_by_click_interval_calibrated", interval)
+        CFG.set("kill_by_click_min_interval_calibrated", min_interval)
+        CFG.set("kill_by_click_max_interval_calibrated", max_interval)
+        CFG.save()
+    except Exception:
+        pass
+    return interval, min_interval, max_interval
+
+
+_INTERVAL_INDEX = {
+    "kill_by_click_interval": 0,
+    "kill_by_click_min_interval": 1,
+    "kill_by_click_max_interval": 2,
+}
+
+
 def _load_calibrated(env: str, key: str, default: float) -> float:
     """Return a float loaded from ``env`` or configuration ``key``."""
     val = os.getenv(env)
@@ -132,6 +170,12 @@ def _load_calibrated(env: str, key: str, default: float) -> float:
         cfg_val = CFG.get(key)
         if cfg_val is not None:
             return float(cfg_val)
+        calib_val = CFG.get(f"{key}_calibrated")
+        if calib_val is not None:
+            return float(calib_val)
+        if key in _INTERVAL_INDEX and os.environ.get("DISPLAY"):
+            tuned = _auto_tune_interval()
+            return float(tuned[_INTERVAL_INDEX[key]])
     except Exception:
         pass
     return default
@@ -521,47 +565,7 @@ class ClickOverlay(tk.Toplevel):
 
     @staticmethod
     def auto_tune_interval(samples: int = 60) -> tuple[float, float, float]:
-        """Calibrate refresh intervals based on average frame render time.
-
-        Parameters
-        ----------
-        samples:
-            Number of frames to sample when measuring the average frame time.
-
-        Returns
-        -------
-        tuple
-            ``(interval, min_interval, max_interval)`` tuned for the current
-            environment.
-        """
-
-        root = tk.Tk()
-        root.withdraw()
-        canvas = tk.Canvas(root)
-        canvas.pack()
-        root.update_idletasks()
-        times: list[float] = []
-        for _ in range(max(1, samples)):
-            start = time.perf_counter()
-            root.update()
-            end = time.perf_counter()
-            times.append(end - start)
-        root.destroy()
-        avg = sum(times) / len(times)
-        interval = max(DEFAULT_INTERVAL, avg * 2)
-        min_interval = max(avg * 1.2, 0.001)
-        max_interval = interval * 5
-        os.environ["KILL_BY_CLICK_INTERVAL"] = str(interval)
-        os.environ["KILL_BY_CLICK_MIN_INTERVAL"] = str(min_interval)
-        os.environ["KILL_BY_CLICK_MAX_INTERVAL"] = str(max_interval)
-        try:
-            CFG.set("kill_by_click_interval", interval)
-            CFG.set("kill_by_click_min_interval", min_interval)
-            CFG.set("kill_by_click_max_interval", max_interval)
-            CFG.save()
-        except Exception:
-            pass
-        return interval, min_interval, max_interval
+        return _auto_tune_interval(samples)
 
     def __init__(
         self,
