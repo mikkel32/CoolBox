@@ -401,6 +401,43 @@ class TestClickOverlay(unittest.TestCase):
                 self.assertAlmostEqual(cfg.get("kill_by_click_max_interval_calibrated"), max_i)
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_auto_tuned_frame_time_under_threshold(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        with patch("pathlib.Path.home", return_value=tmp):
+            import src.views.click_overlay as click_overlay_module
+            click_overlay_module.CFG = Config()
+            interval, _, _ = click_overlay_module.ClickOverlay.auto_tune_interval(samples=5)
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, show_label=False, show_crosshair=False)
+        try:
+            overlay.after_idle = lambda cb: cb()
+
+            def immediate_submit(fn, *args, **kwargs):
+                fut: Future = Future()
+                try:
+                    fut.set_result(fn(*args, **kwargs))
+                except Exception as e:  # pragma: no cover - debug aid
+                    fut.set_exception(e)
+                return fut
+
+            overlay._executor.submit = immediate_submit  # type: ignore[assignment]
+            overlay._update_rect = lambda info: None  # type: ignore[assignment]
+            overlay._query_window_at = lambda x, y: WindowInfo(None)  # type: ignore[assignment]
+            overlay.state = OverlayState.HOOKED
+
+            for i in range(10):
+                overlay._cursor_x = i
+                overlay._cursor_y = i
+                overlay._process_update()
+
+            self.assertLess(overlay.avg_frame_ms, interval * 1000)
+            self.assertLess(overlay.avg_frame_ms, 20.0)
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_force_quit_dialog_applies_tuned_interval(self) -> None:
         tmp = Path(tempfile.mkdtemp())
         with patch.dict(os.environ, {}, clear=True):
@@ -1315,6 +1352,31 @@ class TestClickOverlay(unittest.TestCase):
             overlay.after_idle.assert_not_called()
             overlay.destroy()
             root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_motion_burst_respects_debounce_and_distance(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+
+        overlay.after_idle = unittest.mock.Mock()
+        overlay._min_move_px = 5
+        overlay._last_move_time = 0.0
+        overlay._last_move_pos = (0, 0)
+
+        times = iter([0.005, 0.020, 0.025])
+        with patch("src.views.click_overlay.time.time", side_effect=lambda: next(times)):
+            overlay._on_move(1, 0)
+            self.assertEqual(overlay.after_idle.call_count, 0)
+            overlay._on_move(2, 0)
+            self.assertEqual(overlay.after_idle.call_count, 1)
+            overlay._handle_move()
+            overlay.after_idle.reset_mock()
+            overlay._on_move(10, 0)
+            self.assertEqual(overlay.after_idle.call_count, 1)
+
+        overlay.destroy()
+        root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_move_thresholds_scale_with_velocity_and_dpi(self) -> None:
@@ -2308,7 +2370,7 @@ class TestClickOverlay(unittest.TestCase):
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(os.environ.get("DISPLAY") is None, reason="No display available")
+@unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
 def test_pointer_move_frame_delay_benchmark() -> None:
     root = tk.Tk()
     with patch("src.views.click_overlay.is_supported", return_value=False):
