@@ -62,17 +62,28 @@ class ForceQuitDialog(BaseDialog):
         interval = cfg.get("kill_by_click_interval")
         min_interval = cfg.get("kill_by_click_min_interval")
         max_interval = cfg.get("kill_by_click_max_interval")
+        if interval is None:
+            interval = cfg.get("kill_by_click_interval_calibrated")
+        if min_interval is None:
+            min_interval = cfg.get("kill_by_click_min_interval_calibrated")
+        if max_interval is None:
+            max_interval = cfg.get("kill_by_click_max_interval_calibrated")
         if cfg.get("kill_by_click_auto_interval", True) and (
             interval is None or min_interval is None or max_interval is None
         ):
             interval, min_interval, max_interval = ClickOverlay.auto_tune_interval()
             try:
-                cfg.set("kill_by_click_interval", interval)
-                cfg.set("kill_by_click_min_interval", min_interval)
-                cfg.set("kill_by_click_max_interval", max_interval)
+                cfg.set("kill_by_click_interval_calibrated", interval)
+                cfg.set("kill_by_click_min_interval_calibrated", min_interval)
+                cfg.set("kill_by_click_max_interval_calibrated", max_interval)
                 cfg.save()
             except Exception:
-                pass
+                try:
+                    cfg["kill_by_click_interval_calibrated"] = interval
+                    cfg["kill_by_click_min_interval_calibrated"] = min_interval
+                    cfg["kill_by_click_max_interval_calibrated"] = max_interval
+                except Exception:
+                    pass
         self._overlay = ClickOverlay(
             self,
             basic_render=cfg.get("basic_rendering", False),
@@ -628,6 +639,7 @@ class ForceQuitDialog(BaseDialog):
             actions.append(("Kill Active Window", self._kill_active_window))
         if has_cursor_window_support():
             actions.append(("Kill by Click", self._kill_by_click))
+            actions.append(("Calibrate Click", self._calibrate_click_interval))
         actions.append(("Kill Zombies", self._kill_zombies))
         self._action_buttons: list[ctk.CTkButton] = []
         for i, (text, cmd) in enumerate(actions):
@@ -2241,6 +2253,26 @@ class ForceQuitDialog(BaseDialog):
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
             )
         self._populate()
+
+    def _calibrate_click_interval(self) -> None:
+        """Re-run click interval calibration."""
+        interval, min_interval, max_interval = ClickOverlay.auto_tune_interval()
+        cfg = self.app.config
+        try:
+            cfg.set("kill_by_click_interval_calibrated", interval)
+            cfg.set("kill_by_click_min_interval_calibrated", min_interval)
+            cfg.set("kill_by_click_max_interval_calibrated", max_interval)
+            cfg.save()
+        except Exception:
+            try:
+                cfg["kill_by_click_interval_calibrated"] = interval
+                cfg["kill_by_click_min_interval_calibrated"] = min_interval
+                cfg["kill_by_click_max_interval_calibrated"] = max_interval
+            except Exception:
+                pass
+        self._overlay.interval = interval
+        self._overlay.min_interval = min_interval
+        self._overlay.max_interval = max_interval
 
     def _kill_zombies(self) -> None:
         count = self.force_kill_zombies()

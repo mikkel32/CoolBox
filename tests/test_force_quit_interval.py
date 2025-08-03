@@ -92,16 +92,16 @@ class TestForceQuitInterval(unittest.TestCase):
             app.window.destroy()
 
         auto_mock.assert_called_once()
-        self.assertEqual(app.config.get("kill_by_click_interval"), 0.1)
-        self.assertEqual(app.config.get("kill_by_click_min_interval"), 0.05)
-        self.assertEqual(app.config.get("kill_by_click_max_interval"), 0.2)
+        self.assertEqual(app.config.get("kill_by_click_interval_calibrated"), 0.1)
+        self.assertEqual(app.config.get("kill_by_click_min_interval_calibrated"), 0.05)
+        self.assertEqual(app.config.get("kill_by_click_max_interval_calibrated"), 0.2)
 
     def test_auto_tune_skipped_when_cached(self) -> None:
         app = self._dummy_app()
         app.config = {
-            "kill_by_click_interval": 0.1,
-            "kill_by_click_min_interval": 0.05,
-            "kill_by_click_max_interval": 0.2,
+            "kill_by_click_interval_calibrated": 0.1,
+            "kill_by_click_min_interval_calibrated": 0.05,
+            "kill_by_click_max_interval_calibrated": 0.2,
         }
 
         auto_mock = mock.MagicMock(return_value=(0.2, 0.1, 0.4))

@@ -37,7 +37,17 @@ def main(argv: list[str] | None = None) -> None:
         type=float,
         help="Controls how strongly pointer speed shortens the delay",
     )
+    parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="Re-run interval calibration and exit",
+    )
     args = parser.parse_args(argv)
+
+    if args.calibrate:
+        interval, min_i, max_i = ClickOverlay.auto_tune_interval()
+        print(f"Calibrated: interval={interval:.4f} min={min_i:.4f} max={max_i:.4f}")
+        return
 
     root = tk.Tk()
     root.withdraw()

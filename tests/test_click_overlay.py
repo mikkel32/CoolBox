@@ -396,9 +396,9 @@ class TestClickOverlay(unittest.TestCase):
                 click_overlay_module.CFG = Config()
                 interval, min_i, max_i = click_overlay_module.ClickOverlay.auto_tune_interval(samples=5)
                 cfg = Config()
-                self.assertAlmostEqual(cfg.get("kill_by_click_interval"), interval)
-                self.assertAlmostEqual(cfg.get("kill_by_click_min_interval"), min_i)
-                self.assertAlmostEqual(cfg.get("kill_by_click_max_interval"), max_i)
+                self.assertAlmostEqual(cfg.get("kill_by_click_interval_calibrated"), interval)
+                self.assertAlmostEqual(cfg.get("kill_by_click_min_interval_calibrated"), min_i)
+                self.assertAlmostEqual(cfg.get("kill_by_click_max_interval_calibrated"), max_i)
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_force_quit_dialog_applies_tuned_interval(self) -> None:
@@ -450,7 +450,7 @@ class TestClickOverlay(unittest.TestCase):
                     dialog = ForceQuitDialog(app)
                     auto_mock.assert_called_once()
                     self.assertAlmostEqual(params.get("interval"), tuned[0])
-                    self.assertAlmostEqual(cfg.get("kill_by_click_interval"), tuned[0])
+                    self.assertAlmostEqual(cfg.get("kill_by_click_interval_calibrated"), tuned[0])
                     dialog.destroy()
                     app.window.destroy()
 

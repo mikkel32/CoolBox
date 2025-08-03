@@ -42,3 +42,18 @@ def test_main_invokes_overlay(monkeypatch):
     assert called.get('min_interval') == 0.05
     assert called.get('max_interval') == 0.3
     assert called.get('delay_scale') == 500.0
+
+
+def test_calibrate_flag(monkeypatch, capsys):
+    class DummyOverlay:
+        @staticmethod
+        def auto_tune_interval():
+            return (0.1, 0.05, 0.2)
+
+        def __init__(self, *a, **kw):
+            raise AssertionError("Overlay should not be constructed")
+
+    monkeypatch.setattr(kbc, 'ClickOverlay', DummyOverlay)
+    kbc.main(['--calibrate'])
+    out = capsys.readouterr().out
+    assert 'Calibrated' in out
