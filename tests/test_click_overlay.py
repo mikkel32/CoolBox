@@ -3,6 +3,8 @@ import time
 import unittest
 import threading
 import tkinter as tk
+import json
+import pytest
 from typing import Any
 from unittest.mock import Mock, patch
 from collections import deque
@@ -10,9 +12,10 @@ from concurrent.futures import Future
 from pathlib import Path
 import tempfile
 
-from src.config import Config
+os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
+from src.config import Config  # noqa: E402
 
-from src.views.click_overlay import (
+from src.views.click_overlay import (  # noqa: E402
     ClickOverlay,
     WindowInfo,
     COLORKEY_RECHECK_MS,
@@ -1928,6 +1931,55 @@ class TestClickOverlay(unittest.TestCase):
         finally:
             overlay.destroy()
             root.destroy()
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(os.environ.get("DISPLAY") is None, reason="No display available")
+def test_pointer_move_frame_delay_benchmark() -> None:
+    root = tk.Tk()
+    with patch("src.views.click_overlay.is_supported", return_value=False):
+        overlay = ClickOverlay(root, show_label=False, show_crosshair=False)
+    try:
+        overlay.after_idle = lambda cb: cb()
+
+        def immediate_submit(fn, *args, **kwargs):
+            fut: Future = Future()
+            try:
+                fut.set_result(fn(*args, **kwargs))
+            except Exception as e:  # pragma: no cover - debug aid
+                fut.set_exception(e)
+            return fut
+
+        overlay._executor.submit = immediate_submit  # type: ignore[assignment]
+        overlay._update_rect = lambda info: None  # type: ignore[assignment]
+        overlay._query_window_at = lambda x, y: WindowInfo(None)  # type: ignore[assignment]
+        overlay.state = OverlayState.HOOKED
+
+        iterations = 20
+        for i in range(iterations):
+            overlay._cursor_x = i
+            overlay._cursor_y = i
+            overlay._process_update()
+
+        avg = overlay.avg_frame_ms
+        assert avg < 20.0
+
+        results_dir = Path.home() / ".coolbox_benchmarks"
+        results_dir.mkdir(exist_ok=True)
+        results_file = results_dir / "click_overlay.json"
+        record = {"ts": time.time(), "avg_frame_ms": avg}
+        if results_file.exists():
+            try:
+                data = json.loads(results_file.read_text())
+            except Exception:
+                data = []
+        else:
+            data = []
+        data.append(record)
+        results_file.write_text(json.dumps(data))
+    finally:
+        overlay.destroy()
+        root.destroy()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.1.6 - 2025-09-09
+
+- **Test:** Add click overlay pointer movement benchmark.
+
 ## 1.1.5 - 2025-09-08
 
 - **Feat:** Skip tiny or menu/tooltip windows and ignore their PIDs when scoring.
