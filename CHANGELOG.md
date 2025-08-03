@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.0 - 2025-09-10
+
+- **Feat:** Track gaze timestamps and apply configurable decay for recent focus.
+
 ## 1.1.6 - 2025-09-09
 
 - **Test:** Add click overlay pointer movement benchmark.

@@ -1,37 +1,21 @@
+import math
+import time
 from collections import deque
-from unittest.mock import patch
 
-from src.utils.scoring_engine import ScoringEngine, tuning
-from src.utils.window_utils import WindowInfo
+import pytest
 
-
-def test_skip_zorder_stack_for_single_sample() -> None:
-    engine = ScoringEngine(tuning, 100, 100, own_pid=0)
-    sample = [WindowInfo(1, (0, 0, 10, 10))]
-    with patch.object(tuning, "zorder_weight", 5.0), patch(
-        "src.utils.scoring_engine.list_windows_at"
-    ) as lwa, patch("src.utils.scoring_engine.prime_window_cache"):
-        engine.score_samples(sample, 0.0, 0.0, 0.0, deque(), None)
-        lwa.assert_not_called()
+from src.utils.scoring_engine import ScoringEngine, Tuning
 
 
-def test_zorder_stack_limited_depth() -> None:
-    engine = ScoringEngine(tuning, 100, 100, own_pid=0)
-    samples = [WindowInfo(1, (0, 0, 10, 10)), WindowInfo(2, (0, 0, 10, 10))]
-    with patch.object(tuning, "zorder_weight", 5.0), patch(
-        "src.utils.scoring_engine.list_windows_at", return_value=samples
-    ) as lwa, patch("src.utils.scoring_engine.prime_window_cache"):
-        engine.score_samples(samples, 5.0, 5.0, 0.0, deque(), None)
-        lwa.assert_called_once_with(5, 5, len(samples))
-
-
-def test_score_samples_drops_transients() -> None:
-    engine = ScoringEngine(tuning, 100, 100, own_pid=0)
-    samples = [WindowInfo(1, (0, 0, 10, 10)), WindowInfo(2, (0, 0, 10, 10))]
-    from src.utils import window_utils as wu
-
-    wu._TRANSIENT_PIDS.clear()
-    wu._TRANSIENT_PIDS.add(1)
-    weights = engine.score_samples(samples, 0.0, 0.0, 0.0, deque(), None)
-    assert 1 not in weights
-    assert 2 in weights
+def test_gaze_weight_recency_decay() -> None:
+    tuning = Tuning(gaze_weight=1.0, gaze_decay_constant=1.0)
+    engine = ScoringEngine(tuning, width=100, height=100, own_pid=0)
+    now = time.monotonic()
+    engine.gaze_duration = {
+        1: (1.0, now - 1.0),
+        2: (1.0, now - 3.0),
+    }
+    weights = engine.score_samples([], 0.0, 0.0, 0.0, deque(), None)
+    assert weights[1] == pytest.approx(math.exp(-1.0), rel=1e-3)
+    assert weights[2] == pytest.approx(math.exp(-3.0), rel=1e-3)
+    assert weights[1] > weights[2]

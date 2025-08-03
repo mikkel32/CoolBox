@@ -85,6 +85,7 @@ class Tuning:
     zorder_weight: float = 0.0
     gaze_decay: float = 0.9
     gaze_weight: float = 0.0
+    gaze_decay_constant: float = 1.0
     active_history_size: int = 5
     active_history_weight: float = 0.0
     active_history_decay: float = 0.9
@@ -256,7 +257,7 @@ class ScoringEngine:
         self.pid_stability: Dict[int, int] = {}
         self.current_pid: int | None = None
         self.current_streak = 0
-        self.gaze_duration: Dict[int, float] = {}
+        self.gaze_duration: Dict[int, Tuple[float, float]] = {}
         self.active_history: Deque[Tuple[int, float]] = deque(
             maxlen=tuning.active_history_size
         )
@@ -406,10 +407,20 @@ class ScoringEngine:
                     ) + self.tuning.zorder_weight / (idx + 1)
 
         if self.tuning.gaze_weight:
-            for pid, dur in self.gaze_duration.items():
+            now = time.monotonic()
+            for pid, entry in self.gaze_duration.items():
                 if is_transient_pid(pid):
                     continue
-                weights[pid] = weights.get(pid, 0.0) + dur * self.tuning.gaze_weight
+                if isinstance(entry, tuple):
+                    dur, ts = entry
+                else:  # pragma: no cover - backward compatibility
+                    dur, ts = float(entry), now
+                decay_const = self.tuning.gaze_decay_constant
+                if decay_const > 0:
+                    decay = math.exp(-(now - ts) / decay_const)
+                else:
+                    decay = 1.0
+                weights[pid] = weights.get(pid, 0.0) + dur * decay * self.tuning.gaze_weight
 
         if self.tuning.active_history_weight and self.active_history:
             power = 1.0
