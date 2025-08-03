@@ -162,6 +162,52 @@ DEFAULT_BACKEND = _load_str(
     "KILL_BY_CLICK_BACKEND", "kill_by_click_backend", "canvas"
 ).lower()
 
+KF_PROCESS_NOISE = _load_calibrated(
+    "KILL_BY_CLICK_KF_PROCESS_NOISE", "kill_by_click_kf_process_noise", 1.0
+)
+KF_MEASUREMENT_NOISE = _load_calibrated(
+    "KILL_BY_CLICK_KF_MEASUREMENT_NOISE",
+    "kill_by_click_kf_measurement_noise",
+    5.0,
+)
+
+
+class _Kalman1D:
+    def __init__(self, process_noise: float, measurement_noise: float):
+        self.q = process_noise
+        self.r = measurement_noise
+        self.x = 0.0
+        self.v = 0.0
+        self.P = [[1.0, 0.0], [0.0, 1.0]]
+        self.initialized = False
+
+    def update(self, z: float, dt: float) -> tuple[float, float]:
+        if not self.initialized:
+            self.x = z
+            self.initialized = True
+            return self.x, self.v
+        self.x += self.v * dt
+        p00, p01 = self.P[0]
+        p10, p11 = self.P[1]
+        dt2 = dt * dt
+        dt3 = dt2 * dt
+        dt4 = dt3 * dt
+        p00 = p00 + dt * (p10 + p01) + dt2 * p11 + self.q * dt4 / 4.0
+        p01 = p01 + dt * p11 + self.q * dt3 / 2.0
+        p10 = p10 + dt * p11 + self.q * dt3 / 2.0
+        p11 = p11 + self.q * dt2
+        y = z - self.x
+        s = p00 + self.r
+        k0 = p00 / s
+        k1 = p10 / s
+        self.x += k0 * y
+        self.v += k1 * y
+        self.P = [
+            [p00 - k0 * p00, p01 - k0 * p01],
+            [p10 - k1 * p00, p11 - k1 * p01],
+        ]
+        return self.x, self.v
+
 
 _COLOR_CACHE: dict[str, str] = {}
 
@@ -540,6 +586,10 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_x = 0
             self._cursor_y = 0
         self._last_move_pos = (self._cursor_x, self._cursor_y)
+        self._kf_x = _Kalman1D(KF_PROCESS_NOISE, KF_MEASUREMENT_NOISE)
+        self._kf_y = _Kalman1D(KF_PROCESS_NOISE, KF_MEASUREMENT_NOISE)
+        self._kf_x.update(self._cursor_x, 0.0)
+        self._kf_y.update(self._cursor_y, 0.0)
         self._frame_times: deque[float] = deque(maxlen=60)
         self.avg_frame_ms = 0.0
         self._last_frame_start = 0.0
@@ -765,26 +815,29 @@ class ClickOverlay(tk.Toplevel):
         """
         if isinstance(_e, tk.Event):
             now = time.time()
-            dx = _e.x_root - self._last_move_pos[0]
-            dy = _e.y_root - self._last_move_pos[1]
             dt = now - self._last_move_time
-            if dt > 0:
-                vel = math.hypot(dx, dy) / dt
-                self._velocity = (
-                    self._velocity * (1 - tuning.velocity_smooth)
-                    + vel * tuning.velocity_smooth
-                )
             self._last_move_time = now
             self._last_move_pos = (_e.x_root, _e.y_root)
             self._path_history.append((_e.x_root, _e.y_root))
             self.engine.heatmap.update(_e.x_root, _e.y_root)
             with self._state_lock:
-                self._cursor_x = _e.x_root
-                self._cursor_y = _e.y_root
+                fx, vx = self._kf_x.update(_e.x_root, dt)
+                fy, vy = self._kf_y.update(_e.y_root, dt)
+                self._cursor_x = fx
+                self._cursor_y = fy
+                self._velocity = math.hypot(vx, vy)
         elif self.state is OverlayState.POLLING:
             with self._state_lock:
-                self._cursor_x = self.winfo_pointerx()
-                self._cursor_y = self.winfo_pointery()
+                mx = self.winfo_pointerx()
+                my = self.winfo_pointery()
+                now = time.time()
+                dt = now - self._last_move_time
+                self._last_move_time = now
+                fx, vx = self._kf_x.update(mx, dt)
+                fy, vy = self._kf_y.update(my, dt)
+                self._cursor_x = fx
+                self._cursor_y = fy
+                self._velocity = math.hypot(vx, vy)
         if self.update_state is UpdateState.IDLE:
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
@@ -882,23 +935,18 @@ class ClickOverlay(tk.Toplevel):
             return
         x, y, now = self._pending_move
         self._pending_move = None
-        dx = x - self._last_move_pos[0]
-        dy = y - self._last_move_pos[1]
         dt = now - self._last_move_time
-        if dt > 0:
-            vel = math.hypot(dx, dy) / dt
-            self._velocity = (
-                self._velocity * (1 - tuning.velocity_smooth)
-                + vel * tuning.velocity_smooth
-            )
         self._last_move_time = now
         self._last_move_pos = (x, y)
         self._path_history.append((x, y))
         if self.engine.tuning.heatmap_weight > 0:
             self.engine.heatmap.update(x, y)
         with self._state_lock:
-            self._cursor_x = x
-            self._cursor_y = y
+            fx, vx = self._kf_x.update(x, dt)
+            fy, vy = self._kf_y.update(y, dt)
+            self._cursor_x = fx
+            self._cursor_y = fy
+            self._velocity = math.hypot(vx, vy)
             self._cached_info = None
         mnow = time.monotonic()
         rect = self._window_cache_rect

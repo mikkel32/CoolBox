@@ -1372,7 +1372,7 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_velocity_smoothing_applied(self) -> None:
+    def test_kalman_velocity_updates(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
@@ -1381,11 +1381,10 @@ class TestClickOverlay(unittest.TestCase):
         overlay._last_move_time = 0.0
 
         overlay.after_idle = lambda cb: cb()
+        overlay._kf_x.q = overlay._kf_y.q = 1e-5
+        overlay._kf_x.r = overlay._kf_y.r = 1e-3
 
-        with (
-            patch("src.views.click_overlay.time.time", side_effect=[0.1, 0.2]),
-            patch("src.utils.scoring_engine.tuning.velocity_smooth", 0.5),
-        ):
+        with patch("src.views.click_overlay.time.time", side_effect=[0.1, 0.2]):
             overlay._on_move(10, 0)
             first = overlay._velocity
             overlay._on_move(20, 0)
