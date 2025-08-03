@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.2 - 2025-08-06
+
+- **Feat:** Scale minimum cursor movement by screen DPI and expose per-instance
+  overrides via `KILL_BY_CLICK_MIN_MOVE_PX` / `kill_by_click_min_move_px`.
+
 ## 1.3.1 - 2025-08-05
 
 - **Refactor:** Lazily create the click overlay thread pool with a default two-worker limit and clean shutdown hooks.
