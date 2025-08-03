@@ -32,6 +32,7 @@ from src.utils.window_utils import (
 )
 from src.utils.mouse_listener import get_global_listener, is_supported
 from src.utils.scoring_engine import ScoringEngine, tuning
+from ._fast_confidence import weighted_confidence as _weighted_confidence_np
 from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
 from src.config import Config
@@ -455,7 +456,8 @@ class ClickOverlay(tk.Toplevel):
         """Run ``engine.weighted_confidence`` on the worker thread."""
 
         self._score_async(
-            lambda: self.engine.weighted_confidence(
+            lambda: _weighted_confidence_np(
+                self.engine,
                 samples,
                 self._cursor_x,
                 self._cursor_y,
@@ -476,7 +478,8 @@ class ClickOverlay(tk.Toplevel):
         """
 
         future = self._score_async(
-            lambda: self.engine.weighted_confidence(
+            lambda: _weighted_confidence_np(
+                self.engine,
                 samples,
                 self._cursor_x,
                 self._cursor_y,
