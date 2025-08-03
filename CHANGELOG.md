@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.0.68 - 2025-08-28
+
+- **Feat:** Preload window titles, icons and handles in a background thread.
+- **Perf:** Track a small ring buffer of recent windows to reduce cold-cache hits.
+- **Fix:** Close window icon handles when windows vanish to avoid leaks.
+
 ## 1.0.67 - 2025-08-28
 
 - **Perf:** Debounce process list refresh and hover updates to reduce redundant renders.

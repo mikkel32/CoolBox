@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from ctypes import wintypes
 from typing import Any, List, Callable
@@ -36,14 +37,76 @@ _WINDOWS_LOCK = threading.RLock()
 _WINDOWS_THREAD: threading.Thread | None = None
 _WINDOWS_REFRESH = threading.Event()
 
+# Small ring buffer of recently accessed windows to reduce cold-cache hits
+_RECENT_MAX = 8
+_RECENT_WINDOWS: deque[WindowInfo] = deque()
+_RECENT_LOCK = threading.RLock()
+
+
+def _close_window_handle(info: WindowInfo) -> None:
+    """Release any OS resources held for ``info``."""
+
+    if sys.platform.startswith("win") and info.icon:
+        try:
+            ctypes.windll.user32.DestroyIcon(wintypes.HICON(int(info.icon)))
+        except Exception:
+            pass
+
+
+def _remember_window(info: WindowInfo) -> None:
+    """Add ``info`` to the recent ring buffer."""
+
+    if info.handle is None:
+        return
+    with _RECENT_LOCK:
+        for existing in list(_RECENT_WINDOWS):
+            if existing.handle == info.handle:
+                _RECENT_WINDOWS.remove(existing)
+                _close_window_handle(existing)
+                break
+        _RECENT_WINDOWS.append(info)
+        while len(_RECENT_WINDOWS) > _RECENT_MAX:
+            old = _RECENT_WINDOWS.popleft()
+            _close_window_handle(old)
+
+
+def _cleanup_recent(active: set[int]) -> None:
+    """Remove windows not present in ``active`` from the ring buffer."""
+
+    with _RECENT_LOCK:
+        for win in list(_RECENT_WINDOWS):
+            if win.handle is not None and win.handle not in active:
+                _RECENT_WINDOWS.remove(win)
+                _close_window_handle(win)
+
+
+def _get_window_icon(hwnd: wintypes.HWND) -> int | None:
+    """Return a handle to ``hwnd``'s small icon if available."""
+
+    if not sys.platform.startswith("win"):
+        return None
+    user32 = ctypes.windll.user32
+    WM_GETICON = 0x007F
+    ICON_SMALL2 = 2
+    GCL_HICON = -14
+    GCL_HICONSM = -34
+    hicon = user32.SendMessageW(hwnd, WM_GETICON, ICON_SMALL2, 0)
+    if not hicon:
+        hicon = user32.GetClassLongW(hwnd, GCL_HICONSM)
+    if not hicon:
+        hicon = user32.GetClassLongW(hwnd, GCL_HICON)
+    return int(hicon) if hicon else None
+
 
 @dataclass(frozen=True)
 class WindowInfo:
-    """Process ID, geometry and title for a window."""
+    """Process ID, geometry and metadata for a window."""
 
     pid: int | None
     rect: tuple[int, int, int, int] | None = None
     title: str | None = None
+    handle: int | None = None
+    icon: Any | None = None
 
 
 _ACTIVE_WINDOW_CACHE: dict[str, Any] = {
@@ -105,7 +168,16 @@ def _get_active_window_uncached() -> WindowInfo:
         title_buf = ctypes.create_unicode_buffer(1024)
         length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
-        return WindowInfo(int(pid.value) if pid.value else None, geom, title)
+        icon = _get_window_icon(hwnd)
+        info = WindowInfo(
+            int(pid.value) if pid.value else None,
+            geom,
+            title,
+            int(hwnd),
+            icon,
+        )
+        _remember_window(info)
+        return info
 
     if sys.platform == "darwin":
         try:
@@ -225,7 +297,16 @@ def _win_active_thread() -> None:
         title_buf = ctypes.create_unicode_buffer(1024)
         length = user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
-        return WindowInfo(int(pid.value) if pid.value else None, geom, title)
+        icon = _get_window_icon(hwnd)
+        info = WindowInfo(
+            int(pid.value) if pid.value else None,
+            geom,
+            title,
+            int(hwnd),
+            icon,
+        )
+        _remember_window(info)
+        return info
 
     def _callback(hWinEventHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime):
         if event == EVENT_SYSTEM_FOREGROUND:
@@ -358,7 +439,16 @@ def get_window_under_cursor() -> WindowInfo:
         title_buf = ctypes.create_unicode_buffer(1024)
         length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
-        return WindowInfo(int(pid.value) if pid.value else None, geom, title)
+        icon = _get_window_icon(hwnd)
+        info = WindowInfo(
+            int(pid.value) if pid.value else None,
+            geom,
+            title,
+            int(hwnd),
+            icon,
+        )
+        _remember_window(info)
+        return info
 
     if sys.platform == "darwin":
         try:
@@ -370,6 +460,9 @@ def get_window_under_cursor() -> WindowInfo:
                 Quartz.kCGWindowListOptionOnScreenOnly,
                 Quartz.kCGNullWindowID,
             )
+            pid = None
+            title = None
+            handle = None
             for win in windows:
                 bounds = win.get("kCGWindowBounds")
                 if not bounds:
@@ -381,7 +474,10 @@ def get_window_under_cursor() -> WindowInfo:
                 if x <= loc.x <= x + w and y <= loc.y <= y + h:
                     pid = int(win.get("kCGWindowOwnerPID", 0))
                     title = win.get("kCGWindowName")
-            return WindowInfo(pid, (x, y, w, h), title)
+                    handle = int(win.get("kCGWindowNumber", 0))
+            info = WindowInfo(pid, (x, y, w, h), title, handle)
+            _remember_window(info)
+            return info
         except Exception:
             return WindowInfo(None)
 
@@ -457,7 +553,16 @@ def get_window_at(x: int, y: int) -> WindowInfo:
         title_buf = ctypes.create_unicode_buffer(1024)
         length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
-        return WindowInfo(int(pid.value) if pid.value else None, geom, title)
+        icon = _get_window_icon(hwnd)
+        info = WindowInfo(
+            int(pid.value) if pid.value else None,
+            geom,
+            title,
+            int(hwnd),
+            icon,
+        )
+        _remember_window(info)
+        return info
 
     if sys.platform == "darwin":
         try:
@@ -486,6 +591,38 @@ def get_window_at(x: int, y: int) -> WindowInfo:
     return wins[0] if wins else WindowInfo(None)
 
 
+def _enumerate_win_windows() -> List[WindowInfo]:
+    """Enumerate all top-level windows on Windows."""
+
+    windows: List[WindowInfo] = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+    def enum_proc(hwnd: wintypes.HWND, _lparam: wintypes.LPARAM) -> bool:
+        if not ctypes.windll.user32.IsWindowVisible(hwnd):
+            return True
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return True
+        pid = wintypes.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        title_buf = ctypes.create_unicode_buffer(1024)
+        length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
+        title = title_buf.value if length else None
+        icon = _get_window_icon(hwnd)
+        info = WindowInfo(
+            int(pid.value) if pid.value else None,
+            (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top),
+            title,
+            int(hwnd),
+            icon,
+        )
+        windows.append(info)
+        return True
+
+    ctypes.windll.user32.EnumWindows(enum_proc, 0)
+    return windows
+
+
 def _enumerate_x11_windows() -> List[WindowInfo]:
     """Enumerate windows using a persistent X11 connection."""
 
@@ -509,7 +646,9 @@ def _enumerate_x11_windows() -> List[WindowInfo]:
                     title = name_prop.value.decode("utf-8", "ignore")
                 except Exception:  # pragma: no cover - defensive
                     title = None
-            windows.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+            windows.append(
+                WindowInfo(pid, (wx, wy, ww, wh), title, int(wid))
+            )
     except Exception:
         pass
     return windows
@@ -550,7 +689,8 @@ def _enumerate_subproc_windows() -> List[WindowInfo]:
             )
             title_match = re.search(r'"(.*)"', title_out)
             title = title_match.group(1) if title_match else None
-            windows.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+            handle = int(wid, 16) if wid.startswith("0x") else int(wid)
+            windows.append(WindowInfo(pid, (wx, wy, ww, wh), title, handle))
     except Exception:
         pass
     return windows
@@ -558,7 +698,8 @@ def _enumerate_subproc_windows() -> List[WindowInfo]:
 
 def _refresh_windows() -> List[WindowInfo]:
     """Return a full window list using the best available method."""
-
+    if sys.platform.startswith("win"):
+        return _enumerate_win_windows()
     if _X_DISPLAY is not None:
         return _enumerate_x11_windows()
     return _enumerate_subproc_windows()
@@ -575,6 +716,10 @@ def _window_enum_worker() -> None:
         with _WINDOWS_LOCK:
             _WINDOWS_CACHE["time"] = now
             _WINDOWS_CACHE["windows"] = windows
+        active_handles = {w.handle for w in windows if w.handle is not None}
+        _cleanup_recent(active_handles)
+        for w in windows:
+            _remember_window(w)
 
 
 def _ensure_window_worker() -> None:
@@ -620,6 +765,11 @@ def _fallback_list_windows_at(
     """
 
     _ensure_window_worker()
+    with _RECENT_LOCK:
+        recent = list(_RECENT_WINDOWS)
+    hits = filter_windows_at(x, y, recent)
+    if hits:
+        return hits
     if windows is None:
         now = time.time()
         with _WINDOWS_LOCK:
@@ -627,7 +777,10 @@ def _fallback_list_windows_at(
             windows = list(_WINDOWS_CACHE.get("windows", []))
         if (now - last >= _WINDOWS_CACHE_SEC or not windows) and not _WINDOWS_REFRESH.is_set():
             _WINDOWS_REFRESH.set()
-    return filter_windows_at(x, y, windows)
+    result = filter_windows_at(x, y, windows)
+    for w in result:
+        _remember_window(w)
+    return result
 
 
 def list_windows_at(x: int, y: int) -> List[WindowInfo]:
@@ -650,13 +803,16 @@ def list_windows_at(x: int, y: int) -> List[WindowInfo]:
             title_buf = ctypes.create_unicode_buffer(1024)
             length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
             title = title_buf.value if length else None
-            windows.append(
-                WindowInfo(
-                    int(pid.value) if pid.value else None,
-                    (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top),
-                    title,
-                )
+            icon = _get_window_icon(hwnd)
+            info = WindowInfo(
+                int(pid.value) if pid.value else None,
+                (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top),
+                title,
+                int(hwnd),
+                icon,
             )
+            windows.append(info)
+            _remember_window(info)
             return True
 
         ctypes.windll.user32.EnumWindows(enum_proc, 0)
@@ -680,7 +836,10 @@ def list_windows_at(x: int, y: int) -> List[WindowInfo]:
                 if wx <= x <= wx + ww and wy <= y <= wy + wh:
                     pid = int(win.get("kCGWindowOwnerPID", 0))
                     title = win.get("kCGWindowName")
-                    results.append(WindowInfo(pid, (wx, wy, ww, wh), title))
+                    handle = int(win.get("kCGWindowNumber", 0))
+                    info = WindowInfo(pid, (wx, wy, ww, wh), title, handle)
+                    results.append(info)
+                    _remember_window(info)
             return results
         except Exception:
             return [get_window_at(x, y)]

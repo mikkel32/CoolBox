@@ -17,11 +17,15 @@ class TestWindowUtils(unittest.TestCase):
         info = get_active_window()
         self.assertIsInstance(info, WindowInfo)
         self.assertTrue(hasattr(info, "title"))
+        self.assertTrue(hasattr(info, "handle"))
+        self.assertTrue(hasattr(info, "icon"))
 
     def test_get_window_under_cursor(self):
         info = get_window_under_cursor()
         self.assertIsInstance(info, WindowInfo)
         self.assertTrue(hasattr(info, "title"))
+        self.assertTrue(hasattr(info, "handle"))
+        self.assertTrue(hasattr(info, "icon"))
 
     def test_support_flags(self):
         self.assertIsInstance(has_active_window_support(), bool)
@@ -34,6 +38,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertIsInstance(wins, list)
         for info in wins:
             self.assertIsInstance(info, WindowInfo)
+            self.assertTrue(hasattr(info, "handle"))
 
     def test_fallback_async_cache(self):
         from src.utils import window_utils as wu
@@ -98,6 +103,36 @@ class TestWindowUtils(unittest.TestCase):
         self.assertGreaterEqual(len(received), 2)
         self.assertEqual(received[0].pid, 1)
         self.assertEqual(received[1].pid, 2)
+
+    def test_recent_ring_buffer(self):
+        from src.utils import window_utils as wu
+
+        w1 = wu.WindowInfo(1, (0, 0, 1, 1), "a", handle=1)
+        w2 = wu.WindowInfo(2, (0, 0, 1, 1), "b", handle=2)
+        w3 = wu.WindowInfo(3, (0, 0, 1, 1), "c", handle=3)
+        with mock.patch.object(wu, "_RECENT_MAX", 2), mock.patch.object(
+            wu, "_close_window_handle"
+        ) as close_mock:
+            wu._RECENT_WINDOWS.clear()
+            wu._remember_window(w1)
+            wu._remember_window(w2)
+            self.assertEqual([w1, w2], list(wu._RECENT_WINDOWS))
+            wu._remember_window(w3)
+            self.assertEqual([w2, w3], list(wu._RECENT_WINDOWS))
+            close_mock.assert_called_once_with(w1)
+
+    def test_cleanup_recent(self):
+        from src.utils import window_utils as wu
+
+        w1 = wu.WindowInfo(1, handle=1)
+        w2 = wu.WindowInfo(2, handle=2)
+        wu._RECENT_WINDOWS.clear()
+        wu._remember_window(w1)
+        wu._remember_window(w2)
+        with mock.patch.object(wu, "_close_window_handle") as close_mock:
+            wu._cleanup_recent({2})
+            self.assertEqual([w2], list(wu._RECENT_WINDOWS))
+            close_mock.assert_called_once_with(w1)
 
 
 if __name__ == "__main__":
