@@ -41,6 +41,19 @@ class TestWindowUtils(unittest.TestCase):
             self.assertIsInstance(info, WindowInfo)
             self.assertTrue(hasattr(info, "handle"))
 
+    def test_list_windows_fast_path(self):
+        from src.utils import window_utils as wu
+
+        fake = wu.WindowInfo(1)
+        with (
+            mock.patch.object(wu, "get_window_at", return_value=fake) as gwa,
+            mock.patch.object(wu, "_fallback_list_windows_at") as fallback,
+        ):
+            res = wu.list_windows_at(0, 0, 1)
+        self.assertEqual(res, [fake])
+        gwa.assert_called_once_with(0, 0)
+        fallback.assert_not_called()
+
     def test_fallback_async_cache(self):
         from src.utils import window_utils as wu
 
