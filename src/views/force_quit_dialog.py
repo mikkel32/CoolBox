@@ -19,6 +19,7 @@ from src.utils import get_screen_refresh_rate
 import re
 import time
 import socket
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from typing import Any, Optional
@@ -130,6 +131,7 @@ class ForceQuitDialog(BaseDialog):
         self._queue: Queue[tuple[dict[int, ProcessEntry], set[int], float]] = Queue(maxsize=1)
         self._enum_progress = 0.0
         self._actions_enabled = False
+        self._overlay_thread: threading.Thread | None = None
         self.paused = False
         fps_env = os.getenv("FORCE_QUIT_FPS")
         if fps_env and fps_env.isdigit():
@@ -2218,19 +2220,37 @@ class ForceQuitDialog(BaseDialog):
             return False
 
     def _kill_by_click(self) -> None:
-        """Launch the click-to-kill overlay and terminate the selected window."""
+        """Launch the click-to-kill overlay without blocking the UI."""
+        if self._overlay_thread and self._overlay_thread.is_alive():
+            return
         overlay = self._overlay
+        ctx = self._OverlayContext(self, overlay)
+        ctx.__enter__()
 
-        with self._OverlayContext(self, overlay) as overlay:
-            pid, title = overlay.choose()
-            if pid is None:
-                fallback = self._get_window_under_cursor()
-                pid, title = fallback.pid, fallback.title
+        def run() -> None:
+            try:
+                result: tuple[int | None, str | None] | Exception = overlay.choose()
+            except Exception as exc:  # pragma: no cover - defensive
+                result = exc
+            self.after(0, lambda: self._finish_kill_by_click(ctx, result))
 
+        self._overlay_thread = threading.Thread(target=run, daemon=True)
+        self._overlay_thread.start()
+
+    def _finish_kill_by_click(
+        self,
+        ctx: "ForceQuitDialog._OverlayContext",
+        result: tuple[int | None, str | None] | Exception,
+    ) -> None:
+        overlay = self._overlay
+        if isinstance(result, Exception):
+            ctx.__exit__(type(result), result, result.__traceback__)
+            self._overlay_thread = None
+            raise result
+        pid, title = result
+        ctx.__exit__(None, None, None)
+        self._overlay_thread = None
         if pid is None:
-            messagebox.showerror(
-                "Force Quit", "Unable to determine window", parent=self
-            )
             return
         if not overlay.skip_confirm:
             if not messagebox.askyesno(
@@ -2245,6 +2265,14 @@ class ForceQuitDialog(BaseDialog):
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
             )
         self._populate()
+
+    def cancel_kill_by_click(self) -> None:
+        """Abort an in-progress Kill by Click operation."""
+        if self._overlay_thread and self._overlay_thread.is_alive():
+            try:
+                self._overlay.close()
+            except Exception:
+                pass
 
     def _calibrate_click_interval(self) -> None:
         """Re-run click interval calibration."""
