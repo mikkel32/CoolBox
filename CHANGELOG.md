@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.69 - 2025-08-28
+
+- **Feat:** Introduce thread manager with logger, process and monitor threads to detect deadlocks.
+
 ## 1.0.68 - 2025-08-28
 
 - **Feat:** Preload window titles, icons and handles in a background thread.

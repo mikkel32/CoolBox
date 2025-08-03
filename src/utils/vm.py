@@ -95,4 +95,4 @@ def launch_vm_debug(
     env["DEBUG_PORT"] = str(port)
     if skip_deps:
         env["SKIP_DEPS"] = "1"
-    run_command([str(root / "scripts" / "run_debug.sh")], timeout=None, env=env)
+    run_command_ex([str(root / "scripts" / "run_debug.sh")], timeout=None, env=env)

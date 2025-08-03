@@ -36,6 +36,7 @@ from .views.about_view import AboutView
 from .models.app_state import AppState
 from .utils.theme import ThemeManager
 from .utils.helpers import log
+from .utils.thread_manager import ThreadManager
 
 if TYPE_CHECKING:  # pragma: no cover - used for type hints only
     from .views.quick_settings import QuickSettingsDialog
@@ -51,6 +52,9 @@ class CoolBoxApp:
         # Load configuration
         self.config = Config()
         self.state = AppState()
+        # Background threads: process manager and logger with monitoring
+        self.thread_manager = ThreadManager()
+        self.thread_manager.start()
 
         # Set appearance
         ctk.set_appearance_mode(self.config.get("appearance_mode", "dark"))
@@ -405,5 +409,6 @@ class CoolBoxApp:
 
     def destroy(self):
         """Destroy the application window."""
+        self.thread_manager.stop()
         self.window.destroy()
         log("Window destroyed")
