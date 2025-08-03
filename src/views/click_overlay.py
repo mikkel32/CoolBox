@@ -1730,11 +1730,9 @@ class ClickOverlay(tk.Toplevel):
             except Exception:
                 pass
         use_hooks = is_supported()
-        if use_hooks:
-            if not listener.start(on_move=self._on_move, on_click=self._click):
-                use_hooks = False
-                self.state = OverlayState.POLLING
-            else:
+        try:
+            if use_hooks and listener.start(on_move=self._on_move, on_click=self._click):
+                self._using_hooks = True
                 self.state = OverlayState.HOOKED
                 self._queue_update()
                 if self.timeout is not None:
@@ -1742,15 +1740,19 @@ class ClickOverlay(tk.Toplevel):
                         int(self.timeout * 1000), self.close
                     )
                 self.wait_variable(self._closed)
-                listener.start()  # clear callbacks but keep running
                 return self.pid, self.title_text
 
-        if not use_hooks:
+            self._using_hooks = False
             self.state = OverlayState.POLLING
-        self.bind("<Motion>", self._queue_update)
-        self.bind("<Button-1>", self._click_event)
-        self._queue_update()
-        if self.timeout is not None:
-            self._timeout_id = self.after(int(self.timeout * 1000), self.close)
-        self.wait_variable(self._closed)
-        return self.pid, self.title_text
+            self.bind("<Motion>", self._queue_update)
+            self.bind("<Button-1>", self._click_event)
+            self._queue_update()
+            if self.timeout is not None:
+                self._timeout_id = self.after(int(self.timeout * 1000), self.close)
+            self.wait_variable(self._closed)
+            return self.pid, self.title_text
+        finally:
+            try:
+                listener.stop()
+            finally:
+                self.reset()
