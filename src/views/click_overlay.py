@@ -28,6 +28,7 @@ from src.utils.window_utils import (
     remove_window_clickthrough,
     set_window_colorkey,
     subscribe_active_window,
+    subscribe_window_change,
     WindowInfo,
 )
 from src.utils.mouse_listener import get_global_listener, is_supported
@@ -416,6 +417,9 @@ class ClickOverlay(tk.Toplevel):
         self._window_cache: list[WindowInfo] = []
         self._window_cache_time: float = 0.0
         self._window_cache_future: Future[list[WindowInfo]] | None = None
+        self._unsubscribe_windows = subscribe_window_change(self._on_windows_changed)
+        if self._unsubscribe_windows is not None:
+            self._refresh_window_cache(int(self._cursor_x), int(self._cursor_y))
         self.reset()
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
@@ -490,6 +494,12 @@ class ClickOverlay(tk.Toplevel):
         )
         return future.result()
 
+    def _on_windows_changed(self) -> None:
+        """Refresh cached windows when the desktop changes."""
+
+        if not self._destroyed:
+            self._refresh_window_cache(int(self._cursor_x), int(self._cursor_y))
+
     def _on_active_window(self, info: WindowInfo) -> None:
         """Handle active window change notifications."""
 
@@ -507,6 +517,11 @@ class ClickOverlay(tk.Toplevel):
         self._destroyed = True
         try:
             self._unsubscribe_active()
+        except Exception:
+            pass
+        try:
+            if self._unsubscribe_windows:
+                self._unsubscribe_windows()
         except Exception:
             pass
         super().destroy()
@@ -773,6 +788,10 @@ class ClickOverlay(tk.Toplevel):
             and now - self._window_cache_time < PROBE_CACHE_TTL
         ):
             wins = self._window_cache
+        elif self._unsubscribe_windows is not None:
+            wins = self._window_cache
+            if self._window_cache_future is None or self._window_cache_future.done():
+                self._refresh_window_cache(x, y)
         else:
             top = get_window_under_cursor()
             if top.pid in (self._own_pid, None):

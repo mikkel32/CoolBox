@@ -1613,6 +1613,33 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_window_change_subscription_refreshes_cache(self) -> None:
+        root = tk.Tk()
+        holder: dict[str, Any] = {}
+
+        def fake_subscribe(cb):
+            holder["cb"] = cb
+
+            def unsub() -> None:
+                holder["unsub"] = True
+
+            return unsub
+
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch("src.views.click_overlay.subscribe_active_window", return_value=lambda: None),
+            patch("src.views.click_overlay.subscribe_window_change", side_effect=fake_subscribe),
+            patch.object(ClickOverlay, "_refresh_window_cache") as refresh_mock,
+        ):
+            overlay = ClickOverlay(root, interval=0.01)
+            refresh_mock.assert_called_once()
+            holder["cb"]()
+            self.assertEqual(refresh_mock.call_count, 2)
+            overlay.destroy()
+            self.assertTrue(holder.get("unsub"))
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_future_cancelled_before_replacement(self) -> None:
         root = tk.Tk()
 
