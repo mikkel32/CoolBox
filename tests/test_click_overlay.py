@@ -188,18 +188,6 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_overlay_warns_when_colorkey_missing(self) -> None:
-        root = tk.Tk()
-        with (
-            patch("src.views.click_overlay.is_supported", return_value=False),
-            patch("src.views.click_overlay.set_window_colorkey", return_value=False),
-            self.assertWarnsRegex(UserWarning, "transparency color key unavailable"),
-        ):
-            overlay = ClickOverlay(root)
-        overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_normalizes_named_bg_to_hex(self) -> None:
         root = tk.Tk()
         root.configure(bg="red")

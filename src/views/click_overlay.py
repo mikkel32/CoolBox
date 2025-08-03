@@ -12,7 +12,6 @@ import os
 import time
 import math
 import re
-import warnings
 import tkinter as tk
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
@@ -975,8 +974,8 @@ class ClickOverlay(tk.Toplevel):
         except Exception:
             pass
         if not self._has_colorkey and not self._colorkey_warning_shown:
-            warnings.warn(
-                "transparency color key unavailable; using fallback alpha"
+            print(
+                "warning: transparency color key unavailable; using fallback alpha"
             )
             self._colorkey_warning_shown = True
 
