@@ -197,11 +197,11 @@ PROBE_CACHE_GRANULARITY = _load_int(
 # Minimum debounce thresholds. Actual values scale with cursor velocity and
 # display DPI but will not drop below these minimums. Override via
 # ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` / ``kill_by_click_move_debounce_ms`` and
-# ``KILL_BY_CLICK_MIN_MOVE_PX`` / ``kill_by_click_min_move_px``.
+# ``KILL_BY_CLICK_MIN_MOVE_PX`` / ``kill_by_click_min_move_px`` which is handled
+# per instance.
 MOVE_DEBOUNCE_MIN_MS = _load_int(
     "KILL_BY_CLICK_MOVE_DEBOUNCE_MS", "kill_by_click_move_debounce_ms", 8
 )
-MOVE_MIN_PX = _load_int("KILL_BY_CLICK_MIN_MOVE_PX", "kill_by_click_min_move_px", 2)
 
 # Rendering backend selection ("canvas", "qt" or "qtquick")
 DEFAULT_BACKEND = _load_str(
@@ -737,6 +737,12 @@ class ClickOverlay(tk.Toplevel):
             self._dpi = float(self.winfo_fpixels("1i"))
         except Exception:
             self._dpi = 96.0
+        logical_move_px = _load_int(
+            "KILL_BY_CLICK_MIN_MOVE_PX", "kill_by_click_min_move_px", 2
+        )
+        self._min_move_px = max(
+            1, int(round(logical_move_px * (self._dpi / 96.0)))
+        )
         self.engine = ScoringEngine(
             tuning,
             self._screen_w,
@@ -1251,15 +1257,15 @@ class ClickOverlay(tk.Toplevel):
         """Return debounce thresholds scaled by cursor velocity and DPI.
 
         Thresholds grow with pointer velocity and display DPI while never
-        dropping below :data:`MOVE_DEBOUNCE_MIN_MS` or :data:`MOVE_MIN_PX`.
-        This keeps slow, precise movements responsive on low-DPI screens while
-        reducing update frequency during fast motion or on high-DPI displays.
+        dropping below :data:`MOVE_DEBOUNCE_MIN_MS` or the per-instance
+        ``_min_move_px``. This keeps slow, precise movements responsive on
+        low-DPI screens while reducing update frequency during fast motion or on
+        high-DPI displays.
         """
         vel_scale = max(1.0, self._velocity / 100.0)
         dpi_scale = self._dpi / 96.0 if getattr(self, "_dpi", 0) else 1.0
-        scale = vel_scale * dpi_scale
-        ms = max(MOVE_DEBOUNCE_MIN_MS, MOVE_DEBOUNCE_MIN_MS * scale)
-        px = max(MOVE_MIN_PX, MOVE_MIN_PX * scale)
+        ms = max(MOVE_DEBOUNCE_MIN_MS, MOVE_DEBOUNCE_MIN_MS * vel_scale * dpi_scale)
+        px = max(self._min_move_px, self._min_move_px * vel_scale)
         return ms, px
 
     def _on_move(self, x: int, y: int) -> None:
@@ -1480,11 +1486,11 @@ class ClickOverlay(tk.Toplevel):
         sw = self._screen_w
         sh = self._screen_h
         dist = math.hypot(px - self._buffer["cursor"][0], py - self._buffer["cursor"][1])
-        cursor_moved = dist >= MOVE_MIN_PX
+        cursor_moved = dist >= self._min_move_px
         updates: dict[str, tuple[int, ...] | str] = {}
         self._draw_crosshair(updates, px, py, sw, sh, cursor_moved)
         rect, text, window_changed, hover_changed = self._update_label(info, updates)
-        if dist < MOVE_MIN_PX and not window_changed:
+        if dist < self._min_move_px and not window_changed:
             return
         if cursor_moved or window_changed or hover_changed:
             if self.show_label and self.label is not None:

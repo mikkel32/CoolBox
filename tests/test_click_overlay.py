@@ -22,7 +22,6 @@ from src.views.click_overlay import (  # noqa: E402
     OverlayState,
     DEFAULT_INTERVAL,
     MOVE_DEBOUNCE_MIN_MS,
-    MOVE_MIN_PX,
 )
 from src.views.force_quit_dialog import ForceQuitDialog  # noqa: E402
 
@@ -1285,15 +1284,28 @@ class TestClickOverlay(unittest.TestCase):
             overlay = ClickOverlay(root)
 
         overlay._velocity = 0.0
-        overlay._dpi = 96.0
         low_ms, low_px = overlay._move_thresholds()
         overlay._velocity = 500.0
-        overlay._dpi = 192.0
         high_ms, high_px = overlay._move_thresholds()
 
-        self.assertEqual((low_ms, low_px), (MOVE_DEBOUNCE_MIN_MS, MOVE_MIN_PX))
+        self.assertEqual((low_ms, low_px), (MOVE_DEBOUNCE_MIN_MS, overlay._min_move_px))
         self.assertGreater(high_ms, low_ms)
         self.assertGreater(high_px, low_px)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_min_move_px_respects_dpi_and_env(self) -> None:
+        with patch.dict(os.environ, {"KILL_BY_CLICK_MIN_MOVE_PX": "5"}):
+            with (
+                patch("tkinter.Toplevel.winfo_fpixels", return_value=192.0),
+                patch("src.views.click_overlay.is_supported", return_value=False),
+            ):
+                root = tk.Tk()
+                overlay = ClickOverlay(root)
+
+        self.assertEqual(overlay._min_move_px, 10)
 
         overlay.destroy()
         root.destroy()
@@ -2381,6 +2393,7 @@ def test_update_rect_skips_small_move_no_window_change() -> None:
                 "screen": (100, 100),
             }
             self._applied = False
+            self._min_move_px = 2
 
         def _draw_crosshair(self, updates: dict[str, tuple[int, ...] | str], px: int, py: int, sw: int, sh: int, cursor_changed: bool) -> None:
             pass
