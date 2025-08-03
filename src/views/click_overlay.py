@@ -949,6 +949,16 @@ class ClickOverlay(tk.Toplevel):
             lambda: self.canvas.itemconfigure(self.rect, width=2),
         )
 
+    def set_highlight_color(self, color: str) -> None:
+        """Update the highlight color for all overlay elements."""
+        self.canvas.itemconfigure(self.rect, outline=color)
+        if self.hline is not None:
+            self.canvas.itemconfigure(self.hline, fill=color)
+        if self.vline is not None:
+            self.canvas.itemconfigure(self.vline, fill=color)
+        if self.label is not None:
+            self.canvas.itemconfigure(self.label, fill=color)
+
     def _calc_label_pos(self, px: int, py: int, sw: int, sh: int) -> tuple[int, int] | None:
         """Return label coordinates near the cursor, constrained to the screen."""
         if not self.show_label or self.label is None:

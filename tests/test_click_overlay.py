@@ -64,6 +64,19 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_set_highlight_color_updates_all_items(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root)
+        overlay.set_highlight_color("blue")
+        self.assertEqual(overlay.canvas.itemcget(overlay.rect, "outline"), "blue")
+        self.assertEqual(overlay.canvas.itemcget(overlay.hline, "fill"), "blue")
+        self.assertEqual(overlay.canvas.itemcget(overlay.vline, "fill"), "blue")
+        self.assertEqual(overlay.canvas.itemcget(overlay.label, "fill"), "blue")
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_can_disable_label(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

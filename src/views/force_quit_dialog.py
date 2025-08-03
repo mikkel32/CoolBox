@@ -2142,10 +2142,7 @@ class ForceQuitDialog(BaseDialog):
         interval_env = os.getenv("KILL_BY_CLICK_INTERVAL")
         overlay = self._overlay
         overlay.on_hover = self._highlight_pid
-        overlay.canvas.itemconfigure(overlay.rect, outline=color)
-        overlay.canvas.itemconfigure(overlay.hline, fill=color)
-        overlay.canvas.itemconfigure(overlay.vline, fill=color)
-        overlay.canvas.itemconfigure(overlay.label, fill=color)
+        overlay.set_highlight_color(color)
         if interval_env is not None:
             try:
                 overlay.interval = float(interval_env)
