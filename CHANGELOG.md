@@ -5,6 +5,11 @@
 - **Feat:** Derive move debounce from refresh rate with runtime override and
   allow disabling via ``kill_by_click_move_debounce_ms``.
 
+## 1.3.12 - 2025-08-03
+
+- **Refactor:** Run Kill by Click overlay asynchronously with cancel support.
+- **Test:** Ensure Force Quit dialog stays responsive during window selection.
+
 ## 1.3.10 - 2025-08-13
 
 - **Refactor:** Centralize click overlay configuration and apply updates when

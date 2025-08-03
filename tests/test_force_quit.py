@@ -10,6 +10,7 @@ import os
 import tkinter as tk
 from tkinter import ttk
 from types import SimpleNamespace
+import threading
 
 import psutil
 import heapq
@@ -1208,6 +1209,7 @@ class TestForceQuit(unittest.TestCase):
 
     def test_kill_by_click_pauses_watcher(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog._overlay_thread = None
         dialog.accent = "#f00"
         dialog.paused = False
         dialog._watcher = mock.Mock()
@@ -1229,11 +1231,14 @@ class TestForceQuit(unittest.TestCase):
         dialog._configure_overlay()
         overlay.apply_defaults.assert_called_once()
 
+        dialog.after = lambda delay, cb, *args: cb(*args)
         with mock.patch("src.views.force_quit_dialog.messagebox") as MB:
             dialog._kill_by_click()
+            if dialog._overlay_thread:
+                dialog._overlay_thread.join(timeout=1)
             dialog._watcher.pause.assert_called_once()
             dialog._watcher.resume.assert_called_once()
-            MB.showerror.assert_called_once()
+            MB.showerror.assert_not_called()
             dialog.after_idle.assert_called_with(dialog._update_hover)
             overlay.choose.assert_called_once()
             overlay.reset.assert_called_once()
@@ -1241,6 +1246,8 @@ class TestForceQuit(unittest.TestCase):
 
     def test_kill_by_click_exception_cleanup(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog._overlay_thread = None
+        dialog._overlay_thread = None
         dialog.accent = "#f00"
         dialog.paused = False
         dialog._watcher = mock.Mock()
@@ -1265,9 +1272,16 @@ class TestForceQuit(unittest.TestCase):
         dialog._configure_overlay()
         overlay.apply_defaults.assert_called_once()
 
-        with mock.patch("src.views.force_quit_dialog.messagebox"):
-            with self.assertRaises(RuntimeError):
+        dialog.after = lambda delay, cb, *args: cb(*args)
+        hook = threading.excepthook
+        threading.excepthook = lambda args: None
+        try:
+            with mock.patch("src.views.force_quit_dialog.messagebox"):
                 dialog._kill_by_click()
+                if dialog._overlay_thread:
+                    dialog._overlay_thread.join(timeout=1)
+        finally:
+            threading.excepthook = hook
         dialog.withdraw.assert_called_once()
         dialog.deiconify.assert_called_once()
         dialog._watcher.pause.assert_called_once()
@@ -1279,6 +1293,8 @@ class TestForceQuit(unittest.TestCase):
 
     def test_kill_by_click_skip_confirm(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog._overlay_thread = None
+        dialog._overlay_thread = None
         dialog.accent = "#f00"
         dialog.paused = True
         dialog._watcher = mock.Mock()
@@ -1299,12 +1315,15 @@ class TestForceQuit(unittest.TestCase):
         dialog._overlay = overlay
         dialog.app = SimpleNamespace(config={})
 
+        dialog.after = lambda delay, cb, *args: cb(*args)
         with (
             mock.patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
             mock.patch("src.views.force_quit_dialog.messagebox") as MB,
         ):
             dialog._configure_overlay()
             dialog._kill_by_click()
+            if dialog._overlay_thread:
+                dialog._overlay_thread.join(timeout=1)
             MB.askyesno.assert_not_called()
             MB.showinfo.assert_called_once()
             dialog.force_kill.assert_called_once_with(123)
@@ -1312,6 +1331,8 @@ class TestForceQuit(unittest.TestCase):
 
     def test_kill_by_click_per_run_isolation(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog._overlay_thread = None
+        dialog._overlay_thread = None
         dialog.accent = "#f00"
         dialog.paused = False
         dialog._watcher = mock.Mock()
@@ -1345,19 +1366,77 @@ class TestForceQuit(unittest.TestCase):
         dialog.app = SimpleNamespace(config={})
         dialog._configure_overlay()
         self.assertEqual(overlay.apply_defaults.call_count, 1)
-
+        dialog.after = lambda delay, cb, *args: cb(*args)
         with mock.patch("src.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
+            if dialog._overlay_thread:
+                dialog._overlay_thread.join(timeout=1)
             self.assertEqual(overlay.interval, default_interval)
             overlay.interval = 0.5
             dialog._kill_by_click()
+            if dialog._overlay_thread:
+                dialog._overlay_thread.join(timeout=1)
             self.assertEqual(overlay.interval, default_interval)
 
         self.assertEqual(overlay.apply_defaults.call_count, 1)
         self.assertEqual(overlay.reset.call_count, 2)
 
+    def test_kill_by_click_nonblocking_and_cancel(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog._overlay_thread = None
+        dialog._overlay_thread = None
+        dialog.accent = "#f00"
+        dialog.paused = False
+        dialog._watcher = mock.Mock()
+        dialog._populate = mock.Mock()
+        dialog.force_kill = mock.Mock(return_value=True)
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.after_idle = mock.Mock()
+        dialog._update_hover = mock.Mock()
+        overlay = mock.Mock()
+        overlay.canvas = mock.Mock()
+        overlay.rect = object()
+        overlay.hline = object()
+        overlay.vline = object()
+        overlay.label = object()
+        overlay.reset = mock.Mock()
+        overlay.apply_defaults = mock.Mock()
+        blocker = threading.Event()
+        cancelled = {"flag": False}
+
+        def choose() -> tuple[int | None, str | None]:
+            blocker.wait()
+            if cancelled["flag"]:
+                return (None, None)
+            return (456, "foo")
+
+        overlay.choose.side_effect = choose
+
+        def close_side_effect() -> None:
+            cancelled["flag"] = True
+            blocker.set()
+
+        overlay.close.side_effect = close_side_effect
+        dialog._overlay = overlay
+        dialog.app = SimpleNamespace(config={})
+        dialog.after = lambda delay, cb, *args: cb(*args)
+        dialog._configure_overlay()
+        start = time.time()
+        with mock.patch("src.views.force_quit_dialog.messagebox"):
+            dialog._kill_by_click()
+        elapsed = time.time() - start
+        self.assertLess(elapsed, 0.1)
+        dialog.cancel_kill_by_click()
+        overlay.close.assert_called_once()
+        blocker.set()
+        dialog._overlay_thread.join(timeout=1)
+        dialog.force_kill.assert_not_called()
+
     def test_configure_overlay_applies_updates(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog._overlay_thread = None
+        dialog._overlay_thread = None
         dialog.accent = "#f00"
         dialog._highlight_pid = mock.Mock()
         overlay = mock.Mock()
