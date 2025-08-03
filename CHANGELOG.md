@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.81 - 2025-09-04
+
+- **Perf:** Offload click overlay scoring and window probing to a background
+  thread and marshal results back to the Tk event loop.
+
 ## 1.0.80 - 2025-09-03
 
 - **Fix:** Start global listener during Force Quit dialog initialization so hooks are primed before the first click.

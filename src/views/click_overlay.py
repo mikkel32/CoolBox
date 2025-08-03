@@ -17,6 +17,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional, Callable, Any
 from enum import Enum, auto
+from threading import Lock
 import atexit
 
 try:  # pragma: no cover - optional dependency
@@ -200,6 +201,7 @@ def _normalize_color(widget: tk.Misc, color: str) -> str:
 class UpdateState(Enum):
     IDLE = auto()
     PENDING = auto()
+    RUNNING = auto()
 
 
 class OverlayState(Enum):
@@ -484,6 +486,7 @@ class ClickOverlay(tk.Toplevel):
         self._after_id: Optional[str] = None
         self._timeout_id: Optional[str] = None
         self.update_state = UpdateState.IDLE
+        self._state_lock = Lock()
 
         # Background executor for window queries and scoring
         self._executor = EXECUTOR
@@ -588,16 +591,22 @@ class ClickOverlay(tk.Toplevel):
         self, samples: list[WindowInfo], callback: Callable[[tuple[WindowInfo | None, float, float]], None]
     ) -> None:
         """Run ``engine.weighted_confidence`` on the worker thread."""
+        with self._state_lock:
+            cx = self._cursor_x
+            cy = self._cursor_y
+            vel = self._velocity
+            path = list(self._path_history)
+            init = self._initial_active_pid
 
         self._score_async(
             lambda: _weighted_confidence_np(
                 self.engine,
                 samples,
-                self._cursor_x,
-                self._cursor_y,
-                self._velocity,
-                self._path_history,
-                self._initial_active_pid,
+                cx,
+                cy,
+                vel,
+                path,
+                init,
             ),
             callback,
         )
@@ -610,16 +619,22 @@ class ClickOverlay(tk.Toplevel):
         The heavy computation runs on the worker thread while the caller waits
         for the result, avoiding any blocking work on the Tk event loop.
         """
+        with self._state_lock:
+            cx = self._cursor_x
+            cy = self._cursor_y
+            vel = self._velocity
+            path = list(self._path_history)
+            init = self._initial_active_pid
 
         future = self._score_async(
             lambda: _weighted_confidence_np(
                 self.engine,
                 samples,
-                self._cursor_x,
-                self._cursor_y,
-                self._velocity,
-                self._path_history,
-                self._initial_active_pid,
+                cx,
+                cy,
+                vel,
+                path,
+                init,
             )
         )
         return future.result()
@@ -763,11 +778,13 @@ class ClickOverlay(tk.Toplevel):
             self._last_move_pos = (_e.x_root, _e.y_root)
             self._path_history.append((_e.x_root, _e.y_root))
             self.engine.heatmap.update(_e.x_root, _e.y_root)
-            self._cursor_x = _e.x_root
-            self._cursor_y = _e.y_root
+            with self._state_lock:
+                self._cursor_x = _e.x_root
+                self._cursor_y = _e.y_root
         elif self.state is OverlayState.POLLING:
-            self._cursor_x = self.winfo_pointerx()
-            self._cursor_y = self.winfo_pointery()
+            with self._state_lock:
+                self._cursor_x = self.winfo_pointerx()
+                self._cursor_y = self.winfo_pointery()
         if self.update_state is UpdateState.IDLE:
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
@@ -795,20 +812,35 @@ class ClickOverlay(tk.Toplevel):
         self.interval = max(min(interval, self.max_interval), self.min_interval)
 
     def _process_update(self) -> None:
-        self.update_state = UpdateState.IDLE
+        self.update_state = UpdateState.RUNNING
         if self.state is OverlayState.POLLING:
             x = self.winfo_pointerx()
             y = self.winfo_pointery()
         else:
-            x = self._cursor_x
-            y = self._cursor_y
-        if x != self._cursor_x or y != self._cursor_y:
-            self._cached_info = None
-        self._cursor_x = x
-        self._cursor_y = y
+            with self._state_lock:
+                x = self._cursor_x
+                y = self._cursor_y
+        with self._state_lock:
+            if x != self._cursor_x or y != self._cursor_y:
+                self._cached_info = None
+            self._cursor_x = x
+            self._cursor_y = y
         start = time.perf_counter()
         self._last_frame_start = start
-        self._update_rect()
+
+        future = self._executor.submit(self._query_window_at, int(x), int(y))
+
+        def _on_done(fut: Future[WindowInfo]) -> None:
+            try:
+                info = fut.result()
+            except Exception:
+                info = WindowInfo(None)
+            self.after_idle(lambda: self._finish_update(info, start))
+
+        future.add_done_callback(_on_done)
+
+    def _finish_update(self, info: WindowInfo, start: float) -> None:
+        self._update_rect(info)
         end = time.perf_counter()
         self._last_frame_end = end
         frame_ms = (end - start) * 1000.0
@@ -819,6 +851,7 @@ class ClickOverlay(tk.Toplevel):
             log(f"ClickOverlay avg frame {self.avg_frame_ms:.2f}ms")
             if self.adaptive_interval:
                 self._retune_interval()
+        self.update_state = UpdateState.IDLE
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
     def _on_move(self, x: int, y: int) -> None:
@@ -863,9 +896,10 @@ class ClickOverlay(tk.Toplevel):
         self._path_history.append((x, y))
         if self.engine.tuning.heatmap_weight > 0:
             self.engine.heatmap.update(x, y)
-        self._cursor_x = x
-        self._cursor_y = y
-        self._cached_info = None
+        with self._state_lock:
+            self._cursor_x = x
+            self._cursor_y = y
+            self._cached_info = None
         mnow = time.monotonic()
         rect = self._window_cache_rect
         if (
@@ -882,8 +916,9 @@ class ClickOverlay(tk.Toplevel):
 
     def _query_window(self) -> WindowInfo:
         """Return the window info below the cursor, ignoring this overlay."""
-
-        return self._query_window_at(int(self._cursor_x), int(self._cursor_y))
+        with self._state_lock:
+            x, y = int(self._cursor_x), int(self._cursor_y)
+        return self._query_window_at(x, y)
 
     def _query_window_async(self, callback: Callable[[WindowInfo], None]) -> None:
         """Resolve the window under the cursor on the worker thread."""
@@ -893,7 +928,8 @@ class ClickOverlay(tk.Toplevel):
                 lambda f: f.exception() if not f.cancelled() else None
             )
 
-        x, y = int(self._cursor_x), int(self._cursor_y)
+        with self._state_lock:
+            x, y = int(self._cursor_x), int(self._cursor_y)
         future = self._executor.submit(self._query_window_at, x, y)
         self._query_future = future
 
@@ -967,7 +1003,8 @@ class ClickOverlay(tk.Toplevel):
         """
 
         self.engine.tracker.decay()
-        cached = self._cached_info
+        with self._state_lock:
+            cached = self._cached_info
         if (
             cached is not None
             and cached.pid not in (self._own_pid, None)
@@ -995,7 +1032,8 @@ class ClickOverlay(tk.Toplevel):
                 if was_click:
                     remove_window_clickthrough(self)
 
-        self._cached_info = info
+        with self._state_lock:
+            self._cached_info = info
         if info.pid is None:
             return self._last_info or WindowInfo(None)
         if info.pid == self._own_pid:
@@ -1166,15 +1204,17 @@ class ClickOverlay(tk.Toplevel):
 
     def _click(self, x: int, y: int, pressed: bool) -> None:
         if pressed:
-            self._cursor_x = x
-            self._cursor_y = y
+            with self._state_lock:
+                self._cursor_x = x
+                self._cursor_y = y
             self._click_x = x
             self._click_y = y
             self.after(0, self._on_click)
 
     def _click_event(self, e: tk.Event) -> None:
-        self._cursor_x = e.x_root
-        self._cursor_y = e.y_root
+        with self._state_lock:
+            self._cursor_x = e.x_root
+            self._cursor_y = e.y_root
         self._click_x = e.x_root
         self._click_y = e.y_root
         self.after(0, self._on_click)
@@ -1198,7 +1238,8 @@ class ClickOverlay(tk.Toplevel):
         self.pid = None
         self.title_text = None
         self._last_info = None
-        self._cached_info = None
+        with self._state_lock:
+            self._cached_info = None
         self._current_pid = None
         self._current_streak = 0
         self._pid_stability.clear()
