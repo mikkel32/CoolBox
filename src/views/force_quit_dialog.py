@@ -82,6 +82,13 @@ class ForceQuitDialog(BaseDialog):
         )
         self._overlay.reset()
         self.initialize_click_overlay()
+        try:
+            self._overlay._refresh_window_cache(
+                int(getattr(self._overlay, "_cursor_x", 0)),
+                int(getattr(self._overlay, "_cursor_y", 0)),
+            )
+        except Exception:
+            pass
 
         width_env = os.getenv("FORCE_QUIT_WIDTH")
         height_env = os.getenv("FORCE_QUIT_HEIGHT")
