@@ -2063,6 +2063,85 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_probe_point_position_cache(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch("src.views.click_overlay.subscribe_window_change", return_value=None),
+            patch("src.views.click_overlay.get_active_window", return_value=WindowInfo(None)),
+            patch("src.views.click_overlay.subscribe_active_window", return_value=None),
+            patch("src.views.click_overlay.PROBE_CACHE_TTL", 60),
+        ):
+            overlay = ClickOverlay(root)
+        try:
+            own = overlay._own_pid
+            top = WindowInfo(own, (0, 0, 100, 100), "self")
+            other = WindowInfo(999, (0, 0, 100, 100), "other")
+            calls = {"get": 0, "list": 0}
+
+            def fake_top() -> WindowInfo:
+                calls["get"] += 1
+                return top
+
+            def fake_list(x: int, y: int) -> list[WindowInfo]:
+                calls["list"] += 1
+                return [top, other]
+
+            overlay._window_cache_rect = None
+            with (
+                patch("src.views.click_overlay.get_window_under_cursor", side_effect=fake_top),
+                patch("src.views.click_overlay.list_windows_at", side_effect=fake_list),
+            ):
+                info1 = overlay._probe_point(10, 10)
+                info2 = overlay._probe_point(12, 12)
+            self.assertEqual(info1, info2)
+            self.assertEqual(calls["get"], 1)
+            self.assertEqual(calls["list"], 1)
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_probe_point_position_cache_expires(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=False),
+            patch("src.views.click_overlay.subscribe_window_change", return_value=None),
+            patch("src.views.click_overlay.get_active_window", return_value=WindowInfo(None)),
+            patch("src.views.click_overlay.subscribe_active_window", return_value=None),
+            patch("src.views.click_overlay.PROBE_CACHE_TTL", 0.5),
+        ):
+            overlay = ClickOverlay(root)
+        try:
+            own = overlay._own_pid
+            top = WindowInfo(own, (0, 0, 100, 100), "self")
+            other = WindowInfo(999, (0, 0, 100, 100), "other")
+            calls = {"list": 0}
+
+            def fake_top() -> WindowInfo:
+                return top
+
+            def fake_list(x: int, y: int) -> list[WindowInfo]:
+                calls["list"] += 1
+                return [top, other]
+
+            overlay._window_cache_rect = None
+            with (
+                patch("src.views.click_overlay.get_window_under_cursor", side_effect=fake_top),
+                patch("src.views.click_overlay.list_windows_at", side_effect=fake_list),
+            ):
+                overlay._probe_point(10, 10)
+                overlay._window_cache_rect = None
+                overlay._velocity = 200.0
+                overlay._update_probe_cache_ttl()
+                time.sleep(overlay._probe_cache_ttl + 0.01)
+                overlay._probe_point(10, 10)
+            self.assertEqual(calls["list"], 2)
+        finally:
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_process_update_skips_pointer_when_hooked(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
