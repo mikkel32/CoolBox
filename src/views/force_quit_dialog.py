@@ -57,8 +57,27 @@ class ForceQuitDialog(BaseDialog):
         self._listener.start()
         # Instantiate the overlay in advance so showing it later is instant.
         prime_window_cache()
+        cfg = app.config
+        interval = cfg.get("kill_by_click_interval")
+        min_interval = cfg.get("kill_by_click_min_interval")
+        max_interval = cfg.get("kill_by_click_max_interval")
+        if cfg.get("kill_by_click_auto_interval", True) and (
+            interval is None or min_interval is None or max_interval is None
+        ):
+            interval, min_interval, max_interval = ClickOverlay.auto_tune_interval()
+            try:
+                cfg.set("kill_by_click_interval", interval)
+                cfg.set("kill_by_click_min_interval", min_interval)
+                cfg.set("kill_by_click_max_interval", max_interval)
+                cfg.save()
+            except Exception:
+                pass
         self._overlay = ClickOverlay(
-            self, basic_render=self.app.config.get("basic_rendering", False)
+            self,
+            basic_render=cfg.get("basic_rendering", False),
+            interval=interval if interval is not None else KILL_BY_CLICK_INTERVAL,
+            min_interval=min_interval,
+            max_interval=max_interval,
         )
         self._overlay.reset()
         self.initialize_click_overlay()
@@ -68,7 +87,6 @@ class ForceQuitDialog(BaseDialog):
         sort_env = os.getenv("FORCE_QUIT_SORT")
         reverse_env = os.getenv("FORCE_QUIT_SORT_REVERSE")
         on_top_env = os.getenv("FORCE_QUIT_ON_TOP")
-        cfg = app.config
         width = (
             int(width_env)
             if width_env and width_env.isdigit()

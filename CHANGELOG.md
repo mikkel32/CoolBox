@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.5 - 2025-09-15
+
+- **Feat:** Auto-calibrate click overlay intervals and reuse saved tuning.
+
 ## 1.2.4 - 2025-09-14
 
 - **Perf:** Scale window probe cache TTL inversely with cursor velocity for faster cache expiry when moving quickly.

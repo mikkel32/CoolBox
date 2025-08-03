@@ -24,6 +24,7 @@ from src.views.click_overlay import (  # noqa: E402
     MOVE_DEBOUNCE_MS,
     MIN_MOVE_PX,
 )
+from src.views.force_quit_dialog import ForceQuitDialog  # noqa: E402
 
 
 class TestClickOverlay(unittest.TestCase):
@@ -359,6 +360,86 @@ class TestClickOverlay(unittest.TestCase):
                 self.assertAlmostEqual(cfg.get("kill_by_click_interval"), interval)
                 self.assertAlmostEqual(cfg.get("kill_by_click_min_interval"), min_i)
                 self.assertAlmostEqual(cfg.get("kill_by_click_max_interval"), max_i)
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_force_quit_dialog_applies_tuned_interval(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("pathlib.Path.home", return_value=tmp):
+                cfg = Config()
+
+                class DummyApp:
+                    def __init__(self) -> None:
+                        self.window = tk.Tk()
+                        self.config = cfg
+
+                    def register_dialog(self, dialog) -> None:  # pragma: no cover - noop
+                        pass
+
+                    def unregister_dialog(self, dialog) -> None:  # pragma: no cover - noop
+                        pass
+
+                    def get_icon_photo(self):  # pragma: no cover - noop
+                        return None
+
+                tuned = (0.05, 0.02, 0.1)
+                params: dict[str, Any] = {}
+
+                def fake_init(self, parent, *args: Any, **kwargs: Any) -> None:
+                    params.update(kwargs)
+
+                with (
+                    patch("src.views.force_quit_dialog.get_global_listener") as mock_listener,
+                    patch("src.views.force_quit_dialog.prime_window_cache"),
+                    patch.object(ForceQuitDialog, "initialize_click_overlay"),
+                    patch.object(ForceQuitDialog, "_auto_refresh"),
+                    patch(
+                        "src.views.force_quit_dialog.ClickOverlay.auto_tune_interval",
+                        return_value=tuned,
+                    ) as auto_mock,
+                    patch(
+                        "src.views.force_quit_dialog.ClickOverlay.__init__",
+                        fake_init,
+                    ),
+                    patch(
+                        "src.views.force_quit_dialog.ClickOverlay.reset",
+                        Mock(),
+                    ),
+                ):
+                    mock_listener.return_value = Mock(start=lambda: None)
+                    app = DummyApp()
+                    dialog = ForceQuitDialog(app)
+                    auto_mock.assert_called_once()
+                    self.assertAlmostEqual(params.get("interval"), tuned[0])
+                    self.assertAlmostEqual(cfg.get("kill_by_click_interval"), tuned[0])
+                    dialog.destroy()
+                    app.window.destroy()
+
+                params.clear()
+                with (
+                    patch("src.views.force_quit_dialog.get_global_listener") as mock_listener,
+                    patch("src.views.force_quit_dialog.prime_window_cache"),
+                    patch.object(ForceQuitDialog, "initialize_click_overlay"),
+                    patch.object(ForceQuitDialog, "_auto_refresh"),
+                    patch(
+                        "src.views.force_quit_dialog.ClickOverlay.auto_tune_interval"
+                    ) as auto_mock,
+                    patch(
+                        "src.views.force_quit_dialog.ClickOverlay.__init__",
+                        fake_init,
+                    ),
+                    patch(
+                        "src.views.force_quit_dialog.ClickOverlay.reset",
+                        Mock(),
+                    ),
+                ):
+                    mock_listener.return_value = Mock(start=lambda: None)
+                    app = DummyApp()
+                    dialog = ForceQuitDialog(app)
+                    auto_mock.assert_not_called()
+                    self.assertAlmostEqual(params.get("interval"), tuned[0])
+                    dialog.destroy()
+                    app.window.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_adaptive_interval_toggle(self) -> None:
