@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.3.5 - 2025-08-09
+
+- **Fix:** Reload click overlay defaults and reset timing fields each run to
+  avoid leaking per-run overrides.
+- **Test:** Add regression test ensuring click overlay state is isolated per
+  invocation.
+
 ## 1.3.4 - 2025-08-08
 
 - **Fix:** Ensure mouse hooks and event bindings are cleaned up with

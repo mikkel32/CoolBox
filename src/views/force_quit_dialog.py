@@ -2224,6 +2224,7 @@ class ForceQuitDialog(BaseDialog):
         """Launch the click-to-kill overlay and terminate the selected window."""
         self.initialize_click_overlay()
         overlay = self._overlay
+        overlay.apply_defaults()
 
         with self._OverlayContext(self, overlay) as overlay:
             pid, title = overlay.choose()

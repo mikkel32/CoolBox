@@ -1648,6 +1648,31 @@ class ClickOverlay(tk.Toplevel):
         self._click_y = e.y_root
         self.after(0, self._on_click)
 
+    def apply_defaults(self) -> None:
+        """Reload configuration defaults from environment and config."""
+        self.interval = _load_calibrated(
+            "KILL_BY_CLICK_INTERVAL", "kill_by_click_interval", tuning.interval
+        )
+        self.min_interval = _load_calibrated(
+            "KILL_BY_CLICK_MIN_INTERVAL",
+            "kill_by_click_min_interval",
+            tuning.min_interval,
+        )
+        self.max_interval = _load_calibrated(
+            "KILL_BY_CLICK_MAX_INTERVAL",
+            "kill_by_click_max_interval",
+            tuning.max_interval,
+        )
+        self.delay_scale = _load_calibrated(
+            "KILL_BY_CLICK_DELAY_SCALE",
+            "kill_by_click_delay_scale",
+            tuning.delay_scale,
+        )
+        if self.delay_scale <= 0:
+            self.delay_scale = tuning.delay_scale
+        env = os.getenv("KILL_BY_CLICK_SKIP_CONFIRM")
+        self.skip_confirm = env not in (None, "0", "false", "no")
+
     def reset(self) -> None:
         """Hide the overlay and clear runtime state."""
         try:
@@ -1678,6 +1703,9 @@ class ClickOverlay(tk.Toplevel):
         self._closed.set(False)
         self.update_state = UpdateState.IDLE
         self.state = OverlayState.INIT
+        self.interval = tuning.interval
+        self.min_interval = tuning.min_interval
+        self.max_interval = tuning.max_interval
 
     def close(self, _e: object | None = None) -> None:
         if self._after_id is not None:
