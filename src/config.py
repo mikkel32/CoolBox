@@ -126,6 +126,8 @@ class Config:
             "kill_by_click_auto_interval": True,
             "kill_by_click_kf_process_noise": 1.0,
             "kill_by_click_kf_measurement_noise": 5.0,
+            "window_min_width": 0,
+            "window_min_height": 0,
         }
 
         # Load configuration
