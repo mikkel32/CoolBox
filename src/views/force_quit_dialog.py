@@ -1816,12 +1816,12 @@ class ForceQuitDialog(BaseDialog):
             self._set_hover_row(None)
             return
         iid = str(pid)
-        self.tree.see(iid)
         current = self.tree.selection()
         if current != (iid,):
+            self.tree.see(iid)
             self.tree.selection_set(iid)
+            self._show_details()
         self._set_hover_row(iid)
-        self._show_details()
 
     def _toggle_details(self) -> None:
         if self.show_details_var.get():
