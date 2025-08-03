@@ -3,8 +3,10 @@ import subprocess
 import time
 import unittest
 import os
+import signal
 
 import psutil
+from unittest import mock
 
 from src.utils.kill_utils import kill_process, kill_process_tree
 
@@ -17,6 +19,31 @@ class TestKillUtils(unittest.TestCase):
         kill_process(pid)
         time.sleep(0.1)
         self.assertFalse(psutil.pid_exists(pid))
+
+    def test_kill_process_watchdog_cancel(self) -> None:
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            def slow_fail(self):
+                time.sleep(0.05)
+                raise Exception()
+
+            def slow_kill_cmd(pid: int) -> bool:
+                time.sleep(0.05)
+                os.kill(pid, signal.SIGKILL)
+                return True
+
+            with mock.patch.object(psutil.Process, "terminate", slow_fail), \
+                 mock.patch.object(psutil.Process, "kill", slow_fail), \
+                 mock.patch("src.utils.kill_utils._kill_cmd", side_effect=slow_kill_cmd), \
+                 mock.patch("src.utils.kill_utils.log") as mock_log:
+                ok = kill_process(proc.pid, timeout=0.1, watchdog=0.01, on_timeout=lambda: False)
+                self.assertFalse(ok)
+                messages = "".join(call.args[0] for call in mock_log.call_args_list)
+                self.assertIn("canceled", messages)
+        finally:
+            if psutil.pid_exists(proc.pid):
+                proc.kill()
+                proc.wait()
 
     def test_kill_process_tree(self) -> None:
         cmd = [

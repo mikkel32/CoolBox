@@ -6,6 +6,8 @@ import os
 import time
 import signal
 from contextlib import contextmanager
+from threading import Event, Thread
+from typing import Callable
 try:
     import psutil
 except ImportError:  # pragma: no cover - runtime dependency check
@@ -13,7 +15,14 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     psutil = ensure_psutil()
 _psutil_process = psutil.Process
-from .helpers import log
+from .helpers import log, console
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 
 def _kill_cmd(pid: int) -> bool:
@@ -89,8 +98,44 @@ def _priority_boost() -> None:
                     pass
 
 
-def kill_process(pid: int, *, timeout: float = 3.0) -> bool:
-    """Forcefully terminate ``pid`` returning ``True`` if it exited."""
+def _spinner(duration: float, done: Event) -> None:
+    """Display a spinner/progress bar for ``duration`` seconds."""
+    with Progress(
+        SpinnerColumn(style="bold blue"),
+        BarColumn(bar_width=None),
+        TextColumn("Killing"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task("kill", total=duration)
+        start = time.perf_counter()
+        while not done.is_set():
+            elapsed = time.perf_counter() - start
+            progress.update(task, completed=min(elapsed, duration))
+            if elapsed >= duration:
+                break
+            time.sleep(0.1)
+
+
+def kill_process(
+    pid: int,
+    *,
+    timeout: float = 3.0,
+    watchdog: float | None = None,
+    on_timeout: Callable[[], bool] | None = None,
+) -> bool:
+    """Forcefully terminate ``pid`` returning ``True`` if it exited.
+
+    Parameters
+    ----------
+    watchdog:
+        If set, show a spinner for ``watchdog`` seconds and prompt for
+        cancellation if the kill exceeds this duration.
+    on_timeout:
+        Optional callback invoked when the watchdog elapses. It should
+        return ``True`` to continue waiting or ``False`` to cancel.
+    """
     try:
         proc = psutil.Process(pid)
     except psutil.NoSuchProcess:
@@ -129,6 +174,13 @@ def kill_process(pid: int, *, timeout: float = 3.0) -> bool:
 
     attempts.append(hard)
 
+    spinner_done = Event()
+    if watchdog is not None:
+        thread = Thread(target=_spinner, args=(watchdog, spinner_done), daemon=True)
+        thread.start()
+    else:
+        thread = None
+
     start = time.perf_counter()
     psutil.cpu_percent(None)
     with _priority_boost():
@@ -140,6 +192,23 @@ def kill_process(pid: int, *, timeout: float = 3.0) -> bool:
             if psutil.cpu_percent(None) > 90:
                 break
     elapsed = time.perf_counter() - start
+    if thread is not None:
+        spinner_done.set()
+        thread.join()
+        if elapsed > watchdog:
+            proceed = True
+            if on_timeout is not None:
+                proceed = on_timeout()
+            else:
+                try:
+                    resp = console.input("Kill taking too long. Cancel? [y/N]: ")
+                    proceed = not resp.strip().lower().startswith("y")
+                except Exception:
+                    proceed = True
+            if not proceed:
+                log(f"kill_process({pid}) canceled after {elapsed:.3f}s")
+                return False
+            log(f"kill_process({pid}) exceeded watchdog {watchdog:.3f}s")
     log(f"kill_process({pid}) latency {elapsed:.3f}s")
     if psutil.pid_exists(pid):
         try:
@@ -152,7 +221,13 @@ def kill_process(pid: int, *, timeout: float = 3.0) -> bool:
     return True
 
 
-def kill_process_tree(pid: int, *, timeout: float = 3.0) -> bool:
+def kill_process_tree(
+    pid: int,
+    *,
+    timeout: float = 3.0,
+    watchdog: float | None = None,
+    on_timeout: Callable[[], bool] | None = None,
+) -> bool:
     """Kill ``pid`` and all of its children."""
     try:
         parent = psutil.Process(pid)
@@ -162,7 +237,15 @@ def kill_process_tree(pid: int, *, timeout: float = 3.0) -> bool:
     procs = parent.children(recursive=True)
     procs.append(parent)
     ok = True
+    start = time.perf_counter()
     for p in procs:
-        if not kill_process(p.pid, timeout=timeout):
+        if not kill_process(
+            p.pid,
+            timeout=timeout,
+            watchdog=watchdog,
+            on_timeout=on_timeout,
+        ):
             ok = False
+    elapsed = time.perf_counter() - start
+    log(f"kill_process_tree({pid}) latency {elapsed:.3f}s")
     return ok

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.72 - 2025-08-30
+
+- **Feat:** Display watchdog spinner during kill operations, allow cancellation on timeout and log kill duration metrics.
+
 ## 1.0.71 - 2025-08-30
 
 - **Feat:** Add native global input hooks for mouse and keyboard with early event filtering.
