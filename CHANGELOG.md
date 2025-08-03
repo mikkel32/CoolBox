@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.17 - 2025-08-03
+
+- **Fix:** Handle Force Quit dialog errors without exiting the application.
+
 ## 1.3.16 - 2025-08-03
 
 - **Fix:** Keep Force Quit dialog open by letting it manage its own close handler.

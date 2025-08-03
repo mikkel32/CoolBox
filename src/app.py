@@ -283,16 +283,28 @@ class CoolBoxApp:
 
     def open_force_quit(self) -> None:
         """Launch the Force Quit dialog or focus the existing one."""
-        from .views.force_quit_dialog import ForceQuitDialog
+        from tkinter import messagebox
+
+        try:
+            from .views.force_quit_dialog import ForceQuitDialog
+        except Exception as exc:  # pragma: no cover - runtime import error
+            log(f"Failed to import ForceQuitDialog: {exc}")
+            messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
+            return
 
         if self.force_quit_window is not None and self.force_quit_window.winfo_exists():
             self.force_quit_window.focus()
             return
 
-        self.force_quit_window = ForceQuitDialog(self)
-        self.force_quit_window.bind(
-            "<Destroy>", lambda _e: setattr(self, "force_quit_window", None)
-        )
+        try:
+            self.force_quit_window = ForceQuitDialog(self)
+            self.force_quit_window.bind(
+                "<Destroy>", lambda _e: setattr(self, "force_quit_window", None)
+            )
+        except Exception as exc:  # pragma: no cover - runtime init error
+            log(f"Failed to create ForceQuitDialog: {exc}")
+            messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
+            self.force_quit_window = None
 
     def open_security_center(self) -> None:
         """Launch the Security Center dialog with elevation when needed."""
