@@ -143,7 +143,7 @@ COLORKEY_RECHECK_MS = int(
     os.getenv("KILL_BY_CLICK_COLORKEY_RECHECK_MS", "1000")
 )
 
-# Cache TTL for window probing in seconds
+# Base cache TTL for window probing in seconds
 PROBE_CACHE_TTL = float(os.getenv("KILL_BY_CLICK_PROBE_TTL", "0.1"))
 
 # Minimum time between handling pointer moves in milliseconds.
@@ -693,6 +693,7 @@ class ClickOverlay(tk.Toplevel):
         self._own_pid = os.getpid()
         self._initial_active_pid: int | None = None
         self._velocity = 0.0
+        self._probe_cache_ttl = PROBE_CACHE_TTL
         self._path_history: deque[tuple[int, int]] = deque(maxlen=tuning.path_history)
         self._last_move_time = time.time()
         self._last_move_pos = (0, 0)
@@ -1093,6 +1094,10 @@ class ClickOverlay(tk.Toplevel):
         self.update_state = UpdateState.IDLE
         self._after_id = self.after(self._next_delay(), self._queue_update)
 
+    def _update_probe_cache_ttl(self) -> None:
+        """Scale probe cache TTL inversely with cursor velocity."""
+        self._probe_cache_ttl = PROBE_CACHE_TTL / (1.0 + self._velocity)
+
     def _move_thresholds(self) -> tuple[float, float]:
         """Return debounce thresholds scaled by cursor velocity.
 
@@ -1146,15 +1151,17 @@ class ClickOverlay(tk.Toplevel):
             self._cursor_y = fy
             self._velocity = math.hypot(vx, vy)
             self._cached_info = None
+        self._update_probe_cache_ttl()
         mnow = time.monotonic()
         rect = self._window_cache_rect
+        ttl = self._probe_cache_ttl
         if (
             rect is None
             or not (
                 rect[0] <= x < rect[0] + rect[2]
                 and rect[1] <= y < rect[1] + rect[3]
             )
-            or mnow - self._window_cache_time >= PROBE_CACHE_TTL
+            or mnow - self._window_cache_time >= ttl
         ):
             if self._window_cache_future is None or self._window_cache_future.done():
                 self._refresh_window_cache(int(x), int(y))
@@ -1210,11 +1217,12 @@ class ClickOverlay(tk.Toplevel):
         """Return window info at ``(x, y)`` with smart caching."""
         now = time.monotonic()
         rect = self._window_cache_rect
+        ttl = self._probe_cache_ttl
         if (
             rect
             and rect[0] <= x < rect[0] + rect[2]
             and rect[1] <= y < rect[1] + rect[3]
-            and now - self._window_cache_time < PROBE_CACHE_TTL
+            and now - self._window_cache_time < ttl
         ):
             wins = self._window_cache
         elif self._unsubscribe_windows is not None:
