@@ -1775,7 +1775,9 @@ class ForceQuitDialog(BaseDialog):
             return
         iid = str(pid)
         self.tree.see(iid)
-        self.tree.selection_set(iid)
+        current = self.tree.selection()
+        if current != (iid,):
+            self.tree.selection_set(iid)
         self._set_hover_row(iid)
         self._show_details()
 
