@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.1.2 - 2025-09-06
+
+- **Perf:** Offload sample scoring loops to optional Cython extension with Python fallback.
+
 ## 1.1.1 - 2025-09-05
 
 - **Fix:** Pre-initialize click overlay and global mouse listener in Force Quit
