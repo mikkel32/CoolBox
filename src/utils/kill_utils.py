@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
+from contextlib import contextmanager
 try:
     import psutil
 except ImportError:  # pragma: no cover - runtime dependency check
     from ..ensure_deps import ensure_psutil
 
     psutil = ensure_psutil()
+_psutil_process = psutil.Process
+from .helpers import log
 from .process_utils import run_command
 
 
@@ -25,6 +29,54 @@ def _kill_cmd(pid: int) -> None:
             run_command(["kill", "-9", str(pid)], check=False)
     else:
         _taskkill(pid)
+
+
+@contextmanager
+def _priority_boost() -> None:
+    """Temporarily boost the current thread priority."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            proc_handle = kernel32.GetCurrentProcess()
+            thread_handle = kernel32.GetCurrentThread()
+            REALTIME_PRIORITY_CLASS = 0x00000100
+            THREAD_PRIORITY_TIME_CRITICAL = 15
+            prev_class = kernel32.GetPriorityClass(proc_handle)
+            prev_thread = kernel32.GetThreadPriority(thread_handle)
+            kernel32.SetPriorityClass(proc_handle, REALTIME_PRIORITY_CLASS)
+            kernel32.SetThreadPriority(thread_handle, THREAD_PRIORITY_TIME_CRITICAL)
+            yield
+        finally:
+            try:
+                kernel32.SetPriorityClass(proc_handle, prev_class)
+                kernel32.SetThreadPriority(thread_handle, prev_thread)
+            except Exception:
+                pass
+    else:
+        proc_class = _psutil_process if psutil.Process is _psutil_process else None
+        if proc_class is None:
+            yield
+            return
+        proc = proc_class(os.getpid())
+        try:
+            prev_nice = proc.nice()
+        except Exception:
+            prev_nice = None
+        try:
+            if prev_nice is not None:
+                try:
+                    proc.nice(-20)
+                except Exception:
+                    pass
+            yield
+        finally:
+            if prev_nice is not None:
+                try:
+                    proc.nice(prev_nice)
+                except Exception:
+                    pass
 
 
 def kill_process(pid: int, *, timeout: float = 3.0) -> bool:
@@ -66,11 +118,18 @@ def kill_process(pid: int, *, timeout: float = 3.0) -> bool:
 
     attempts.append(hard)
 
-    for attempt in attempts:
-        if attempt(proc):
-            return True
-        if not psutil.pid_exists(pid):
-            return True
+    start = time.perf_counter()
+    psutil.cpu_percent(None)
+    with _priority_boost():
+        for attempt in attempts:
+            if attempt(proc):
+                break
+            if not psutil.pid_exists(pid):
+                break
+            if psutil.cpu_percent(None) > 90:
+                break
+    elapsed = time.perf_counter() - start
+    log(f"kill_process({pid}) latency {elapsed:.3f}s")
     if psutil.pid_exists(pid):
         try:
             status = psutil.Process(pid).status()
