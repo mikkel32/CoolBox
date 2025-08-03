@@ -1273,6 +1273,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._highlight_pid = mock.Mock()
         overlay = mock.Mock()
         overlay.choose.return_value = (None, None)
+        overlay.set_highlight_color = mock.Mock()
         overlay.canvas = mock.Mock()
         overlay.rect = object()
         overlay.hline = object()
@@ -1290,14 +1291,14 @@ class TestForceQuit(unittest.TestCase):
                     [c for c in getenv.call_args_list if c.args[0].startswith("KILL_BY_CLICK")]
                 )
                 self.assertGreater(kbc_calls, 0)
-                self.assertGreater(overlay.canvas.itemconfigure.call_count, 0)
-                overlay.canvas.itemconfigure.reset_mock()
+                overlay.set_highlight_color.assert_called_once()
+                overlay.set_highlight_color.reset_mock()
                 dialog._kill_by_click()
                 kbc_calls_after = len(
                     [c for c in getenv.call_args_list if c.args[0].startswith("KILL_BY_CLICK")]
                 )
                 self.assertEqual(kbc_calls, kbc_calls_after)
-                overlay.canvas.itemconfigure.assert_not_called()
+                overlay.set_highlight_color.assert_not_called()
 
     def test_highlight_pid_skips_duplicate_selection(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)

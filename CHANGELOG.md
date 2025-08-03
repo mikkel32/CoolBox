@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.6 - 2025-09-16
+
+- **Refactor:** Centralize overlay highlight color updates and tests.
+
 ## 1.2.5 - 2025-09-15
 
 - **Feat:** Auto-calibrate click overlay intervals and reuse saved tuning.
