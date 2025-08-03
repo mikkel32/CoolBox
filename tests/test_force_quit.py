@@ -1262,6 +1262,43 @@ class TestForceQuit(unittest.TestCase):
             MB.showinfo.assert_called_once()
             dialog.force_kill.assert_called_once_with(123)
 
+    def test_click_overlay_config_cached(self) -> None:
+        dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+        dialog.accent = "#f00"
+        dialog.paused = True
+        dialog._populate = mock.Mock()
+        dialog.withdraw = mock.Mock()
+        dialog.deiconify = mock.Mock()
+        dialog.after_idle = mock.Mock()
+        dialog._highlight_pid = mock.Mock()
+        overlay = mock.Mock()
+        overlay.choose.return_value = (None, None)
+        overlay.canvas = mock.Mock()
+        overlay.rect = object()
+        overlay.hline = object()
+        overlay.vline = object()
+        overlay.label = object()
+        overlay.reset = mock.Mock()
+        dialog._overlay = overlay
+
+        with mock.patch("src.views.force_quit_dialog.messagebox"):
+            with mock.patch(
+                "src.views.force_quit_dialog.os.getenv", wraps=os.getenv
+            ) as getenv:
+                dialog._kill_by_click()
+                kbc_calls = len(
+                    [c for c in getenv.call_args_list if c.args[0].startswith("KILL_BY_CLICK")]
+                )
+                self.assertGreater(kbc_calls, 0)
+                self.assertGreater(overlay.canvas.itemconfigure.call_count, 0)
+                overlay.canvas.itemconfigure.reset_mock()
+                dialog._kill_by_click()
+                kbc_calls_after = len(
+                    [c for c in getenv.call_args_list if c.args[0].startswith("KILL_BY_CLICK")]
+                )
+                self.assertEqual(kbc_calls, kbc_calls_after)
+                overlay.canvas.itemconfigure.assert_not_called()
+
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_hover_highlights_row(self) -> None:
         root = tk.Tk()

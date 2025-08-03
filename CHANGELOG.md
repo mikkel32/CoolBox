@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.1 - 2025-09-11
+
+- **Refactor:** Initialize kill-by-click overlay once and reuse configuration.
+
 ## 1.2.0 - 2025-09-10
 
 - **Feat:** Track gaze timestamps and apply configurable decay for recent focus.
