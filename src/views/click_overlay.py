@@ -70,12 +70,23 @@ def _load_int(env: str, key: str, default: int) -> int:
     return default
 
 
-EXECUTOR = ThreadPoolExecutor(
-    max_workers=_load_int(
-        "KILL_BY_CLICK_WORKERS", "kill_by_click_workers", os.cpu_count() or 1
-    )
-)
-atexit.register(EXECUTOR.shutdown, cancel_futures=True)
+_EXECUTOR: ThreadPoolExecutor | None = None
+_EXECUTOR_LOCK = Lock()
+
+
+def get_executor() -> ThreadPoolExecutor:
+    """Return a shared executor, creating it on first use."""
+    global _EXECUTOR
+    if _EXECUTOR is None:
+        with _EXECUTOR_LOCK:
+            if _EXECUTOR is None:
+                workers = _load_int(
+                    "KILL_BY_CLICK_WORKERS", "kill_by_click_workers", 2
+                )
+                _EXECUTOR = ThreadPoolExecutor(max_workers=workers)
+                atexit.register(_EXECUTOR.shutdown, cancel_futures=True)
+    return _EXECUTOR
+
 
 DEFAULT_HIGHLIGHT = os.getenv("KILL_BY_CLICK_HIGHLIGHT", "red")
 
@@ -714,7 +725,7 @@ class ClickOverlay(tk.Toplevel):
         self._state_lock = Lock()
 
         # Background executor for window queries and scoring
-        self._executor = EXECUTOR
+        self._executor = get_executor()
         self.state = OverlayState.INIT
         self.pid: int | None = None
         self.title_text: str | None = None

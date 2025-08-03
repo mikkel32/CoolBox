@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.1 - 2025-08-05
+
+- **Refactor:** Lazily create the click overlay thread pool with a default two-worker limit and clean shutdown hooks.
+
 ## 1.3.0 - 2025-08-04
 
 - **Feat:** Optionally show executable names and icons in the click overlay via `KILL_BY_CLICK_APP_LABELS`.
