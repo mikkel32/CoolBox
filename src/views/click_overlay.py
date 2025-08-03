@@ -256,6 +256,8 @@ class ClickOverlay(tk.Toplevel):
         The parent ``tk`` widget owning the overlay.
     highlight:
         Color used for the selection rectangle and crosshair lines.
+    show_crosshair:
+        Whether to draw crosshair lines centered on the cursor.
     show_label:
         Whether to display an informational label near the cursor.
     probe_attempts:
@@ -332,6 +334,7 @@ class ClickOverlay(tk.Toplevel):
         parent: tk.Misc,
         *,
         highlight: str = DEFAULT_HIGHLIGHT,
+        show_crosshair: bool = True,
         show_label: bool = True,
         probe_attempts: int = 3,
         timeout: float | None = None,
@@ -348,9 +351,13 @@ class ClickOverlay(tk.Toplevel):
         super().__init__(parent)
         self.backend = "canvas"
         self._closed = tk.BooleanVar(value=False)
+        env = os.getenv("KILL_BY_CLICK_CROSSHAIR")
+        if env in ("0", "false", "no"):
+            show_crosshair = False
         env = os.getenv("KILL_BY_CLICK_LABEL")
         if env in ("0", "false", "no"):
             show_label = False
+        self.show_crosshair = show_crosshair
         self.show_label = show_label
         self.basic_render = basic_render
         # Hide until fully configured to avoid a brief black flash
@@ -403,8 +410,12 @@ class ClickOverlay(tk.Toplevel):
         self.canvas.pack(fill="both", expand=True)
         self.rect = self.canvas.create_rectangle(0, 0, 1, 1, outline=highlight, width=2)
         # crosshair lines spanning the entire screen for precise selection
-        self.hline = self.canvas.create_line(0, 0, 0, 0, fill=highlight, dash=(4, 2))
-        self.vline = self.canvas.create_line(0, 0, 0, 0, fill=highlight, dash=(4, 2))
+        if self.show_crosshair:
+            self.hline = self.canvas.create_line(0, 0, 0, 0, fill=highlight, dash=(4, 2))
+            self.vline = self.canvas.create_line(0, 0, 0, 0, fill=highlight, dash=(4, 2))
+        else:
+            self.hline = None
+            self.vline = None
         if self.show_label:
             self.label = self.canvas.create_text(
                 0,
@@ -1038,9 +1049,14 @@ class ClickOverlay(tk.Toplevel):
         sh = self._screen_h
         # Draw crosshair lines centered on the cursor only when moved
         if (
-            cursor_changed
-            or not hasattr(self, "_last_pos")
-            or self._last_pos != (px, py, sw, sh)
+            self.show_crosshair
+            and self.hline is not None
+            and self.vline is not None
+            and (
+                cursor_changed
+                or not hasattr(self, "_last_pos")
+                or self._last_pos != (px, py, sw, sh)
+            )
         ):
             self.canvas.coords(self.hline, 0, py, sw, py)
             self.canvas.coords(self.vline, px, 0, px, sh)
