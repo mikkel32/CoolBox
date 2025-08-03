@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.80 - 2025-09-03
+
+- **Fix:** Start global listener during Force Quit dialog initialization so hooks are primed before the first click.
+
 ## 1.0.79 - 2025-09-02
 
 - **Feat:** Allow disabling crosshair lines via ``show_crosshair`` and skip canvas updates for crosshair and label when hidden.
