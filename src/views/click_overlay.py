@@ -1049,7 +1049,7 @@ class ClickOverlay(tk.Toplevel):
         scale = 1.0 / (1.0 + self._velocity / self.delay_scale)
         delay = base_ms * scale
         if self.avg_frame_ms:
-            delay -= self.avg_frame_ms
+            delay = max(delay - self.avg_frame_ms, min_ms)
         delay = max(min(delay, max_ms), min_ms)
         return int(delay)
 

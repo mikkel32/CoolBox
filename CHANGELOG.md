@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.8 - 2025-09-18
+
+- **Fix:** Clamp delay smoothing to the minimum interval to avoid negative scheduling after slow frames.
+
 ## 1.2.7 - 2025-09-17
 
 - **Refactor:** Manage Kill-by-Click overlay cleanup with a context manager.
