@@ -19,6 +19,13 @@ from typing import Optional, Callable, Any
 from enum import Enum, auto
 import atexit
 
+try:  # pragma: no cover - optional dependency
+    from PyQt5 import QtCore, QtWidgets
+except Exception:  # pragma: no cover - optional dependency
+    QtCore = QtWidgets = None
+
+QT_AVAILABLE = QtWidgets is not None
+
 from src.utils.window_utils import (
     get_active_window,
     get_window_at,
@@ -85,6 +92,20 @@ def _load_calibrated(env: str, key: str, default: float) -> float:
     return default
 
 
+def _load_str(env: str, key: str, default: str) -> str:
+    """Return a string loaded from ``env`` or configuration ``key``."""
+    val = os.getenv(env)
+    if val:
+        return val
+    try:
+        cfg_val = CFG.get(key)
+        if cfg_val:
+            return str(cfg_val)
+    except Exception:
+        pass
+    return default
+
+
 # Allow the refresh interval to be configured via an environment
 # variable. Falling back to half the screen refresh period keeps the
 # overlay snappy (120 FPS on a 60 Hz display) while providing an easy
@@ -117,6 +138,11 @@ MOVE_DEBOUNCE_MS = _load_int(
 # Tunable via ``KILL_BY_CLICK_MIN_MOVE_PX`` or
 # ``kill_by_click_min_move_px``.
 MIN_MOVE_PX = _load_int("KILL_BY_CLICK_MIN_MOVE_PX", "kill_by_click_min_move_px", 2)
+
+# Rendering backend selection ("canvas" or "qt")
+DEFAULT_BACKEND = _load_str(
+    "KILL_BY_CLICK_BACKEND", "kill_by_click_backend", "canvas"
+).lower()
 
 
 _COLOR_CACHE: dict[str, str] = {}
@@ -165,6 +191,45 @@ class OverlayState(Enum):
     POLLING = auto()
 
 
+if QT_AVAILABLE:
+    class QtClickOverlay(QtWidgets.QWidget):  # pragma: no cover - GUI heavy
+        """Simple transparent overlay rendered with Qt."""
+
+        def __init__(
+            self,
+            parent=None,
+            *,
+            highlight: str = DEFAULT_HIGHLIGHT,
+            show_label: bool = True,
+            **_: Any,
+        ) -> None:
+            app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            super().__init__(parent)
+            self.backend = "qt"
+            self._app = app
+            self.setWindowFlag(QtCore.Qt.FramelessWindowHint)
+            self.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint)
+            self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+            self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
+            self.showFullScreen()
+            self._label = None
+            if show_label:
+                self._label = QtWidgets.QLabel(self)
+                self._label.setStyleSheet(f"color: {highlight}")
+                self._label.move(10, 10)
+
+        def close(self) -> None:  # pragma: no cover - GUI heavy
+            super().close()
+            if not QtWidgets.QApplication.topLevelWidgets():
+                self._app.quit()
+
+else:  # pragma: no cover - Qt optional
+
+    class QtClickOverlay:  # type: ignore
+        def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+            raise RuntimeError("Qt backend not available")
+
+
 class ClickOverlay(tk.Toplevel):
     """Fullscreen transparent window used to select another window.
 
@@ -184,7 +249,22 @@ class ClickOverlay(tk.Toplevel):
     on_hover:
         Optional callback invoked with ``(pid, title)`` when the hovered window
         changes.
+    backend:
+        Rendering backend to use (``"canvas"`` or ``"qt"``). Defaults to
+        ``KILL_BY_CLICK_BACKEND`` or ``"canvas"``.
     """
+
+    def __new__(
+        cls,
+        parent: tk.Misc | None,
+        *args: Any,
+        backend: str | None = None,
+        **kwargs: Any,
+    ) -> "ClickOverlay | QtClickOverlay":
+        selected = (backend or DEFAULT_BACKEND).lower()
+        if selected == "qt" and QT_AVAILABLE:
+            return QtClickOverlay(parent, *args, **kwargs)
+        return super().__new__(cls)
 
     @staticmethod
     def auto_tune_interval(samples: int = 60) -> tuple[float, float, float]:
@@ -245,8 +325,10 @@ class ClickOverlay(tk.Toplevel):
         skip_confirm: bool | None = None,
         on_hover: Callable[[int | None, str | None], None] | None = None,
         basic_render: bool = False,
+        _backend: str | None = None,
     ) -> None:
         super().__init__(parent)
+        self.backend = "canvas"
         self._closed = tk.BooleanVar(value=False)
         env = os.getenv("KILL_BY_CLICK_LABEL")
         if env in ("0", "false", "no"):
