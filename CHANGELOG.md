@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.74 - 2025-08-30
+
+- **Perf:** Vectorize weighted confidence scoring with NumPy and expose a Python wrapper for seamless integration.
+
 ## 1.0.73 - 2025-08-30
 
 - **Perf:** Use configurable thread pool for click overlay tasks, leveraging available CPU cores.
