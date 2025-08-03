@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.14 - 2025-08-03
+
+- **Fix:** Prevent Force Quit routines from terminating the running application.
+- **Fix:** Add optional Cython dependency to satisfy extension builds.
+
 ## 1.3.13 - 2025-08-03
 
 - **Feat:** Derive move debounce from refresh rate with runtime override and
