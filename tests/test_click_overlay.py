@@ -2278,5 +2278,104 @@ def test_pointer_move_frame_delay_benchmark() -> None:
         root.destroy()
 
 
+def test_apply_updates_uses_move_for_translation() -> None:
+    os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+    from src.views import click_overlay
+    click_overlay.log = lambda *a, **k: None
+
+    class DummyCanvas:
+        def __init__(self) -> None:
+            self.store: dict[str, list[int]] = {}
+
+        def coords(self, item: str, *coords: int) -> list[int]:
+            if coords:
+                self.store[item] = list(coords)
+            return self.store.get(item, [0, 0, 0, 0])
+
+        def bbox(self, item: str) -> list[int]:
+            return self.store.get(item, [0, 0, 0, 0])
+
+        def itemconfigure(self, item: str, **_kw: Any) -> None:  # pragma: no cover - dummy
+            pass
+
+        def move(self, item: str, dx: int, dy: int) -> None:
+            c = self.store.get(item, [0, 0, 0, 0])
+            self.store[item] = [c[0] + dx, c[1] + dy, c[2] + dx, c[3] + dy]
+
+    class DummyOverlay:
+        def __init__(self) -> None:
+            self.canvas = DummyCanvas()
+            self.hline = "h"
+            self.vline = "v"
+            self.rect = "r"
+            self.label = "l"
+            self._buffer = {
+                "cursor": (0, 0),
+                "rect": (0, 0, 10, 10),
+                "label_text": "",
+                "label_pos": (0, 0),
+                "pid": None,
+                "hline": (0, 0, 100, 0),
+                "vline": (0, 0, 0, 10),
+                "screen": (100, 100),
+            }
+
+    o = DummyOverlay()
+    mock_move = Mock(wraps=o.canvas.move)
+    mock_coords = Mock(wraps=o.canvas.coords)
+    o.canvas.move = mock_move
+    o.canvas.coords = mock_coords
+    click_overlay.ClickOverlay._apply_updates(o, {"hline": (0, 5, 100, 5)})
+    assert mock_move.called
+    assert not mock_coords.called
+
+
+def test_update_rect_skips_small_move_no_window_change() -> None:
+    os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+    from src.views import click_overlay
+
+    class Dummy:
+        def __init__(self) -> None:
+            self._cursor_x = 0
+            self._cursor_y = 0
+            self._screen_w = 100
+            self._screen_h = 100
+            self.show_crosshair = False
+            self.show_label = False
+            self.hline = self.vline = self.rect = self.label = None
+            self._buffer = {
+                "cursor": (0, 0),
+                "rect": (0, 0, 10, 10),
+                "label_text": "",
+                "label_pos": (0, 0),
+                "pid": 1,
+                "hline": (0, 0, 0, 0),
+                "vline": (0, 0, 0, 0),
+                "screen": (100, 100),
+            }
+            self._applied = False
+
+        def _draw_crosshair(self, updates: dict[str, tuple[int, ...] | str], px: int, py: int, sw: int, sh: int, cursor_changed: bool) -> None:
+            pass
+
+        def _update_label(self, info: click_overlay.WindowInfo, updates: dict[str, tuple[int, ...] | str]) -> tuple[tuple[int, int, int, int], str, bool, bool]:
+            return self._buffer["rect"], "", False, False
+
+        def _calc_label_pos(self, px: int, py: int, sw: int, sh: int) -> tuple[int, int]:
+            return (0, 0)
+
+        def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
+            self._applied = True
+
+        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+            pass
+
+    d = Dummy()
+    d._cursor_x = 1
+    d._cursor_y = 1
+    click_overlay.ClickOverlay._update_rect(d, click_overlay.WindowInfo(1, (0, 0, 10, 10), "win"))
+    assert not d._applied
+
+
 if __name__ == "__main__":
     unittest.main()

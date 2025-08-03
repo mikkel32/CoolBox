@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.17 - 2025-08-03
+
+- **Perf:** Use `canvas.move` for cursor translations and skip tiny movements.
+
 ## 1.2.16 - 2025-08-03
 
 - **Refactor:** Extract hover tracking into reusable `HoverTracker` class.
