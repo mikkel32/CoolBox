@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.10 - 2025-09-20
+
+- **Perf:** Warm click overlay window cache on dialog startup for faster initial selection.
+
 ## 1.2.9 - 2025-09-19
 
 - **Perf:** Process fast pointer moves immediately for smoother hover updates.

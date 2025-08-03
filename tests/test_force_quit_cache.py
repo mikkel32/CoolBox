@@ -38,6 +38,49 @@ class TestForceQuitCache(unittest.TestCase):
             app.window.destroy()
         prime_mock.assert_called_once()
 
+    def test_first_choose_uses_warmed_cache(self) -> None:
+        class DummyOverlay:
+            def __init__(self, *args, **kwargs) -> None:
+                self.warmed = False
+
+            def reset(self) -> None:
+                pass
+
+            def _refresh_window_cache(self, *args, **kwargs) -> None:
+                self.warmed = True
+
+            def choose(self) -> tuple[None, None]:
+                if not self.warmed:
+                    raise RuntimeError("cache not warmed")
+                return None, None
+
+        class DummyApp:
+            def __init__(self) -> None:
+                self.window = tk.Tk()
+                self.config = {}
+
+            def register_dialog(self, dialog) -> None:  # noqa: D401 - test stub
+                pass
+
+            def unregister_dialog(self, dialog) -> None:  # noqa: D401 - test stub
+                pass
+
+            def get_icon_photo(self):
+                return None
+
+        app = DummyApp()
+        with (
+            mock.patch("src.views.force_quit_dialog.prime_window_cache"),
+            mock.patch("src.views.force_quit_dialog.ClickOverlay", DummyOverlay),
+            mock.patch.object(ForceQuitDialog, "_auto_refresh"),
+            mock.patch.object(ForceQuitDialog, "initialize_click_overlay", return_value=None),
+        ):
+            dialog = ForceQuitDialog(app)
+            self.assertTrue(dialog._overlay.warmed)
+            dialog._overlay.choose()
+            dialog.destroy()
+            app.window.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
