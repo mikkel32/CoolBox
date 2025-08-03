@@ -19,6 +19,11 @@ try:  # Optional Cython helpers for heat-map updates
 except Exception:  # pragma: no cover - extension may be absent
     _cy_decay_and_bump = None
 
+try:  # Optional Cython helpers for sample scoring
+    from ._score_samples import update_weights as _cy_score_samples
+except Exception:  # pragma: no cover - extension may be absent
+    _cy_score_samples = None
+
 
 @dataclass(slots=True)
 class Tuning:
@@ -265,59 +270,75 @@ class ScoringEngine:
         weights: Dict[int, float] = dict(self.tracker.scores)
         active = initial_active_pid
 
-        power = 1.0
-        for info in reversed([s for s in samples if s.pid not in (self.own_pid, None)]):
-            vel_factor = 1.0 / (1.0 + velocity * self.tuning.velocity_scale)
-            w = self.tuning.sample_weight * power * vel_factor
-            if info.pid == active:
-                w *= self.tuning.active_bonus
-            if info.rect and self.tuning.area_weight:
-                area = info.rect[2] * info.rect[3]
-                if area:
-                    w += self.tuning.area_weight / float(area)
-            if info.rect and self.tuning.center_weight:
-                cx = info.rect[0] + info.rect[2] / 2
-                cy = info.rect[1] + info.rect[3] / 2
-                dist = math.hypot(cx - cursor_x, cy - cursor_y)
-                diag = math.hypot(info.rect[2], info.rect[3])
-                if diag:
-                    w += self.tuning.center_weight * (1 - min(dist / diag, 1.0))
-            if info.rect and self.tuning.edge_penalty:
-                left = info.rect[0]
-                top = info.rect[1]
-                right = left + info.rect[2]
-                bottom = top + info.rect[3]
-                near_x = min(abs(cursor_x - left), abs(cursor_x - right))
-                near_y = min(abs(cursor_y - top), abs(cursor_y - bottom))
-                if (
-                    near_x <= self.tuning.edge_buffer
-                    or near_y <= self.tuning.edge_buffer
-                ):
-                    w *= max(0.0, 1.0 - self.tuning.edge_penalty)
-            if info.rect and self.tuning.path_weight and path_history:
-                inside = 0
-                for px, py in path_history:
+        relevant_samples = [s for s in samples if s.pid not in (self.own_pid, None)]
+        if _cy_score_samples is not None:
+            weights = _cy_score_samples(
+                relevant_samples,
+                cursor_x,
+                cursor_y,
+                velocity,
+                list(path_history),
+                self.tuning,
+                self.own_pid,
+                weights,
+                list(self.pid_history),
+                self.heatmap,
+                active,
+            )
+        else:
+            power = 1.0
+            for info in reversed(relevant_samples):
+                vel_factor = 1.0 / (1.0 + velocity * self.tuning.velocity_scale)
+                w = self.tuning.sample_weight * power * vel_factor
+                if info.pid == active:
+                    w *= self.tuning.active_bonus
+                if info.rect and self.tuning.area_weight:
+                    area = info.rect[2] * info.rect[3]
+                    if area:
+                        w += self.tuning.area_weight / float(area)
+                if info.rect and self.tuning.center_weight:
+                    cx = info.rect[0] + info.rect[2] / 2
+                    cy = info.rect[1] + info.rect[3] / 2
+                    dist = math.hypot(cx - cursor_x, cy - cursor_y)
+                    diag = math.hypot(info.rect[2], info.rect[3])
+                    if diag:
+                        w += self.tuning.center_weight * (1 - min(dist / diag, 1.0))
+                if info.rect and self.tuning.edge_penalty:
+                    left = info.rect[0]
+                    top = info.rect[1]
+                    right = left + info.rect[2]
+                    bottom = top + info.rect[3]
+                    near_x = min(abs(cursor_x - left), abs(cursor_x - right))
+                    near_y = min(abs(cursor_y - top), abs(cursor_y - bottom))
                     if (
-                        info.rect[0] <= px <= info.rect[0] + info.rect[2]
-                        and info.rect[1] <= py <= info.rect[1] + info.rect[3]
+                        near_x <= self.tuning.edge_buffer
+                        or near_y <= self.tuning.edge_buffer
                     ):
-                        inside += 1
-                w += self.tuning.path_weight * inside / len(path_history)
-            if self.tuning.heatmap_weight and info.rect:
-                heat = self.heatmap.region_score(info.rect)
-                area = info.rect[2] * info.rect[3] or 1
-                w += self.tuning.heatmap_weight * heat / float(area)
-            weights[info.pid] = weights.get(info.pid, 0.0) + w
-            power *= self.tuning.sample_decay
+                        w *= max(0.0, 1.0 - self.tuning.edge_penalty)
+                if info.rect and self.tuning.path_weight and path_history:
+                    inside = 0
+                    for px, py in path_history:
+                        if (
+                            info.rect[0] <= px <= info.rect[0] + info.rect[2]
+                            and info.rect[1] <= py <= info.rect[1] + info.rect[3]
+                        ):
+                            inside += 1
+                    w += self.tuning.path_weight * inside / len(path_history)
+                if self.tuning.heatmap_weight and info.rect:
+                    heat = self.heatmap.region_score(info.rect)
+                    area = info.rect[2] * info.rect[3] or 1
+                    w += self.tuning.heatmap_weight * heat / float(area)
+                weights[info.pid] = weights.get(info.pid, 0.0) + w
+                power *= self.tuning.sample_decay
 
-        power = 1.0
-        for pid in reversed(self.pid_history):
-            vel_factor = 1.0 / (1.0 + velocity * self.tuning.velocity_scale)
-            w = self.tuning.history_weight * power * vel_factor
-            if pid == active:
-                w *= self.tuning.active_bonus
-            weights[pid] = weights.get(pid, 0.0) + w
-            power *= self.tuning.history_decay
+            power = 1.0
+            for pid in reversed(self.pid_history):
+                vel_factor = 1.0 / (1.0 + velocity * self.tuning.velocity_scale)
+                w = self.tuning.history_weight * power * vel_factor
+                if pid == active:
+                    w *= self.tuning.active_bonus
+                weights[pid] = weights.get(pid, 0.0) + w
+                power *= self.tuning.history_decay
 
         if self.tuning.stability_weight:
             for pid, count in self.pid_stability.items():

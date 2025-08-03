@@ -225,7 +225,11 @@ def build_extensions() -> None:
                     "src.utils._heatmap",
                     ["src/utils/_heatmap.pyx"],
                     include_dirs=[numpy.get_include()],
-                )
+                ),
+                Extension(
+                    "src.utils._score_samples",
+                    ["src/utils/_score_samples.pyx"],
+                ),
             ],
             quiet=True,
         )
