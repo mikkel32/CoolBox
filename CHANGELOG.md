@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.0.64 - 2025-08-26
+
+- **Feat:** Boost kill priority to reduce termination latency and restore
+  normal priority when system load spikes.
+
 ## 1.0.63 - 2025-08-26
 
 - **Feat:** Stream process enumeration progress and disable kill actions until ready.
