@@ -36,6 +36,8 @@ _WINDOWS_CACHE_SEC = 10.0
 _WINDOWS_LOCK = threading.RLock()
 _WINDOWS_THREAD: threading.Thread | None = None
 _WINDOWS_REFRESH = threading.Event()
+_WINDOWS_EVENT_UNSUB: Callable[[], None] | None = None
+_WINDOWS_EVENTS_SUPPORTED = False
 
 # Small ring buffer of recently accessed windows to reduce cold-cache hits
 _RECENT_MAX = 8
@@ -796,12 +798,17 @@ def _window_enum_worker() -> None:
 
 
 def _ensure_window_worker() -> None:
-    """Start the enumeration thread if needed."""
+    """Start the enumeration thread and subscribe to change events."""
 
-    global _WINDOWS_THREAD
+    global _WINDOWS_THREAD, _WINDOWS_EVENT_UNSUB, _WINDOWS_EVENTS_SUPPORTED
     if _WINDOWS_THREAD is None or not _WINDOWS_THREAD.is_alive():
         _WINDOWS_THREAD = threading.Thread(target=_window_enum_worker, daemon=True)
         _WINDOWS_THREAD.start()
+    if _WINDOWS_EVENT_UNSUB is None:
+        unsub = subscribe_window_change(lambda: _WINDOWS_REFRESH.set())
+        if unsub is not None:
+            _WINDOWS_EVENT_UNSUB = unsub
+            _WINDOWS_EVENTS_SUPPORTED = True
 
 
 def prime_window_cache() -> None:
@@ -848,7 +855,10 @@ def _fallback_list_windows_at(
         with _WINDOWS_LOCK:
             last = _WINDOWS_CACHE.get("time", 0.0)
             windows = list(_WINDOWS_CACHE.get("windows", []))
-        if (now - last >= _WINDOWS_CACHE_SEC or not windows) and not _WINDOWS_REFRESH.is_set():
+        should_refresh = not windows
+        if not _WINDOWS_EVENTS_SUPPORTED:
+            should_refresh |= now - last >= _WINDOWS_CACHE_SEC
+        if should_refresh and not _WINDOWS_REFRESH.is_set():
             _WINDOWS_REFRESH.set()
     result = filter_windows_at(x, y, windows)
     for w in result:
@@ -859,65 +869,6 @@ def _fallback_list_windows_at(
 def list_windows_at(x: int, y: int) -> List[WindowInfo]:
     """Return windows at ``(x, y)`` ordered from front to back."""
 
-    if sys.platform.startswith("win"):
-        windows: List[WindowInfo] = []
-
-        @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-        def enum_proc(hwnd: wintypes.HWND, _lparam: wintypes.LPARAM) -> bool:
-            if not ctypes.windll.user32.IsWindowVisible(hwnd):
-                return True
-            rect = wintypes.RECT()
-            if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-                return True
-            if not (rect.left <= x <= rect.right and rect.top <= y <= rect.bottom):
-                return True
-            pid = wintypes.DWORD()
-            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            title_buf = ctypes.create_unicode_buffer(1024)
-            length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
-            title = title_buf.value if length else None
-            icon = _get_window_icon(hwnd)
-            info = WindowInfo(
-                int(pid.value) if pid.value else None,
-                (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top),
-                title,
-                int(hwnd),
-                icon,
-            )
-            windows.append(info)
-            _remember_window(info)
-            return True
-
-        ctypes.windll.user32.EnumWindows(enum_proc, 0)
-        return windows
-
-    if sys.platform == "darwin":
-        try:
-            import Quartz
-
-            opts = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
-            win_list = Quartz.CGWindowListCopyWindowInfo(opts, Quartz.kCGNullWindowID)
-            results: List[WindowInfo] = []
-            for win in win_list:
-                bounds = win.get("kCGWindowBounds")
-                if not bounds:
-                    continue
-                wx = int(bounds.get("X", 0))
-                wy = int(bounds.get("Y", 0))
-                ww = int(bounds.get("Width", 0))
-                wh = int(bounds.get("Height", 0))
-                if wx <= x <= wx + ww and wy <= y <= wy + wh:
-                    pid = int(win.get("kCGWindowOwnerPID", 0))
-                    title = win.get("kCGWindowName")
-                    handle = int(win.get("kCGWindowNumber", 0))
-                    info = WindowInfo(pid, (wx, wy, ww, wh), title, handle)
-                    results.append(info)
-                    _remember_window(info)
-            return results
-        except Exception:
-            return [get_window_at(x, y)]
-
-    # X11 and other Unix-like systems
     return _fallback_list_windows_at(x, y)
 
 
