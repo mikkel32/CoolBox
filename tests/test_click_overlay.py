@@ -265,6 +265,24 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_offscreen_buffer_skips_unchanged(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, show_label=False)
+        overlay._cursor_x = 5
+        overlay._cursor_y = 5
+        overlay._screen_w = 100
+        overlay._screen_h = 100
+        info = WindowInfo(1, (0, 0, 10, 10), "win")
+        overlay._update_rect(info)
+        mock_coords = Mock(wraps=overlay.canvas.coords)
+        overlay.canvas.coords = mock_coords
+        overlay._update_rect(info)
+        self.assertFalse(mock_coords.called)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_backend_env_falls_back_to_canvas(self) -> None:
         with patch.dict(os.environ, {"KILL_BY_CLICK_BACKEND": "qt"}):
             root = tk.Tk()

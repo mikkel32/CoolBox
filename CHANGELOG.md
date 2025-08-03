@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.1.4 - 2025-09-07
+
+- **Perf:** Introduce off-screen buffer with selective canvas updates and frame
+  timing logs for faster click overlay rendering.
+
 ## 1.1.2 - 2025-09-06
 
 - **Perf:** Offload sample scoring loops to optional Cython extension with Python fallback.

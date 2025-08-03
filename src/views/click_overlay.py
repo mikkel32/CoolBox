@@ -718,7 +718,6 @@ class ClickOverlay(tk.Toplevel):
         self._unsubscribe_active = subscribe_active_window(self._on_active_window)
         self._destroyed = False
         self._query_future: Future[WindowInfo] | None = None
-        self._last_pid: int | None = None
         self._flash_id: str | None = None
         try:
             self._cursor_x = self.winfo_pointerx()
@@ -736,6 +735,17 @@ class ClickOverlay(tk.Toplevel):
         self._last_frame_start = 0.0
         self._last_frame_end = 0.0
         self._frame_count = 0
+        # Off-screen buffer of last drawn state so only changed regions update
+        self._buffer: dict[str, Any] = {
+            "cursor": (None, None),
+            "rect": (-5, -5, -5, -5),
+            "label_text": "",
+            "label_pos": (0, 0),
+            "pid": None,
+            "hline": (0, 0, 0, 0),
+            "vline": (0, 0, 0, 0),
+            "screen": (0, 0),
+        }
         # Cache for window enumeration to minimize repeated list_windows_at calls
         self._window_cache_rect: tuple[int, int, int, int] | None = None
         self._window_cache: list[WindowInfo] = []
@@ -932,10 +942,10 @@ class ClickOverlay(tk.Toplevel):
             lambda: self.canvas.itemconfigure(self.rect, width=2),
         )
 
-    def _position_label(self, px: int, py: int, sw: int, sh: int) -> None:
-        """Place the info label near the cursor while keeping it on-screen."""
+    def _calc_label_pos(self, px: int, py: int, sw: int, sh: int) -> tuple[int, int] | None:
+        """Return label coordinates near the cursor, constrained to the screen."""
         if not self.show_label or self.label is None:
-            return
+            return None
         x = px + 10
         y = py + 10
         bbox = self.canvas.bbox(self.label)
@@ -946,7 +956,33 @@ class ClickOverlay(tk.Toplevel):
                 x = px - width - 10
             if y + height > sh:
                 y = py - height - 10
-        self.canvas.coords(self.label, x, y)
+        return x, y
+
+    def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
+        """Apply buffered canvas updates and log render duration."""
+        if not updates:
+            return
+        start = time.perf_counter()
+        regions = []
+        if "hline" in updates and self.hline is not None:
+            self.canvas.coords(self.hline, *updates["hline"])
+            regions.append(self.canvas.bbox(self.hline))
+        if "vline" in updates and self.vline is not None:
+            self.canvas.coords(self.vline, *updates["vline"])
+            regions.append(self.canvas.bbox(self.vline))
+        if "rect" in updates:
+            self.canvas.coords(self.rect, *updates["rect"])
+            regions.append(self.canvas.bbox(self.rect))
+        if "label_text" in updates and self.label is not None:
+            self.canvas.itemconfigure(self.label, text=updates["label_text"])
+            regions.append(self.canvas.bbox(self.label))
+        if "label_pos" in updates and self.label is not None:
+            self.canvas.coords(self.label, *updates["label_pos"])
+            regions.append(self.canvas.bbox(self.label))
+        end = time.perf_counter()
+        log(
+            f"ClickOverlay updated {len(regions)} regions in {(end - start) * 1000:.2f}ms"
+        )
 
     def _queue_update(self, _e: object | None = None) -> None:
         """Schedule an overlay update in the main thread.
@@ -1271,23 +1307,19 @@ class ClickOverlay(tk.Toplevel):
 
         px = int(self._cursor_x)
         py = int(self._cursor_y)
-        cursor_changed = (px, py) != getattr(self, "_last_cursor", (None, None))
         sw = self._screen_w
         sh = self._screen_h
-        # Draw crosshair lines centered on the cursor only when moved
+        cursor_changed = (px, py) != self._buffer["cursor"]
+        updates: dict[str, tuple[int, ...] | str] = {}
         if (
             self.show_crosshair
             and self.hline is not None
             and self.vline is not None
-            and (
-                cursor_changed
-                or not hasattr(self, "_last_pos")
-                or self._last_pos != (px, py, sw, sh)
-            )
+            and (cursor_changed or self._buffer["screen"] != (sw, sh))
         ):
-            self.canvas.coords(self.hline, 0, py, sw, py)
-            self.canvas.coords(self.vline, px, 0, px, sh)
-            self._last_pos = (px, py, sw, sh)
+            updates["hline"] = (0, py, sw, py)
+            updates["vline"] = (px, 0, px, sh)
+            self._buffer["screen"] = (sw, sh)
 
         if info.pid is None or not info.rect:
             rect = (-5, -5, -5, -5)
@@ -1299,29 +1331,33 @@ class ClickOverlay(tk.Toplevel):
                 info.rect[0] + info.rect[2],
                 info.rect[1] + info.rect[3],
             )
-            text = info.title or f"PID {info.pid}" if info.pid else ""
-        old_pid = getattr(self, "_last_pid", None)
-        window_changed = (
-            rect != getattr(self, "_last_rect", None) or info.pid != old_pid
-        )
-        text_changed = text != getattr(self, "_last_text", None)
+            text = info.title or (f"PID {info.pid}" if info.pid else "")
+
+        window_changed = rect != self._buffer["rect"] or info.pid != self._buffer["pid"]
+        text_changed = text != self._buffer["label_text"]
         if window_changed:
-            self.canvas.coords(self.rect, *rect)
-            self._last_rect = rect
-            if info.pid != old_pid:
+            updates["rect"] = rect
+            if info.pid != self._buffer["pid"]:
                 self._flash_highlight()
         if self.show_label and self.label is not None and (
-            text_changed or info.pid != old_pid
+            text_changed or info.pid != self._buffer["pid"]
         ):
-            self.canvas.itemconfigure(self.label, text=text)
-            self._last_text = text
-        hover_changed = text_changed or info.pid != old_pid
-        if not cursor_changed and not window_changed and not hover_changed:
+            updates["label_text"] = text
+        hover_changed = text_changed or info.pid != self._buffer["pid"]
+
+        if cursor_changed or window_changed or hover_changed:
+            if self.show_label and self.label is not None:
+                pos = self._calc_label_pos(px, py, sw, sh)
+                if pos is not None:
+                    updates["label_pos"] = pos
+        else:
             return
-        self._last_cursor = (px, py)
-        self._last_pid = info.pid
-        if self.show_label:
-            self._position_label(px, py, sw, sh)
+
+        self._apply_updates(updates)
+        self._buffer["cursor"] = (px, py)
+        self._buffer["rect"] = rect
+        self._buffer["label_text"] = text
+        self._buffer["pid"] = info.pid
         if hover_changed and self.on_hover is not None:
             try:
                 self.on_hover(self.pid, self.title_text)
