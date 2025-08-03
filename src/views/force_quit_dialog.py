@@ -1093,7 +1093,7 @@ class ForceQuitDialog(BaseDialog):
     def force_kill_window_under_cursor(cls) -> bool:
         """Force kill the process owning the window currently under the cursor."""
         info = cls._get_window_under_cursor()
-        if info.pid is None:
+        if info.pid is None or info.pid == os.getpid():
             return False
         return cls.force_kill(info.pid)
 
@@ -1101,7 +1101,7 @@ class ForceQuitDialog(BaseDialog):
     def force_kill_active_window(cls) -> bool:
         """Force terminate the process owning the active window."""
         pid = cls._get_active_window_pid()
-        if pid is None:
+        if pid is None or pid == os.getpid():
             return False
         return cls.force_kill(pid)
 
