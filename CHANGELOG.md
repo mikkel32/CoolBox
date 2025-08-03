@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.2.4 - 2025-09-14
+
+- **Perf:** Scale window probe cache TTL inversely with cursor velocity for faster cache expiry when moving quickly.
+
 ## 1.2.3 - 2025-09-13
 
 - **Feat:** Scale click overlay debounce thresholds with cursor velocity.
