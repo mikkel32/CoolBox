@@ -1840,8 +1840,18 @@ class TestClickOverlay(unittest.TestCase):
             overlay.winfo_pointery = unittest.mock.Mock(
                 side_effect=AssertionError("should not be called")
             )  # type: ignore[assignment]
+            done = threading.Event()
+            main_thread = threading.get_ident()
+
+            def fake_query_window_at(x: int, y: int) -> WindowInfo:
+                self.assertNotEqual(threading.get_ident(), main_thread)
+                done.set()
+                return WindowInfo(None)
+
+            overlay._query_window_at = fake_query_window_at  # type: ignore[assignment]
             with patch.object(overlay, "_update_rect", return_value=None):
                 overlay._process_update()
+                self.assertTrue(done.wait(1), "worker did not run")
             overlay.winfo_pointerx.assert_not_called()
             overlay.winfo_pointery.assert_not_called()
             self.assertEqual((overlay._cursor_x, overlay._cursor_y), (10, 20))
@@ -1860,8 +1870,19 @@ class TestClickOverlay(unittest.TestCase):
             overlay._cursor_y = 2
             overlay.winfo_pointerx = unittest.mock.Mock(return_value=30)  # type: ignore[assignment]
             overlay.winfo_pointery = unittest.mock.Mock(return_value=40)  # type: ignore[assignment]
+            done = threading.Event()
+            main_thread = threading.get_ident()
+
+            def fake_query_window_at(x: int, y: int) -> WindowInfo:
+                self.assertEqual((x, y), (30, 40))
+                self.assertNotEqual(threading.get_ident(), main_thread)
+                done.set()
+                return WindowInfo(None)
+
+            overlay._query_window_at = fake_query_window_at  # type: ignore[assignment]
             with patch.object(overlay, "_update_rect", return_value=None):
                 overlay._process_update()
+                self.assertTrue(done.wait(1), "worker did not run")
             overlay.winfo_pointerx.assert_called_once()
             overlay.winfo_pointery.assert_called_once()
             self.assertEqual((overlay._cursor_x, overlay._cursor_y), (30, 40))
