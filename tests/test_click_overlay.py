@@ -77,6 +77,44 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_overlay_can_disable_crosshair(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, show_crosshair=False)
+        self.assertIsNone(overlay.hline)
+        self.assertIsNone(overlay.vline)
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_env_disables_crosshair(self) -> None:
+        with patch.dict(os.environ, {"KILL_BY_CLICK_CROSSHAIR": "0"}):
+            root = tk.Tk()
+            with patch("src.views.click_overlay.is_supported", return_value=False):
+                overlay = ClickOverlay(root)
+            self.assertIsNone(overlay.hline)
+            self.assertIsNone(overlay.vline)
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_crosshair_updates_skipped_when_disabled(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, show_crosshair=False, show_label=False)
+        mock_coords = Mock(wraps=overlay.canvas.coords)
+        overlay.canvas.coords = mock_coords
+        overlay._cursor_x = 5
+        overlay._cursor_y = 5
+        overlay._screen_w = 100
+        overlay._screen_h = 100
+        overlay._update_rect(WindowInfo(None))
+        self.assertEqual(len(mock_coords.call_args_list), 1)
+        self.assertNotIn(None, [call.args[0] for call in mock_coords.call_args_list])
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_uses_transparent_color_key(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

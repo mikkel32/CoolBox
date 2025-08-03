@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.0.79 - 2025-09-02
+
+- **Feat:** Allow disabling crosshair lines via ``show_crosshair`` and skip canvas updates for crosshair and label when hidden.
+
 ## 1.0.77 - 2025-09-01
 
 - **Feat:** Add optional OpenGL/Qt overlay backend selectable via ``KILL_BY_CLICK_BACKEND``.
