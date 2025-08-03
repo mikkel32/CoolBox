@@ -1238,6 +1238,8 @@ class ClickOverlay(tk.Toplevel):
     def choose(self) -> tuple[int | None, str | None]:
         """Show the overlay and return the PID and title of the clicked window."""
         self._closed.set(False)
+        listener = get_global_listener()
+        listener.start()
         try:
             if is_supported():
                 make_window_clickthrough(self)
@@ -1263,7 +1265,6 @@ class ClickOverlay(tk.Toplevel):
                 pass
         use_hooks = is_supported()
         if use_hooks:
-            listener = get_global_listener()
             if not listener.start(on_move=self._on_move, on_click=self._click):
                 use_hooks = False
                 self.state = OverlayState.POLLING

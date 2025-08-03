@@ -39,6 +39,7 @@ from src.utils.helpers import (
     lighten_color,
     darken_color,
 )
+from src.utils.mouse_listener import get_global_listener
 
 import importlib
 
@@ -54,6 +55,7 @@ class ForceQuitDialog(BaseDialog):
 
     def __init__(self, app):
         super().__init__(app, title="Force Quit", resizable=(True, True))
+        get_global_listener().start()
         width_env = os.getenv("FORCE_QUIT_WIDTH")
         height_env = os.getenv("FORCE_QUIT_HEIGHT")
         sort_env = os.getenv("FORCE_QUIT_SORT")
