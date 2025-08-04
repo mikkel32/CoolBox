@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 1.3.21 - 2025-08-03
+
+- **Enhance:** Capture Python warnings from tools and surface them through the
+  watchdog console and status bar.
+- **Improve:** Log tool execution duration to aid production debugging.
+
+## 1.3.20 - 2025-08-03
+
+- **Improve:** Centralize tool execution in ``ThreadManager.run_tool`` with full
+  traceback logging and UI-safe error reporting.
+- **Enhance:** Watchdog console shows log levels alongside timestamps and
+  displays warnings.
+
+## 1.3.19 - 2025-08-03
+
+- **Fix:** Isolate tools in background threads so crashes don't take down the Home view.
+- **Enhance:** Watchdog console now timestamps entries and trims to the latest 200 lines.
+
+## 1.3.18 - 2025-08-03
+
+- **Feat:** Add watchdog console to Home view and centralized tool error handling.
+
 ## 1.3.17 - 2025-08-03
 
 - **Fix:** Handle Force Quit dialog errors without exiting the application.
