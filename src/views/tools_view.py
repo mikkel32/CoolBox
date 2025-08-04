@@ -12,7 +12,6 @@ import json
 import base64
 from pathlib import Path
 import re
-import threading
 import sys
 try:
     from PIL import ImageGrab
@@ -233,7 +232,13 @@ class ToolsView(BaseView):
         default_desc_color = desc_label.cget("text_color")
 
         button = self.grid_button(
-            tool_frame, "Launch", command, 0, column=1, columnspan=1, width=100
+            tool_frame,
+            "Launch",
+            lambda cmd=command, name=name: self._safe_launch(name, cmd),
+            0,
+            column=1,
+            columnspan=1,
+            width=100,
         )
         self.add_tooltip(button, f"Open {name}")
         self._tool_items.append(
@@ -247,6 +252,16 @@ class ToolsView(BaseView):
                 default_name_color,
                 default_desc_color,
             )
+        )
+
+    def _safe_launch(self, name: str, func: callable) -> None:
+        """Run *func* in a background thread and surface errors gracefully."""
+
+        self.app.thread_manager.run_tool(
+            name,
+            func,
+            window=self.app.window,
+            status_bar=self.app.status_bar,
         )
 
     # Tool implementations

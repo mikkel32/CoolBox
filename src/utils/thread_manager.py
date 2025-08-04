@@ -48,6 +48,70 @@ class ThreadManager:
         for t in (self.logger_thread, self.process_thread):
             t.join(timeout=1)
 
+    def run_tool(
+        self,
+        name: str,
+        func: callable,
+        *,
+        window,
+        status_bar: Any | None = None,
+    ) -> None:
+        """Execute *func* in a daemon thread and surface exceptions.
+
+        Any raised exception is logged with a full traceback and reported via
+        ``status_bar`` and a standard error dialog.  Successful completion also
+        emits a log and optional status message.  All UI interactions are
+        marshalled back to the Tk main thread via ``window.after`` so failures
+        never crash the Home view.
+        """
+
+        import traceback
+        import warnings
+        from tkinter import messagebox
+
+        def runner() -> None:
+            self.log_queue.put(f"INFO:Starting {name}")
+            start = time.time()
+            with warnings.catch_warnings(record=True) as captured:
+                warnings.simplefilter("default")
+                try:
+                    func()
+                except Exception as exc:  # pragma: no cover - best effort
+                    msg = f"{name} failed: {exc}"
+                    self.log_queue.put(f"ERROR:{msg}")
+                    for line in traceback.format_exc().splitlines():
+                        self.log_queue.put(f"ERROR:{line}")
+                    for warn in captured:
+                        self.log_queue.put(f"WARNING:{warn.message}")
+                    if status_bar is not None:
+                        window.after(0, lambda: status_bar.set_message(msg, "error"))
+                    window.after(
+                        0, lambda: messagebox.showerror(f"{name} Error", str(exc))
+                    )
+                else:
+                    for warn in captured:
+                        self.log_queue.put(f"WARNING:{warn.message}")
+                    self.log_queue.put(f"INFO:{name} completed")
+                    if status_bar is not None:
+                        if captured:
+                            window.after(
+                                0,
+                                lambda: status_bar.set_message(
+                                    f"{name} completed with warnings", "warning"
+                                ),
+                            )
+                        else:
+                            window.after(
+                                0,
+                                lambda: status_bar.set_message(
+                                    f"{name} completed", "success"
+                                ),
+                            )
+            duration = time.time() - start
+            self.log_queue.put(f"INFO:{name} finished in {duration:.2f}s")
+
+        threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
+
     def _logger_loop(self) -> None:
         while not self.shutdown.is_set():
             try:

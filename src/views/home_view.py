@@ -100,6 +100,15 @@ class HomeView(BaseView):
         self._create_stat_item(stats_grid, "Active Projects", "5", 2)
         self._create_stat_item(stats_grid, "Efficiency", "94%", 3)
 
+        # Console section for watchdog logs
+        console_frame = self.add_section(container, "Console")
+        self.console = ctk.CTkTextbox(console_frame, height=120, state="disabled")
+        self.console.pack(fill="both", padx=20, pady=10)
+        self.console.tag_config("INFO", foreground=self.accent)
+        self.console.tag_config("WARNING", foreground="#F39C12")
+        self.console.tag_config("ERROR", foreground="#E74C3C")
+        self._log_index = 0
+        self._watch_logs()
     def _create_action_card(self, parent, title: str, description: str, command, row: int, col: int):
         """Create an action card"""
         card = ctk.CTkFrame(parent, height=150)
@@ -186,3 +195,33 @@ class HomeView(BaseView):
         super().refresh_theme()
         for btn in self._action_buttons:
             btn.configure(fg_color=self.accent, hover_color=self.accent)
+        if hasattr(self, "console"):
+            self.console.tag_config("INFO", foreground=self.accent)
+
+    def _flush_logs(self) -> None:
+        """Append any new watchdog logs to the console."""
+        logs = self.app.thread_manager.logs
+        while self._log_index < len(logs):
+            raw = logs[self._log_index]
+            self._log_index += 1
+            if ":" in raw:
+                level, text = raw.split(":", 1)
+            else:
+                level, text = "INFO", raw
+            self.console.configure(state="normal")
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            self.console.insert(
+                "end",
+                f"[{timestamp}] [{level.strip().upper()}] {text.strip()}\n",
+                level.strip().upper(),
+            )
+            lines = int(self.console.index("end-1c").split(".")[0])
+            if lines > 200:
+                self.console.delete("1.0", f"{lines - 200}.0")
+            self.console.configure(state="disabled")
+            self.console.see("end")
+
+    def _watch_logs(self) -> None:
+        """Periodically refresh console with latest logs."""
+        self._flush_logs()
+        self.after(500, self._watch_logs)
