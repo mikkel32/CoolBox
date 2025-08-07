@@ -2533,5 +2533,64 @@ def test_update_rect_skips_small_move_no_window_change() -> None:
     assert not d._applied
 
 
+def test_update_rect_handles_missing_last_cursor() -> None:
+    os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+    from src.views import click_overlay
+
+    class Dummy:
+        def __init__(self) -> None:
+            self._cursor_x = 5
+            self._cursor_y = 7
+            self._screen_w = 100
+            self._screen_h = 100
+            self.show_crosshair = False
+            self.show_label = False
+            self.hline = self.vline = self.rect = self.label = None
+            self._buffer = {
+                "cursor": (None, None),
+                "rect": (0, 0, 10, 10),
+                "label_text": "",
+                "label_pos": (0, 0),
+                "pid": 1,
+                "hline": (0, 0, 0, 0),
+                "vline": (0, 0, 0, 0),
+                "screen": (100, 100),
+            }
+            self._applied = False
+            self._min_move_px = 2
+
+        def _draw_crosshair(
+            self,
+            updates: dict[str, tuple[int, ...] | str],
+            px: int,
+            py: int,
+            sw: int,
+            sh: int,
+            cursor_changed: bool,
+        ) -> None:
+            pass
+
+        def _update_label(
+            self, info: click_overlay.WindowInfo, updates: dict[str, tuple[int, ...] | str]
+        ) -> tuple[tuple[int, int, int, int], str, bool, bool]:
+            return self._buffer["rect"], "", False, False
+
+        def _calc_label_pos(self, px: int, py: int, sw: int, sh: int) -> tuple[int, int]:
+            return (0, 0)
+
+        def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
+            self._applied = True
+
+        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+            pass
+
+    d = Dummy()
+    click_overlay.ClickOverlay._update_rect(
+        d, click_overlay.WindowInfo(1, (0, 0, 10, 10), "win")
+    )
+    assert d._applied
+    assert d._buffer["cursor"] == (5, 7)
+
+
 if __name__ == "__main__":
     unittest.main()

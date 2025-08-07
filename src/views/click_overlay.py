@@ -1505,7 +1505,11 @@ class ClickOverlay(tk.Toplevel):
         py = int(self._cursor_y)
         sw = self._screen_w
         sh = self._screen_h
-        dist = math.hypot(px - self._buffer["cursor"][0], py - self._buffer["cursor"][1])
+        last = self._buffer.get("cursor")
+        if last is None or None in last:
+            dist = self._min_move_px
+        else:
+            dist = math.hypot(px - last[0], py - last[1])
         cursor_moved = dist >= self._min_move_px
         updates: dict[str, tuple[int, ...] | str] = {}
         self._draw_crosshair(updates, px, py, sw, sh, cursor_moved)
