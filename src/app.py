@@ -63,13 +63,13 @@ class CoolBoxApp:
         # Create main window
         self.window = ctk.CTk()
         self.window.title("CoolBox - Modern Desktop App")
-        self.window.geometry(f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 800)}")
+        self.window.geometry(f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 900)}")
 
         # Set application icon
         self._set_app_icon()
 
         # Set minimum window size
-        self.window.minsize(800, 600)
+        self.window.minsize(800, 700)
 
         # Theme manager
         self.theme = ThemeManager(config=self.config)
