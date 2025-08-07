@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.22 - 2025-08-07
+
+- **Fix:** Prevent overlay update crash when cursor coordinates are unavailable.
+
 ## 1.3.21 - 2025-08-03
 
 - **Enhance:** Capture Python warnings from tools and surface them through the
