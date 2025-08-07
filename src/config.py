@@ -25,7 +25,7 @@ class Config:
             "appearance_mode": "dark",
             "color_theme": "blue",
             "window_width": 1200,
-            "window_height": 800,
+            "window_height": 900,
             "auto_save": True,
             "recent_files": [],
             "max_recent_files": 10,
@@ -127,7 +127,7 @@ class Config:
             "kill_by_click_kf_process_noise": 1.0,
             "kill_by_click_kf_measurement_noise": 5.0,
             "window_min_width": 0,
-            "window_min_height": 0,
+            "window_min_height": 700,
         }
 
         # Load configuration

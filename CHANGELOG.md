@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.23 - 2025-08-07
+
+- **Enhance:** Increase default window height for better console visibility.
+
 ## 1.3.22 - 2025-08-07
 
 - **Fix:** Prevent overlay update crash when cursor coordinates are unavailable.
