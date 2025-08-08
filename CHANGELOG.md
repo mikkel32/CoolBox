@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.76 - 2025-08-08
+
+- **Fix:** Ensure Kill by Click overlay closes when no process is selected to prevent UI lockups.
+
 ## 1.3.75 - 2025-08-08
 
 - **Fix:** Ignore stale Kill by Click callbacks after cancellation to avoid spurious "failed to return a process" warnings.
