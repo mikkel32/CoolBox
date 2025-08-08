@@ -21,6 +21,8 @@ import threading
 from contextlib import contextmanager
 from typing import Callable, Optional
 
+from .helpers import log
+
 # -- Optional dependencies -------------------------------------------------
 
 try:  # pragma: no cover - optional dependency may be missing
@@ -247,8 +249,8 @@ class GlobalMouseListener:
         def _on_move(x: int, y: int) -> None:
             try:
                 cb(x, y)
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"move callback error: {e}")
 
         return _on_move
 
@@ -260,8 +262,8 @@ class GlobalMouseListener:
             try:
                 if button == getattr(mouse, "Button", object()).left:
                     cb(x, y, pressed)
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"click callback error: {e}")
 
         return _on_click
 
@@ -272,8 +274,8 @@ class GlobalMouseListener:
         def _on_press(key) -> None:
             try:
                 cb(getattr(key, "vk", getattr(getattr(key, "value", key), "vk", 0)), True)
-            except Exception:
-                pass
+            except Exception as e:
+                log(f"key callback error: {e}")
 
         return _on_press
 

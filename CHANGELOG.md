@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.59 - 2025-08-08
+
+- **Fix:** Log exceptions from mouse and keyboard listener callbacks.
+
 ## 1.3.58 - 2025-08-08
 
 - **Fix:** Load process icons within a context manager to ensure files close promptly.
