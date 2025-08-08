@@ -497,6 +497,86 @@ def test_kill_by_click_skips_exe_change() -> None:
     dialog.force_kill.assert_not_called()
 
 
+def test_kill_by_click_skips_self() -> None:
+    dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+    dialog._overlay_thread = None
+    dialog.accent = "#f00"
+    dialog.paused = True
+    dialog._watcher = mock.Mock()
+    dialog._populate = mock.Mock()
+    dialog.withdraw = mock.Mock()
+    dialog.deiconify = mock.Mock()
+    dialog.after_idle = mock.Mock()
+    dialog.force_kill = mock.Mock()
+    dialog._highlight_pid = mock.Mock()
+
+    overlay = mock.Mock()
+    overlay.canvas = mock.Mock()
+    overlay.rect = object()
+    overlay.hline = object()
+    overlay.vline = object()
+    overlay.label = object()
+    overlay.reset = mock.Mock()
+    overlay.apply_defaults = mock.Mock()
+    overlay.skip_confirm = True
+
+    dialog._overlay = overlay
+    dialog.app = SimpleNamespace(config={"developer_mode": True})
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    with (
+        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("builtins.print") as mock_print,
+    ):
+        ctx = dialog._OverlayContext(dialog, overlay)
+        ctx.__enter__()
+        dialog._finish_kill_by_click(ctx, (os.getpid(), "self", None, None, None))
+        MB.showwarning.assert_called_once()
+
+    out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
+    assert "Kill by Click refused to terminate self" in out
+    dialog.force_kill.assert_not_called()
+
+
+def test_kill_by_click_handles_no_selection() -> None:
+    dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+    dialog._overlay_thread = None
+    dialog.accent = "#f00"
+    dialog.paused = True
+    dialog._watcher = mock.Mock()
+    dialog._populate = mock.Mock()
+    dialog.withdraw = mock.Mock()
+    dialog.deiconify = mock.Mock()
+    dialog.after_idle = mock.Mock()
+    dialog.force_kill = mock.Mock()
+    dialog._highlight_pid = mock.Mock()
+
+    overlay = mock.Mock()
+    overlay.canvas = mock.Mock()
+    overlay.rect = object()
+    overlay.hline = object()
+    overlay.vline = object()
+    overlay.label = object()
+    overlay.reset = mock.Mock()
+    overlay.apply_defaults = mock.Mock()
+    overlay.skip_confirm = True
+
+    dialog._overlay = overlay
+    dialog.app = SimpleNamespace(config={"developer_mode": True})
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    with (
+        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("builtins.print") as mock_print,
+    ):
+        ctx = dialog._OverlayContext(dialog, overlay)
+        ctx.__enter__()
+        dialog._finish_kill_by_click(ctx, (None, None, None, None, None))
+        MB.showwarning.assert_called_once()
+
+    out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
+    assert "Kill by Click failed to return a process" in out
+    dialog.force_kill.assert_not_called()
+
+
 def test_kill_by_click_reports_exception() -> None:
     dialog = ForceQuitDialog.__new__(ForceQuitDialog)
     dialog._overlay_thread = None
