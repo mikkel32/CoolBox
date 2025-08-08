@@ -6,6 +6,7 @@ import os
 import subprocess
 import shutil
 import tempfile
+import logging
 from pathlib import Path
 from src.utils.window_utils import (
     WindowInfo,
@@ -57,6 +58,8 @@ from .click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
 KILL_BY_CLICK_WATCHDOG = 5.0
 KILL_BY_CLICK_WATCHDOG_MISSES = 2
+
+logger = logging.getLogger(__name__)
 
 
 class ForceQuitDialog(BaseDialog):
@@ -2267,58 +2270,74 @@ class ForceQuitDialog(BaseDialog):
         overlay = self._overlay
         ctx = self._OverlayContext(self, overlay)
         self._overlay_ctx = ctx
-        ctx.__enter__()
+        thread: threading.Thread | None = None
+        try:
+            ctx.__enter__()
 
-        def run() -> None:
-            done = threading.Event()
-            holder: dict[str, Any] = {}
+            def run() -> None:
+                done = threading.Event()
+                holder: dict[str, Any] = {}
 
-            def invoke_choose() -> None:
-                try:
-                    holder["res"] = overlay.choose()
-                except Exception as exc:  # pragma: no cover - defensive
-                    holder["res"] = exc
-                finally:
-                    done.set()
-
-            # Run the blocking Tk call on the UI thread
-            self.after(0, invoke_choose)
-            done.wait()
-            res = holder.get("res")
-            if isinstance(res, tuple):
-                pid, title = res
-                ctime: float | None = None
-                cmd: tuple[str, ...] | None = None
-                exe: str | None = None
-                if pid is not None:
+                def invoke_choose() -> None:
                     try:
-                        proc = psutil.Process(pid)
-                        ctime = proc.create_time()
-                        cmd = tuple(proc.cmdline())
-                        exe = proc.exe()
-                    except psutil.Error:
-                        pass
-                result: tuple[
-                    int | None,
-                    str | None,
-                    float | None,
-                    tuple[str, ...] | None,
-                    str | None,
-                ] | Exception = (
-                    pid,
-                    title,
-                    ctime,
-                    cmd,
-                    exe,
-                )
-            else:
-                result = res
-            if self._overlay_thread:
-                self.after(0, lambda: self._finish_kill_by_click(ctx, result))
+                        holder["res"] = overlay.choose()
+                    except Exception as exc:  # pragma: no cover - defensive
+                        holder["res"] = exc
+                    finally:
+                        done.set()
 
-        overlay.reset_watchdog()
-        self._overlay_thread = threading.Thread(target=run, daemon=True)
-        self._overlay_thread.start()
+                # Run the blocking Tk call on the UI thread
+                self.after(0, invoke_choose)
+                done.wait()
+                res = holder.get("res")
+                if isinstance(res, tuple):
+                    pid, title = res
+                    ctime: float | None = None
+                    cmd: tuple[str, ...] | None = None
+                    exe: str | None = None
+                    if pid is not None:
+                        try:
+                            proc = psutil.Process(pid)
+                            ctime = proc.create_time()
+                            cmd = tuple(proc.cmdline())
+                            exe = proc.exe()
+                        except psutil.Error:
+                            pass
+                    result: tuple[
+                        int | None,
+                        str | None,
+                        float | None,
+                        tuple[str, ...] | None,
+                        str | None,
+                    ] | Exception = (
+                        pid,
+                        title,
+                        ctime,
+                        cmd,
+                        exe,
+                    )
+                else:
+                    result = res
+                if self._overlay_thread:
+                    self.after(0, lambda: self._finish_kill_by_click(ctx, result))
+
+            overlay.reset_watchdog()
+            thread = threading.Thread(target=run, daemon=True)
+            self._overlay_thread = thread
+            thread.start()
+        except Exception:
+            logger.exception("Failed to start overlay")
+            raise
+        finally:
+            if thread is None or not thread.is_alive():
+                try:
+                    ctx.__exit__(*sys.exc_info())
+                except Exception:  # pragma: no cover - best effort cleanup
+                    logger.exception("Error during overlay cleanup")
+                self._overlay_ctx = None
+
+        if not (thread and thread.is_alive()):
+            return
         if self.app.config.get("developer_mode", False):
             fd, path = tempfile.mkstemp()
             os.close(fd)
@@ -2373,6 +2392,7 @@ class ForceQuitDialog(BaseDialog):
             overlay = self._overlay
             elapsed = msg.get("elapsed", 0.0)
             misses = msg.get("misses", 0)
+
             def _safe(name: str):
                 val = getattr(overlay, name, None)
                 return None if isinstance(val, Mock) else val
@@ -2432,6 +2452,7 @@ class ForceQuitDialog(BaseDialog):
             ctx.__exit__(type(result), result, result.__traceback__)
             self._overlay_ctx = None
             self._overlay_thread = None
+
             def _safe(name: str):
                 val = getattr(overlay, name, None)
                 return None if isinstance(val, Mock) else val
@@ -2528,7 +2549,9 @@ class ForceQuitDialog(BaseDialog):
             )
             self._populate()
             return
+
         def _target_vanished() -> None:
+
             def _safe(name: str):
                 val = getattr(overlay, name, None)
                 return None if isinstance(val, Mock) else val
