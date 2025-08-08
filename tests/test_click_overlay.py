@@ -1101,7 +1101,7 @@ class TestClickOverlay(unittest.TestCase):
             def start(self, on_move=None, on_click=None):
                 return True
 
-            def stop(self):
+            def release(self):
                 pass
 
         with (
@@ -1136,7 +1136,7 @@ class TestClickOverlay(unittest.TestCase):
             def start(self, on_move=None, on_click=None):
                 return True
 
-            def stop(self):
+            def release(self):
                 pass
 
         with (
@@ -1213,7 +1213,7 @@ class TestClickOverlay(unittest.TestCase):
             def start(self, on_move=None, on_click=None):
                 return False if on_move or on_click else True
 
-            def stop(self):
+            def release(self):
                 pass
 
         with (
@@ -1279,7 +1279,7 @@ class TestClickOverlay(unittest.TestCase):
 
         listener = Mock()
         listener.start.return_value = True
-        listener.stop = Mock()
+        listener.release = Mock()
 
         with (
             patch(
@@ -1321,7 +1321,7 @@ class TestClickOverlay(unittest.TestCase):
             return True
 
         listener.start.side_effect = start_side_effect
-        listener.stop = Mock()
+        listener.release = Mock()
 
         with (
             patch("src.views.click_overlay.get_global_listener", return_value=listener),
@@ -1331,7 +1331,7 @@ class TestClickOverlay(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 overlay.choose()
 
-        listener.stop.assert_called_once()
+        listener.release.assert_called_once()
         self.assertTrue(unbind_mock.called)
 
         overlay.destroy()
@@ -1350,7 +1350,7 @@ class TestClickOverlay(unittest.TestCase):
             def start(self, on_move=None, on_click=None):
                 return True
 
-            def stop(self):
+            def release(self):
                 pass
 
         with (
@@ -1368,6 +1368,71 @@ class TestClickOverlay(unittest.TestCase):
             bind_mock.assert_any_call("<Motion>", overlay._queue_update)
 
         overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_multiple_overlays_can_coexist(self) -> None:
+        root = tk.Tk()
+        with patch("src.views.click_overlay.is_supported", return_value=True):
+            o1 = ClickOverlay(root)
+            o2 = ClickOverlay(root)
+
+        evt1 = threading.Event()
+        evt2 = threading.Event()
+
+        def prep(o: ClickOverlay, evt: threading.Event) -> None:
+            o.deiconify = o.lift = o.update_idletasks = lambda *a, **k: None
+            o.wait_visibility = lambda: None
+            o._maybe_ensure_colorkey = lambda *a, **k: None
+            o._queue_update = lambda *a, **k: None
+            o._start_hook_monitor = lambda: None
+            o.after = lambda *a, **k: None
+            o.after_cancel = lambda *a, **k: None
+            o.wait_variable = lambda var: evt.wait()
+            o.close = lambda *a, **k: (evt.set(), o._closed.set(True))
+            o.reset = lambda: None
+
+        prep(o1, evt1)
+        prep(o2, evt2)
+
+        class DummyListener:
+            def __init__(self) -> None:
+                self.ref = 0
+                self.stops = 0
+
+            def start(self, on_move=None, on_click=None, on_key=None):
+                self.ref += 1
+                return True
+
+            def release(self):
+                self.ref -= 1
+                if self.ref == 0:
+                    self.stops += 1
+
+        listener = DummyListener()
+
+        with (
+            patch("src.views.click_overlay.get_global_listener", return_value=listener),
+            patch("src.views.click_overlay.make_window_clickthrough", return_value=False),
+        ):
+            t1 = threading.Thread(target=o1.choose)
+            t2 = threading.Thread(target=o2.choose)
+            t1.start()
+            time.sleep(0.01)
+            t2.start()
+            time.sleep(0.01)
+            self.assertEqual(listener.ref, 2)
+            evt1.set()
+            t1.join()
+            self.assertEqual(listener.ref, 1)
+            self.assertEqual(listener.stops, 0)
+            evt2.set()
+            t2.join()
+            self.assertEqual(listener.ref, 0)
+            self.assertEqual(listener.stops, 1)
+
+        o1.destroy()
+        o2.destroy()
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
