@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fix:** Guard asynchronous window queries to prevent callback exceptions.
+
 ## 1.3.59 - 2025-08-08
 
 - **Fix:** Log exceptions from mouse and keyboard listener callbacks.
