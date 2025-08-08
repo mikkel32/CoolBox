@@ -171,6 +171,13 @@ class TestWindowUtils(unittest.TestCase):
         ):
             self.assertTrue(wu.has_cursor_window_support())
 
+    def test_has_cursor_window_support_warns(self):
+        from src.utils import window_utils as wu
+
+        with mock.patch.object(wu.sys, "platform", "darwin"):
+            with self.assertWarns(RuntimeWarning):
+                self.assertFalse(wu.has_cursor_window_support(warn=True))
+
     def test_list_windows_at(self):
         from src.utils.window_utils import list_windows_at
 
