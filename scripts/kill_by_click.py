@@ -45,6 +45,18 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
+    for name in ["interval", "min_interval", "max_interval", "delay_scale"]:
+        value = getattr(args, name)
+        if value is not None and value <= 0:
+            parser.error(f"{name.replace('_', '-')} must be positive")
+    if args.min_interval is not None and args.max_interval is not None:
+        if args.min_interval > args.max_interval:
+            parser.error("min-interval cannot exceed max-interval")
+    if args.min_interval is not None and args.interval < args.min_interval:
+        parser.error("interval must be at least min-interval")
+    if args.max_interval is not None and args.interval > args.max_interval:
+        parser.error("interval must be at most max-interval")
+
     if args.calibrate:
         interval, min_i, max_i = ClickOverlay.auto_tune_interval()
         print(f"Calibrated: interval={interval:.4f} min={min_i:.4f} max={max_i:.4f}")
@@ -63,13 +75,15 @@ def main(argv: list[str] | None = None) -> None:
         kwargs["max_interval"] = args.max_interval
     if args.delay_scale is not None:
         kwargs["delay_scale"] = args.delay_scale
-    overlay = ClickOverlay(root, **kwargs)
-    pid, title = overlay.choose()
-    if pid is None:
-        print("No window selected")
-    else:
-        print(f"{pid} {title or ''}")
-    root.destroy()
+    try:
+        overlay = ClickOverlay(root, **kwargs)
+        pid, title = overlay.choose()
+        if pid is None:
+            print("No window selected")
+        else:
+            print(f"{pid} {title or ''}")
+    finally:
+        root.destroy()
 
 
 if __name__ == "__main__":

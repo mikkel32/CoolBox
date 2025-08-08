@@ -87,3 +87,44 @@ def test_main_no_display(monkeypatch, capsys):
         kbc.main([])
     assert e.value.code != 0
     assert 'No display available' in capsys.readouterr().out
+
+
+def test_negative_interval_errors(capsys):
+    with pytest.raises(SystemExit):
+        kbc.main(['--interval', '-1'])
+    assert 'interval must be positive' in capsys.readouterr().err
+
+
+def test_interval_bounds(capsys):
+    with pytest.raises(SystemExit):
+        kbc.main(['--interval', '0.2', '--min-interval', '0.3'])
+    assert 'interval must be at least min-interval' in capsys.readouterr().err
+
+    with pytest.raises(SystemExit):
+        kbc.main(['--interval', '0.5', '--max-interval', '0.4'])
+    assert 'interval must be at most max-interval' in capsys.readouterr().err
+
+
+def test_root_destroyed_on_exception(monkeypatch):
+    destroyed = {}
+
+    class DummyRoot:
+        def withdraw(self):
+            pass
+
+        def destroy(self):
+            destroyed['called'] = True
+
+    class DummyOverlay:
+        def __init__(self, *a, **kw):
+            pass
+
+        def choose(self):
+            raise RuntimeError('boom')
+
+    monkeypatch.setattr(kbc.tk, 'Tk', DummyRoot)
+    monkeypatch.setattr(kbc, 'ClickOverlay', DummyOverlay)
+
+    with pytest.raises(RuntimeError):
+        kbc.main([])
+    assert destroyed.get('called')

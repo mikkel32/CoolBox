@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Fix:** Guard asynchronous window queries to prevent callback exceptions.
+- **Fix:** Validate kill-by-click intervals and ensure overlay cleanup.
 
 ## 1.3.59 - 2025-08-08
 
