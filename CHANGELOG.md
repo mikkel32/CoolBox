@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.74 - 2025-08-08
+
+- **Fix:** Serialize overlay state in Kill by Click error logs to avoid JSON failures.
+
 ## 1.3.73 - 2025-08-08
 
 - **Fix:** Handle missing PyQt5 imports in click overlay type hints to silence Pylance warnings.
