@@ -1389,7 +1389,14 @@ class ClickOverlay(tk.Toplevel):
 
         def _on_done(fut: Future[WindowInfo]) -> None:
             self._query_future = None
-            self.after(0, lambda: callback(fut.result()))
+            try:
+                result = fut.result()
+            except Exception as exc:  # pragma: no cover - best effort logging
+                if not fut.cancelled():
+                    log(f"_query_window_async failed: {exc}")
+                    self.after(0, lambda: callback(WindowInfo(None)))
+            else:
+                self.after(0, lambda: callback(result))
 
         future.add_done_callback(_on_done)
 
