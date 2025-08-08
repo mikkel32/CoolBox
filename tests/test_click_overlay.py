@@ -1104,6 +1104,9 @@ class TestClickOverlay(unittest.TestCase):
             def release(self):
                 pass
 
+            def stop(self):
+                pass
+
         with (
             patch(
                 "src.views.click_overlay.get_global_listener",
@@ -1137,6 +1140,9 @@ class TestClickOverlay(unittest.TestCase):
                 return True
 
             def release(self):
+                pass
+
+            def stop(self):
                 pass
 
         with (
@@ -1214,6 +1220,9 @@ class TestClickOverlay(unittest.TestCase):
                 return False if on_move or on_click else True
 
             def release(self):
+                pass
+
+            def stop(self):
                 pass
 
         with (
@@ -1353,6 +1362,9 @@ class TestClickOverlay(unittest.TestCase):
             def release(self):
                 pass
 
+            def stop(self):
+                pass
+
         with (
             patch(
                 "src.views.click_overlay.get_global_listener",
@@ -1408,6 +1420,9 @@ class TestClickOverlay(unittest.TestCase):
                 self.ref -= 1
                 if self.ref == 0:
                     self.stops += 1
+
+            def stop(self):
+                pass
 
         listener = DummyListener()
 

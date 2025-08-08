@@ -39,6 +39,8 @@ def test_global_listener_singleton(monkeypatch):
     assert events["start"] == 1  # no new Listener started
 
     listener.stop()
+    assert events["stop"] == 0
+    listener.stop()
     assert events["stop"] == 1
     listener.stop()
     assert events["stop"] == 1  # stop only once
