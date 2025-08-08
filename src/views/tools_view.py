@@ -12,7 +12,7 @@ import json
 import base64
 from pathlib import Path
 import re
-import sys
+import threading
 try:
     from PIL import ImageGrab
 except ImportError:  # pragma: no cover - runtime dependency check

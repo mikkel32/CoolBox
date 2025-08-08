@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.71 - 2025-08-08
+
+- **Fix:** Guard optional PyQt5 imports and annotate Qt types to satisfy linters.
+- **Fix:** Import `threading` for asynchronous VM debug launching.
+
 ## 1.3.65 - 2025-08-08
 
 - **Fix:** Require a non-empty DISPLAY variable when detecting cursor window support on Linux.
