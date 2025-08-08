@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.37 - 2025-08-08
+
+- **Fix:** Keep Force Quit actions enabled after the first refresh so Kill by Click remains clickable.
+
 ## 1.3.36 - 2025-08-08
 
 - **Enhance:** Record a target's executable path in addition to start time and
