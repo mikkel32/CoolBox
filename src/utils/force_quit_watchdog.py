@@ -1,17 +1,34 @@
+import json
+import os
+import sys
 import time
-from multiprocessing import Queue, Value
+from pathlib import Path
 
 
-def watch_overlay(last_ping: Value, out: Queue, interval: float, misses: int) -> None:
-    """Monitor ``last_ping`` and notify ``out`` when it stalls."""
+def main(path: str, interval: float, misses: int) -> None:
+    """Monitor ``path`` for ping updates and report when stalled."""
     missed = 0
+    ping_path = Path(path)
     while True:
         time.sleep(interval)
-        elapsed = time.monotonic() - last_ping.value
+        try:
+            last = ping_path.stat().st_mtime
+        except FileNotFoundError:
+            break
+        except OSError:
+            continue
+        elapsed = time.time() - last
         if elapsed <= interval:
             missed = 0
             continue
         missed += 1
         if missed >= misses:
-            out.put({"elapsed": elapsed, "misses": missed})
+            json.dump({"elapsed": elapsed, "misses": missed}, sys.stdout)
+            sys.stdout.write("\n")
+            sys.stdout.flush()
             break
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via subprocess
+    main(sys.argv[1], float(sys.argv[2]), int(sys.argv[3]))
+
