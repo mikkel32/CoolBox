@@ -1670,7 +1670,12 @@ class ProcessWatcher(threading.Thread):
                     else:
                         def _get_conn(pid: int) -> tuple[int, int] | None:
                             try:
-                                return pid, len(psutil.Process(pid).connections(kind="inet"))
+                                proc = psutil.Process(pid)
+                                if hasattr(proc, "net_connections"):
+                                    conns = proc.net_connections(kind="inet")
+                                else:  # pragma: no cover - psutil<6
+                                    conns = proc.connections(kind="inet")
+                                return pid, len(conns)
                             except Exception:
                                 return None
 

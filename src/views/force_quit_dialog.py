@@ -1286,9 +1286,13 @@ class ForceQuitDialog(BaseDialog):
         pids: list[int] = []
         for proc in psutil.process_iter(["pid"]):
             try:
-                # ``Process.connections`` replaces the deprecated
-                # ``net_connections`` method in recent psutil versions.
-                if len(proc.connections(kind="inet")) > threshold:
+                if proc.pid == os.getpid() or proc.pid < 1000:
+                    continue
+                if hasattr(proc, "net_connections"):
+                    conns = proc.net_connections(kind="inet")
+                else:  # pragma: no cover - psutil<6
+                    conns = proc.connections(kind="inet")
+                if len(conns) > threshold:
                     pids.append(proc.pid)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
@@ -1878,7 +1882,10 @@ class ForceQuitDialog(BaseDialog):
                 cpu = proc.cpu_percent(interval=0.1)
                 threads = proc.num_threads()
                 files = len(proc.open_files())
-                conns = len(proc.connections(kind="inet"))
+                if hasattr(proc, "net_connections"):
+                    conns = len(proc.net_connections(kind="inet"))
+                else:  # pragma: no cover - psutil<6
+                    conns = len(proc.connections(kind="inet"))
         except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
             return str(exc)
         return (
@@ -2478,9 +2485,6 @@ class ForceQuitDialog(BaseDialog):
             )
             self._populate()
 
-        if not psutil.pid_exists(pid):
-            _target_vanished()
-            return
         if ctime is not None or cmd is not None or exe is not None:
             try:
                 proc = psutil.Process(pid)
@@ -2539,8 +2543,7 @@ class ForceQuitDialog(BaseDialog):
                     self._populate()
                     return
             except psutil.Error:
-                _target_vanished()
-                return
+                pass
         if not overlay.skip_confirm:
             if not messagebox.askyesno(
                 "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
@@ -2549,7 +2552,7 @@ class ForceQuitDialog(BaseDialog):
         ok = self.force_kill(pid)
         if ok:
             messagebox.showinfo("Force Quit", f"Terminated process {pid}", parent=self)
-        else:
+        elif psutil.pid_exists(pid):
             def _safe(name: str):
                 val = getattr(overlay, name, None)
                 return None if isinstance(val, Mock) else val
@@ -2577,6 +2580,8 @@ class ForceQuitDialog(BaseDialog):
             messagebox.showerror(
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
             )
+        else:
+            _target_vanished()
         self._populate()
 
     def cancel_kill_by_click(self) -> None:

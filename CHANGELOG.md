@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.3.38 - 2025-08-08
+
+- **Fix:** Replace deprecated ``psutil`` ``connections`` calls with
+  ``net_connections`` to keep Force Quit responsive.
+
 ## 1.3.37 - 2025-08-08
 
 - **Fix:** Keep Force Quit actions enabled after the first refresh so Kill by Click remains clickable.
