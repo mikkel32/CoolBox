@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.55 - 2025-08-08
+
+- **Fix:** Stop the global listener only when it successfully starts to avoid erroneous stop calls.
+
 ## 1.3.50 - 2025-08-08
 
 - **Fix:** Detect stalled mouse hooks and fall back to polling to keep the Kill by Click overlay responsive.
