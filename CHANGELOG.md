@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 1.3.47 - 2025-08-08
+
+- **Fix:** Warn and refresh Force Quit when Kill by Click selects no process.
+
+## 1.3.46 - 2025-08-08
+
+- **Fix:** Prevent Kill by Click from terminating the application itself, avoiding crashes when the Force Quit window is selected.
+
 ## 1.3.45 - 2025-08-08
 
 - **Perf:** Update Force Quit watchdog to sync via file modification times, reducing I/O overhead.
