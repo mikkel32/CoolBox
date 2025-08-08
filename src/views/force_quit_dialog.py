@@ -957,14 +957,12 @@ class ForceQuitDialog(BaseDialog):
             self._snapshot_changed = True
 
     def _update_kill_actions(self) -> None:
-        enable = self._enum_progress >= 1.0
-        if enable == self._actions_enabled:
+        if self._actions_enabled or self._enum_progress < 1.0:
             return
-        state = tk.NORMAL if enable else tk.DISABLED
-        self.kill_selected_btn.configure(state=state)
+        self.kill_selected_btn.configure(state=tk.NORMAL)
         for btn in self._action_buttons:
-            btn.configure(state=state)
-        self._actions_enabled = enable
+            btn.configure(state=tk.NORMAL)
+        self._actions_enabled = True
 
     @staticmethod
     def _find_over_threshold(
