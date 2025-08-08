@@ -1,7 +1,8 @@
-import unittest
-from unittest import mock
+import sys
 import time
+import unittest
 from typing import Callable
+from unittest import mock
 
 from src.utils.window_utils import (
     WindowInfo,
@@ -14,6 +15,14 @@ from src.utils.window_utils import (
 
 
 class TestWindowUtils(unittest.TestCase):
+    def setUp(self):
+        from src.utils import window_utils as wu
+
+        wu._TRANSIENT_PIDS.clear()
+        wu._MIN_WINDOW_WIDTH = 0
+        wu._MIN_WINDOW_HEIGHT = 0
+        wu._CFG_LOADED = True
+
     def test_get_active_window(self):
         info = get_active_window()
         self.assertIsInstance(info, WindowInfo)
@@ -27,6 +36,30 @@ class TestWindowUtils(unittest.TestCase):
         self.assertTrue(hasattr(info, "title"))
         self.assertTrue(hasattr(info, "handle"))
         self.assertTrue(hasattr(info, "icon"))
+
+    def test_get_window_under_cursor_no_match_mac(self):
+        from src.utils import window_utils as wu
+
+        fake_quartz = type(
+            "Q",
+            (),
+            {
+                "CGEventCreate": lambda _n: object(),
+                "CGEventGetLocation": lambda _e: type("L", (), {"x": 100, "y": 100})(),
+                "CGWindowListCopyWindowInfo": lambda _opt, _id: [
+                    {"kCGWindowBounds": {"X": 0, "Y": 0, "Width": 10, "Height": 10}}
+                ],
+                "kCGWindowListOptionOnScreenOnly": 0,
+                "kCGNullWindowID": 0,
+            },
+        )
+
+        with (
+            mock.patch.object(wu.sys, "platform", "darwin"),
+            mock.patch.dict(sys.modules, {"Quartz": fake_quartz}),
+        ):
+            info = wu.get_window_under_cursor()
+        self.assertEqual(info, wu.WindowInfo(None))
 
     def test_support_flags(self):
         self.assertIsInstance(has_active_window_support(), bool)

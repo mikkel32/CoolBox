@@ -561,6 +561,8 @@ def get_window_under_cursor() -> WindowInfo:
             pid = None
             title = None
             handle = None
+            x = y = w = h = 0
+            found = False
             for win in windows:
                 bounds = win.get("kCGWindowBounds")
                 if not bounds:
@@ -573,6 +575,10 @@ def get_window_under_cursor() -> WindowInfo:
                     pid = int(win.get("kCGWindowOwnerPID", 0))
                     title = win.get("kCGWindowName")
                     handle = int(win.get("kCGWindowNumber", 0))
+                    found = True
+                    break
+            if not found:
+                return WindowInfo(None)
             info = WindowInfo(pid, (x, y, w, h), title, handle)
             _remember_window(info)
             return info
