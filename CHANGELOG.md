@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.65 - 2025-08-08
+
+- **Fix:** Require a non-empty DISPLAY variable when detecting cursor window support on Linux.
+
 ## 1.3.64 - 2025-08-08
 
 - **Fix:** Guard asynchronous window queries to prevent callback exceptions.
