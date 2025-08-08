@@ -23,6 +23,8 @@ from typing import Callable, Optional
 
 from .helpers import log
 
+_JOIN_TIMEOUT = 0.2  # seconds
+
 # -- Optional dependencies -------------------------------------------------
 
 try:  # pragma: no cover - optional dependency may be missing
@@ -369,7 +371,11 @@ class GlobalMouseListener:
         if self._mouse_listener is not None:
             try:
                 self._mouse_listener.stop()
-                self._mouse_listener.join()
+                self._mouse_listener.join(timeout=_JOIN_TIMEOUT)
+                if getattr(self._mouse_listener, "is_alive", lambda: False)():
+                    log(
+                        f"mouse listener thread failed to stop within {_JOIN_TIMEOUT}s"
+                    )
             except Exception:  # pragma: no cover - defensive
                 pass
             finally:
@@ -378,7 +384,11 @@ class GlobalMouseListener:
         if self._keyboard_listener is not None:
             try:
                 self._keyboard_listener.stop()
-                self._keyboard_listener.join()
+                self._keyboard_listener.join(timeout=_JOIN_TIMEOUT)
+                if getattr(self._keyboard_listener, "is_alive", lambda: False)():
+                    log(
+                        f"keyboard listener thread failed to stop within {_JOIN_TIMEOUT}s"
+                    )
             except Exception:  # pragma: no cover - defensive
                 pass
             finally:
@@ -422,4 +432,3 @@ def get_global_listener() -> GlobalMouseListener:
 
 
 atexit.register(_GLOBAL_LISTENER.stop, True)
-
