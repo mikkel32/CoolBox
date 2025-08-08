@@ -238,6 +238,9 @@ PROBE_CACHE_GRANULARITY = _load_int(
     "KILL_BY_CLICK_PROBE_GRID", "kill_by_click_probe_grid", 5
 )
 
+# Maximum duration without hook events before falling back to polling (seconds)
+HOOK_PING_TIMEOUT = float(os.getenv("KILL_BY_CLICK_HOOK_TIMEOUT", "0.5"))
+
 # Base move debounce derived from screen refresh rate (half a frame).
 # Users may override via ``KILL_BY_CLICK_MOVE_DEBOUNCE_MS`` /
 # ``kill_by_click_move_debounce_ms`` and adjust per instance at runtime.
@@ -628,9 +631,7 @@ class ClickOverlay(tk.Toplevel):
         self._colorkey_last_key = ""
         self._colorkey_last_bg = self._bg_color
         self.configure(bg=self._bg_color)
-
-        if is_supported():
-            make_window_clickthrough(self)
+        self._clickthrough = False
         if not self.basic_render:
             # Validate and restore the transparent color key to avoid a fullscreen
             # black window if the system drops support.
@@ -826,6 +827,9 @@ class ClickOverlay(tk.Toplevel):
         self._unsubscribe_windows = subscribe_window_change(self._on_windows_changed)
         if self._unsubscribe_windows is not None:
             self._refresh_window_cache(int(self._cursor_x), int(self._cursor_y))
+        self._listener = None
+        self._ping_id: str | None = None
+        self._using_hooks = False
         self.reset()
 
     def configure(self, cnf=None, **kw):  # type: ignore[override]
@@ -1701,15 +1705,25 @@ class ClickOverlay(tk.Toplevel):
     def reset(self) -> None:
         """Hide the overlay and clear runtime state."""
         try:
-            remove_window_clickthrough(self)
+            if self._clickthrough:
+                remove_window_clickthrough(self)
         except Exception:
             pass
+        self._clickthrough = False
         self.withdraw()
         for seq in ("<Motion>", "<Button-1>", "<Escape>"):
             try:
                 self.unbind(seq)
             except Exception:
                 pass
+        if self._ping_id is not None:
+            try:
+                self.after_cancel(self._ping_id)
+            except Exception:
+                pass
+            self._ping_id = None
+        self._listener = None
+        self._using_hooks = False
         try:
             self.protocol("WM_DELETE_WINDOW", lambda: None)
         except Exception:
@@ -1754,15 +1768,41 @@ class ClickOverlay(tk.Toplevel):
         self.reset()
         self._closed.set(True)
 
+    def _start_hook_monitor(self) -> None:
+        self._ping_id = self.after(int(HOOK_PING_TIMEOUT * 1000), self._monitor_hooks)
+
+    def _monitor_hooks(self) -> None:
+        if not self._using_hooks:
+            return
+        if time.monotonic() - self._last_ping > HOOK_PING_TIMEOUT:
+            self._ping_id = None
+            self._using_hooks = False
+            try:
+                if self._listener is not None:
+                    self._listener.stop()
+            except Exception:
+                pass
+            self._listener = None
+            if self._clickthrough:
+                try:
+                    remove_window_clickthrough(self)
+                except Exception:
+                    pass
+                self._clickthrough = False
+            self.bind("<Motion>", self._queue_update)
+            self.bind("<Button-1>", self._click_event)
+            self.state = OverlayState.POLLING
+            self._queue_update()
+        else:
+            self._ping_id = self.after(int(HOOK_PING_TIMEOUT * 1000), self._monitor_hooks)
+
     def choose(self) -> tuple[int | None, str | None]:
         """Show the overlay and return the PID and title of the clicked window."""
         self._closed.set(False)
         self._last_ping = time.monotonic()
         listener = get_global_listener()
-        listener.start()
+        self._listener = listener
         try:
-            if is_supported():
-                make_window_clickthrough(self)
             self._maybe_ensure_colorkey(force=True)
             self.deiconify()
             self.lift()
@@ -1786,9 +1826,11 @@ class ClickOverlay(tk.Toplevel):
         use_hooks = is_supported()
         try:
             if use_hooks and listener.start(on_move=self._on_move, on_click=self._click):
+                self._clickthrough = make_window_clickthrough(self)
                 self._using_hooks = True
                 self.state = OverlayState.HOOKED
                 self._queue_update()
+                self._start_hook_monitor()
                 if self.timeout is not None:
                     self._timeout_id = self.after(
                         int(self.timeout * 1000), self.close

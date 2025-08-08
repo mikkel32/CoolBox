@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.3.50 - 2025-08-08
+
+- **Fix:** Detect stalled mouse hooks and fall back to polling to keep the Kill by Click overlay responsive.
+
+## 1.3.49 - 2025-08-08
+
+- **Fix:** Start the global listener only once so the Kill by Click overlay stays responsive when hooks fail to initialize.
+
+## 1.3.48 - 2025-08-08
+
+- **Fix:** Delay click-through activation until hooks start so the Kill by Click overlay remains interactive when hook initialization fails.
+
 ## 1.3.47 - 2025-08-08
 
 - **Fix:** Warn and refresh Force Quit when Kill by Click selects no process.
