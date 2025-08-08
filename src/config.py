@@ -33,6 +33,7 @@ class Config:
             "show_toolbar": True,
             "show_statusbar": True,
             "show_menu": True,
+            "developer_mode": False,
             "basic_rendering": False,
             "section_states": {},
             "force_quit_cpu_alert": 80.0,

@@ -19,13 +19,19 @@ from src.utils import get_screen_refresh_rate
 import re
 import time
 import socket
+import sys
 import threading
+import traceback
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from typing import Any, Optional
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter import ttk
+
+import json
+from unittest.mock import Mock
 
 import customtkinter as ctk
 try:
@@ -46,6 +52,10 @@ from src.utils.mouse_listener import get_global_listener
 # Import the click overlay early so its heavy dependencies are loaded
 # before the first "Kill by Click" invocation.
 from .click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
+
+KILL_BY_CLICK_WATCHDOG = 5.0
+KILL_BY_CLICK_WATCHDOG_MISSES = 2
+KILL_BY_CLICK_WATCHDOG_PROBE = 0.5
 
 
 class ForceQuitDialog(BaseDialog):
@@ -132,6 +142,7 @@ class ForceQuitDialog(BaseDialog):
         self._enum_progress = 0.0
         self._actions_enabled = False
         self._overlay_thread: threading.Thread | None = None
+        self._overlay_timer: threading.Timer | None = None
         self.paused = False
         fps_env = os.getenv("FORCE_QUIT_FPS")
         if fps_env and fps_env.isdigit():
@@ -978,10 +989,26 @@ class ForceQuitDialog(BaseDialog):
     @staticmethod
     def force_kill(pid: int, *, timeout: float = 3.0) -> bool:
         """Forcefully terminate ``pid`` and return ``True`` if it exited."""
+        if not psutil.pid_exists(pid):
+            return True
         if kill_process(pid, timeout=timeout):
             return True
+        if not psutil.pid_exists(pid):
+            return True
         # escalate to killing the entire tree if the direct kill failed
-        return kill_process_tree(pid, timeout=timeout)
+        if kill_process_tree(pid, timeout=timeout):
+            return True
+        if not psutil.pid_exists(pid):
+            return True
+        info = {"pid": pid, "exists": psutil.pid_exists(pid)}
+        try:
+            proc = psutil.Process(pid)
+            info.update({"name": proc.name(), "status": proc.status()})
+        except Exception as exc:  # pragma: no cover - diagnostic path
+            info["error"] = repr(exc)
+        print("force_kill failed", file=sys.stderr)
+        print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+        return False
 
     @classmethod
     def force_kill_multiple(cls, pids: list[int]) -> int:
@@ -2233,29 +2260,289 @@ class ForceQuitDialog(BaseDialog):
 
         def run() -> None:
             try:
-                result: tuple[int | None, str | None] | Exception = overlay.choose()
+                res: tuple[int | None, str | None] | Exception = overlay.choose()
+                if isinstance(res, tuple):
+                    pid, title = res
+                    ctime: float | None = None
+                    cmd: tuple[str, ...] | None = None
+                    exe: str | None = None
+                    if pid is not None:
+                        try:
+                            proc = psutil.Process(pid)
+                            ctime = proc.create_time()
+                            cmd = tuple(proc.cmdline())
+                            exe = proc.exe()
+                        except psutil.Error:
+                            pass
+                    result: tuple[
+                        int | None,
+                        str | None,
+                        float | None,
+                        tuple[str, ...] | None,
+                        str | None,
+                    ] | Exception = (
+                        pid,
+                        title,
+                        ctime,
+                        cmd,
+                        exe,
+                    )
+                else:
+                    result = res
             except Exception as exc:  # pragma: no cover - defensive
                 result = exc
-            self.after(0, lambda: self._finish_kill_by_click(ctx, result))
+            if self._overlay_thread:
+                self.after(0, lambda: self._finish_kill_by_click(ctx, result))
 
+        overlay._last_ping = time.monotonic()
+        overlay._watchdog_misses = 0
+        overlay._watchdog_probe = 0.0
         self._overlay_thread = threading.Thread(target=run, daemon=True)
         self._overlay_thread.start()
+        if self.app.config.get("developer_mode", False):
+            self._overlay_timer = threading.Timer(
+                KILL_BY_CLICK_WATCHDOG, self._overlay_watchdog, args=(ctx,)
+            )
+            self._overlay_timer.daemon = True
+            self._overlay_timer.start()
+        else:
+            self._overlay_timer = None
+
+    def _overlay_watchdog(self, ctx: "ForceQuitDialog._OverlayContext") -> None:
+        thread = self._overlay_thread
+        if not (thread and thread.is_alive()):
+            return
+        overlay = self._overlay
+        last = getattr(overlay, "_last_ping", 0.0)
+        elapsed = time.monotonic() - last
+        probe = getattr(overlay, "_watchdog_probe", 0.0)
+        if elapsed <= KILL_BY_CLICK_WATCHDOG:
+            overlay._watchdog_misses = 0
+            overlay._watchdog_probe = 0.0
+            self._overlay_timer = threading.Timer(
+                KILL_BY_CLICK_WATCHDOG, self._overlay_watchdog, args=(ctx,)
+            )
+            self._overlay_timer.daemon = True
+            self._overlay_timer.start()
+            return
+        if probe <= last:
+            overlay._watchdog_probe = time.monotonic()
+            try:
+                overlay.after(0, lambda: setattr(overlay, "_last_ping", time.monotonic()))
+            except Exception:
+                pass
+            self._overlay_timer = threading.Timer(
+                KILL_BY_CLICK_WATCHDOG_PROBE, self._overlay_watchdog, args=(ctx,)
+            )
+            self._overlay_timer.daemon = True
+            self._overlay_timer.start()
+            return
+        overlay._watchdog_probe = 0.0
+        overlay._watchdog_misses = getattr(overlay, "_watchdog_misses", 0) + 1
+        if overlay._watchdog_misses < KILL_BY_CLICK_WATCHDOG_MISSES:
+            self._overlay_timer = threading.Timer(
+                KILL_BY_CLICK_WATCHDOG, self._overlay_watchdog, args=(ctx,)
+            )
+            self._overlay_timer.daemon = True
+            self._overlay_timer.start()
+            return
+        def _safe(name: str):
+            val = getattr(overlay, name, None)
+            return None if isinstance(val, Mock) else val
+        info = {
+            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "state": _safe("state"),
+            "cursor": {"x": _safe("_cursor_x"), "y": _safe("_cursor_y")},
+            "hover_pid": _safe("pid"),
+            "hover_title": _safe("title_text"),
+            "missed_heartbeats": overlay._watchdog_misses,
+            "stalled_for": round(elapsed, 3),
+            "stack": traceback.format_stack(limit=5),
+        }
+        print("Kill by Click timed out", file=sys.stderr)
+        print(json.dumps(info, indent=2), file=sys.stderr)
+        try:
+            overlay.close()
+        except Exception:
+            pass
+        self._overlay_thread = None
+        self.after(0, lambda: self._finish_kill_by_click(ctx, TimeoutError("watchdog")))
 
     def _finish_kill_by_click(
         self,
         ctx: "ForceQuitDialog._OverlayContext",
-        result: tuple[int | None, str | None] | Exception,
+        result: tuple[
+            int | None,
+            str | None,
+            float | None,
+            tuple[str, ...] | None,
+            str | None,
+        ] | Exception,
     ) -> None:
         overlay = self._overlay
+        timer = getattr(self, "_overlay_timer", None)
+        if timer is not None:
+            timer.cancel()
+            self._overlay_timer = None
         if isinstance(result, Exception):
             ctx.__exit__(type(result), result, result.__traceback__)
             self._overlay_thread = None
-            raise result
-        pid, title = result
+            def _safe(name: str):
+                val = getattr(overlay, name, None)
+                return None if isinstance(val, Mock) else val
+            last = getattr(overlay, "_last_ping", 0.0)
+            if isinstance(last, Mock):
+                last = 0.0
+            misses = getattr(overlay, "_watchdog_misses", 0)
+            if isinstance(misses, Mock):
+                misses = 0
+            info = {
+                "timestamp": datetime.now(timezone.utc)
+                .replace(microsecond=0)
+                .isoformat(),
+                "error": repr(result),
+                "state": _safe("state"),
+                "cursor": {
+                    "x": _safe("_cursor_x"),
+                    "y": _safe("_cursor_y"),
+                },
+                "hover_pid": _safe("pid"),
+                "hover_title": _safe("title_text"),
+                "missed_heartbeats": misses,
+                "stalled_for": round(time.monotonic() - last, 3),
+                "stack": traceback.format_exception(type(result), result, result.__traceback__),
+            }
+            print("Kill by Click raised an exception", file=sys.stderr)
+            print(json.dumps(info, indent=2), file=sys.stderr)
+            return
+        pid, title, ctime, cmd, exe = result
         ctx.__exit__(None, None, None)
         self._overlay_thread = None
         if pid is None:
+            def _safe(name: str):
+                val = getattr(overlay, name, None)
+                return None if isinstance(val, Mock) else val
+
+            last = getattr(overlay, "_last_ping", 0.0)
+            if isinstance(last, Mock):
+                last = 0.0
+            misses = getattr(overlay, "_watchdog_misses", 0)
+            if isinstance(misses, Mock):
+                misses = 0
+            info = {
+                "timestamp": datetime.now(timezone.utc)
+                .replace(microsecond=0)
+                .isoformat(),
+                "state": _safe("state"),
+                "cursor": {
+                    "x": _safe("_cursor_x"),
+                    "y": _safe("_cursor_y"),
+                },
+                "hover_pid": _safe("pid"),
+                "hover_title": _safe("title_text"),
+                "missed_heartbeats": misses,
+                "stalled_for": round(time.monotonic() - last, 3),
+                "stack": traceback.format_stack(limit=5),
+            }
+            print("Kill by Click failed to return a process", file=sys.stderr)
+            print(json.dumps(info, indent=2), file=sys.stderr)
             return
+        def _target_vanished() -> None:
+            def _safe(name: str):
+                val = getattr(overlay, name, None)
+                return None if isinstance(val, Mock) else val
+            last = getattr(overlay, "_last_ping", 0.0)
+            if isinstance(last, Mock):
+                last = 0.0
+            misses = getattr(overlay, "_watchdog_misses", 0)
+            if isinstance(misses, Mock):
+                misses = 0
+            info = {
+                "timestamp": datetime.now(timezone.utc)
+                .replace(microsecond=0)
+                .isoformat(),
+                "pid": pid,
+                "title": title,
+                "cmdline": cmd,
+                "exe": exe,
+                "state": _safe("state"),
+                "cursor": {"x": _safe("_cursor_x"), "y": _safe("_cursor_y")},
+                "hover_pid": _safe("pid"),
+                "hover_title": _safe("title_text"),
+                "missed_heartbeats": misses,
+                "stalled_for": round(time.monotonic() - last, 3),
+                "stack": traceback.format_stack(limit=5),
+            }
+            print("Kill by Click target vanished", file=sys.stderr)
+            print(json.dumps(info, indent=2), file=sys.stderr)
+            messagebox.showwarning(
+                "Force Quit", f"Process {pid} no longer exists", parent=self
+            )
+            self._populate()
+
+        if not psutil.pid_exists(pid):
+            _target_vanished()
+            return
+        if ctime is not None or cmd is not None or exe is not None:
+            try:
+                proc = psutil.Process(pid)
+                changed = False
+                current_cmd = None
+                current_exe = None
+                if ctime is not None and proc.create_time() != ctime:
+                    changed = True
+                if cmd is not None:
+                    try:
+                        current_cmd = tuple(proc.cmdline())
+                    except psutil.Error:
+                        current_cmd = None
+                    if current_cmd != cmd:
+                        changed = True
+                if exe is not None:
+                    try:
+                        current_exe = proc.exe()
+                    except psutil.Error:
+                        current_exe = None
+                    if current_exe != exe:
+                        changed = True
+                if changed:
+                    def _safe(name: str):
+                        val = getattr(overlay, name, None)
+                        return None if isinstance(val, Mock) else val
+                    last = getattr(overlay, "_last_ping", 0.0)
+                    if isinstance(last, Mock):
+                        last = 0.0
+                    misses = getattr(overlay, "_watchdog_misses", 0)
+                    if isinstance(misses, Mock):
+                        misses = 0
+                    info = {
+                        "timestamp": datetime.now(timezone.utc)
+                        .replace(microsecond=0)
+                        .isoformat(),
+                        "pid": pid,
+                        "title": title,
+                        "cmdline": cmd,
+                        "exe": exe,
+                        "current_cmdline": current_cmd,
+                        "current_exe": current_exe,
+                        "state": _safe("state"),
+                        "cursor": {"x": _safe("_cursor_x"), "y": _safe("_cursor_y")},
+                        "hover_pid": _safe("pid"),
+                        "hover_title": _safe("title_text"),
+                        "missed_heartbeats": misses,
+                        "stalled_for": round(time.monotonic() - last, 3),
+                        "stack": traceback.format_stack(limit=5),
+                    }
+                    print("Kill by Click target changed", file=sys.stderr)
+                    print(json.dumps(info, indent=2), file=sys.stderr)
+                    messagebox.showwarning(
+                        "Force Quit", f"Process {pid} changed", parent=self
+                    )
+                    self._populate()
+                    return
+            except psutil.Error:
+                _target_vanished()
+                return
         if not overlay.skip_confirm:
             if not messagebox.askyesno(
                 "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
@@ -2265,6 +2552,30 @@ class ForceQuitDialog(BaseDialog):
         if ok:
             messagebox.showinfo("Force Quit", f"Terminated process {pid}", parent=self)
         else:
+            def _safe(name: str):
+                val = getattr(overlay, name, None)
+                return None if isinstance(val, Mock) else val
+            last = getattr(overlay, "_last_ping", 0.0)
+            if isinstance(last, Mock):
+                last = 0.0
+            misses = getattr(overlay, "_watchdog_misses", 0)
+            if isinstance(misses, Mock):
+                misses = 0
+            info = {
+                "pid": pid,
+                "title": title,
+                "cmdline": cmd,
+                "exe": exe,
+                "state": _safe("state"),
+                "cursor": {"x": _safe("_cursor_x"), "y": _safe("_cursor_y")},
+                "hover_pid": _safe("pid"),
+                "hover_title": _safe("title_text"),
+                "missed_heartbeats": misses,
+                "stalled_for": round(time.monotonic() - last, 3),
+                "stack": traceback.format_stack(limit=5),
+            }
+            print("Kill by Click could not terminate process", file=sys.stderr)
+            print(json.dumps(info, indent=2), file=sys.stderr)
             messagebox.showerror(
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
             )
@@ -2277,6 +2588,10 @@ class ForceQuitDialog(BaseDialog):
                 self._overlay.close()
             except Exception:
                 pass
+        timer = getattr(self, "_overlay_timer", None)
+        if timer is not None:
+            timer.cancel()
+            self._overlay_timer = None
 
     def _calibrate_click_interval(self) -> None:
         """Re-run click interval calibration."""
