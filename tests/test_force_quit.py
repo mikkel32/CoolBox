@@ -1265,7 +1265,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._configure_overlay()
         overlay.apply_defaults.assert_called_once()
 
-        dialog.after = lambda delay, cb, *args: cb(*args)
+        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
         with mock.patch("src.views.force_quit_dialog.messagebox") as MB:
             dialog._kill_by_click()
             if dialog._overlay_thread:
@@ -1277,6 +1277,7 @@ class TestForceQuit(unittest.TestCase):
             overlay.choose.assert_called_once()
             overlay.reset.assert_called_once()
             overlay.apply_defaults.assert_called_once()
+        assert dialog.after.call_args_list[0].args[0] == 0
 
     def test_kill_by_click_exception_cleanup(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1306,7 +1307,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._configure_overlay()
         overlay.apply_defaults.assert_called_once()
 
-        dialog.after = lambda delay, cb, *args: cb(*args)
+        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
         hook = threading.excepthook
         threading.excepthook = lambda args: None
         try:
@@ -1324,6 +1325,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._highlight_pid.assert_called_with(None, None)
         dialog.after_idle.assert_called_with(dialog._update_hover)
         overlay.apply_defaults.assert_called_once()
+        assert dialog.after.call_args_list[0].args[0] == 0
 
     def test_kill_by_click_skip_confirm(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1349,7 +1351,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._overlay = overlay
         dialog.app = SimpleNamespace(config={})
 
-        dialog.after = lambda delay, cb, *args: cb(*args)
+        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
         with (
             mock.patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
             mock.patch("src.views.force_quit_dialog.messagebox") as MB,
@@ -1362,6 +1364,7 @@ class TestForceQuit(unittest.TestCase):
             MB.showinfo.assert_called_once()
             dialog.force_kill.assert_called_once_with(123)
         overlay.apply_defaults.assert_called_once()
+        assert dialog.after.call_args_list[0].args[0] == 0
 
     def test_kill_by_click_per_run_isolation(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1400,17 +1403,20 @@ class TestForceQuit(unittest.TestCase):
         dialog.app = SimpleNamespace(config={})
         dialog._configure_overlay()
         self.assertEqual(overlay.apply_defaults.call_count, 1)
-        dialog.after = lambda delay, cb, *args: cb(*args)
+        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
         with mock.patch("src.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
             if dialog._overlay_thread:
                 dialog._overlay_thread.join(timeout=1)
             self.assertEqual(overlay.interval, default_interval)
+            assert dialog.after.call_args_list[0].args[0] == 0
+            dialog.after.reset_mock()
             overlay.interval = 0.5
             dialog._kill_by_click()
             if dialog._overlay_thread:
                 dialog._overlay_thread.join(timeout=1)
             self.assertEqual(overlay.interval, default_interval)
+            assert dialog.after.call_args_list[0].args[0] == 0
 
         self.assertEqual(overlay.apply_defaults.call_count, 1)
         self.assertEqual(overlay.reset.call_count, 2)
@@ -1454,13 +1460,14 @@ class TestForceQuit(unittest.TestCase):
         overlay.close.side_effect = close_side_effect
         dialog._overlay = overlay
         dialog.app = SimpleNamespace(config={})
-        dialog.after = lambda delay, cb, *args: cb(*args)
+        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
         dialog._configure_overlay()
         start = time.time()
         with mock.patch("src.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
         elapsed = time.time() - start
         self.assertLess(elapsed, 0.1)
+        assert dialog.after.call_args_list[0].args[0] == 0
         dialog.cancel_kill_by_click()
         overlay.close.assert_called_once()
         blocker.set()

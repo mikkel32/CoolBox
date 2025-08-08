@@ -149,7 +149,9 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    dialog.after = mock.Mock(
+        side_effect=lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    )
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
@@ -162,6 +164,7 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
         blocker.set()
         if dialog._overlay_thread:
             dialog._overlay_thread.join(timeout=1)
+    assert dialog.after.call_args_list[0].args[0] == 0
 
     overlay.close.assert_called_once()
     dialog.force_kill.assert_not_called()
@@ -211,7 +214,9 @@ def test_kill_by_click_cancel_allows_retry() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    dialog.after = mock.Mock(
+        side_effect=lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    )
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
@@ -230,6 +235,8 @@ def test_kill_by_click_cancel_allows_retry() -> None:
         if dialog._overlay_thread:
             dialog._overlay_thread.join(timeout=1)
         time.sleep(0.05)
+
+    assert dialog.after.call_args_list[0].args[0] == 0
 
     assert overlay.choose.call_count == 2
     assert overlay.reset.call_count == 2
@@ -267,7 +274,9 @@ def test_kill_by_click_cancel_clears_thread_even_if_stuck() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    dialog.after = mock.Mock(
+        side_effect=lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    )
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
@@ -283,6 +292,7 @@ def test_kill_by_click_cancel_clears_thread_even_if_stuck() -> None:
         blocker.set()
         if thread.is_alive():
             thread.join(timeout=1)
+    assert dialog.after.call_args_list[0].args[0] == 0
 
     overlay.close.assert_called_once()
     dialog.deiconify.assert_called_once()
@@ -314,7 +324,10 @@ def test_kill_by_click_reports_when_no_selection(capsys) -> None:
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
-    with patch("builtins.print") as mock_print:
+    with (
+        patch("builtins.print") as mock_print,
+        patch("src.views.force_quit_dialog.messagebox"),
+    ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
         dialog._finish_kill_by_click(ctx, (None, None, None, None, None))

@@ -2270,38 +2270,49 @@ class ForceQuitDialog(BaseDialog):
         ctx.__enter__()
 
         def run() -> None:
-            try:
-                res: tuple[int | None, str | None] | Exception = overlay.choose()
-                if isinstance(res, tuple):
-                    pid, title = res
-                    ctime: float | None = None
-                    cmd: tuple[str, ...] | None = None
-                    exe: str | None = None
-                    if pid is not None:
-                        try:
-                            proc = psutil.Process(pid)
-                            ctime = proc.create_time()
-                            cmd = tuple(proc.cmdline())
-                            exe = proc.exe()
-                        except psutil.Error:
-                            pass
-                    result: tuple[
-                        int | None,
-                        str | None,
-                        float | None,
-                        tuple[str, ...] | None,
-                        str | None,
-                    ] | Exception = (
-                        pid,
-                        title,
-                        ctime,
-                        cmd,
-                        exe,
-                    )
-                else:
-                    result = res
-            except Exception as exc:  # pragma: no cover - defensive
-                result = exc
+            done = threading.Event()
+            holder: dict[str, Any] = {}
+
+            def invoke_choose() -> None:
+                try:
+                    holder["res"] = overlay.choose()
+                except Exception as exc:  # pragma: no cover - defensive
+                    holder["res"] = exc
+                finally:
+                    done.set()
+
+            # Run the blocking Tk call on the UI thread
+            self.after(0, invoke_choose)
+            done.wait()
+            res = holder.get("res")
+            if isinstance(res, tuple):
+                pid, title = res
+                ctime: float | None = None
+                cmd: tuple[str, ...] | None = None
+                exe: str | None = None
+                if pid is not None:
+                    try:
+                        proc = psutil.Process(pid)
+                        ctime = proc.create_time()
+                        cmd = tuple(proc.cmdline())
+                        exe = proc.exe()
+                    except psutil.Error:
+                        pass
+                result: tuple[
+                    int | None,
+                    str | None,
+                    float | None,
+                    tuple[str, ...] | None,
+                    str | None,
+                ] | Exception = (
+                    pid,
+                    title,
+                    ctime,
+                    cmd,
+                    exe,
+                )
+            else:
+                result = res
             if self._overlay_thread:
                 self.after(0, lambda: self._finish_kill_by_click(ctx, result))
 
