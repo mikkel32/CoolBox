@@ -79,3 +79,31 @@ def test_keyboard_listener(monkeypatch):
     assert events["start"] == 1
     listener.stop()
     assert events["stop"] == 1
+
+
+def test_wrap_callbacks_log_exceptions(monkeypatch):
+    messages = []
+    monkeypatch.setattr(mouse_listener, "log", lambda msg: messages.append(msg))
+    listener = mouse_listener.GlobalMouseListener()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    move_cb = listener._wrap_move(boom)
+    assert move_cb is not None
+    move_cb(0, 0)
+
+    class DummyMouse:
+        class Button:
+            left = 1
+
+    monkeypatch.setattr(mouse_listener, "mouse", DummyMouse)
+    click_cb = listener._wrap_click(boom)
+    assert click_cb is not None
+    click_cb(0, 0, DummyMouse.Button.left, True)
+
+    key_cb = listener._wrap_key(boom)
+    assert key_cb is not None
+    key_cb(object())
+
+    assert len(messages) == 3
