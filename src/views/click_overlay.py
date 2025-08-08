@@ -47,7 +47,10 @@ except Exception:  # pragma: no cover - optional dependency
     QtCore = QtWidgets = QtQuick = QtOpenGL = QtGui = None
 
 if TYPE_CHECKING:  # pragma: no cover - type hint helpers
-    from PyQt5.QtWidgets import QWidget
+    try:
+        from PyQt5.QtWidgets import QWidget  # type: ignore[import]
+    except Exception:  # pragma: no cover - fallback when PyQt5 is unavailable
+        from typing import Any as QWidget
 else:  # pragma: no cover - runtime fallback
     QWidget = Any
 

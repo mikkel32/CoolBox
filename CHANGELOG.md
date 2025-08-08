@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.73 - 2025-08-08
+
+- **Fix:** Handle missing PyQt5 imports in click overlay type hints to silence Pylance warnings.
+
 ## 1.3.72 - 2025-08-08
 
 - **Fix:** Define Qt widget type aliases for Pylance-friendly annotations.
