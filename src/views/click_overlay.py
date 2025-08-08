@@ -112,8 +112,8 @@ def _process_details(pid: int) -> tuple[str, ImageTk.PhotoImage | None]:
         name = proc.name()
         exe = proc.exe()
         if exe and exe.lower().endswith((".ico", ".png")):
-            img = Image.open(exe).resize((16, 16))
-            icon_img = ImageTk.PhotoImage(img)
+            with Image.open(exe) as img:
+                icon_img = ImageTk.PhotoImage(img.resize((16, 16)))
     except Exception:
         pass
     _PROCESS_CACHE[pid] = (name, icon_img)
