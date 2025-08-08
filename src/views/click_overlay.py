@@ -1831,8 +1831,11 @@ class ClickOverlay(tk.Toplevel):
             except Exception:
                 pass
         use_hooks = is_supported()
+        started = False
         try:
-            if use_hooks and listener.start(on_move=self._on_move, on_click=self._click):
+            if use_hooks:
+                started = listener.start(on_move=self._on_move, on_click=self._click)
+            if use_hooks and started:
                 self._clickthrough = make_window_clickthrough(self)
                 self._using_hooks = True
                 self.state = OverlayState.HOOKED
@@ -1856,6 +1859,8 @@ class ClickOverlay(tk.Toplevel):
             return self.pid, self.title_text
         finally:
             try:
+                if started:
+                    listener.stop()
                 listener.release()
             finally:
                 self.reset()
