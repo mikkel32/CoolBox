@@ -15,7 +15,7 @@ import re
 import tkinter as tk
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
-from typing import Optional, Callable, Any, Protocol
+from typing import Optional, Callable, Any, Protocol, TYPE_CHECKING
 from enum import Enum, auto
 from threading import Lock
 import atexit
@@ -41,16 +41,15 @@ from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
 from src.config import Config
 
-QtCore: Any
-QtWidgets: Any
-QtQuick: Any
-QtOpenGL: Any
-QtGui: Any
-
 try:  # pragma: no cover - optional dependency
     from PyQt5 import QtCore, QtWidgets, QtQuick, QtOpenGL, QtGui  # type: ignore[import]
 except Exception:  # pragma: no cover - optional dependency
     QtCore = QtWidgets = QtQuick = QtOpenGL = QtGui = None
+
+if TYPE_CHECKING:  # pragma: no cover - type hint helpers
+    from PyQt5.QtWidgets import QWidget
+else:  # pragma: no cover - runtime fallback
+    QWidget = Any
 
 QT_AVAILABLE = QtWidgets is not None
 QT_QUICK_AVAILABLE = QtQuick is not None
@@ -389,7 +388,7 @@ if QT_AVAILABLE:
     class QtCanvas(CanvasAPI):  # pragma: no cover - GUI heavy
         """``CanvasAPI`` implementation using ``QGraphicsScene``."""
 
-        def __init__(self, parent: QtWidgets.QWidget) -> None:
+        def __init__(self, parent: QWidget) -> None:
             scene = QtWidgets.QGraphicsScene(parent)
             view = QtWidgets.QGraphicsView(scene, parent)
             view.setStyleSheet("background: transparent")
@@ -404,7 +403,7 @@ if QT_AVAILABLE:
             self._view = view
             self._scene = scene
 
-        def widget(self) -> QtWidgets.QWidget:
+        def widget(self) -> QWidget:
             return self._view
 
         def create_rectangle(
