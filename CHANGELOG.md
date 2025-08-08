@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.75 - 2025-08-08
+
+- **Fix:** Ignore stale Kill by Click callbacks after cancellation to avoid spurious "failed to return a process" warnings.
+
 ## 1.3.74 - 2025-08-08
 
 - **Fix:** Serialize overlay state in Kill by Click error logs to avoid JSON failures.

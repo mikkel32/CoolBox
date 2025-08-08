@@ -2427,6 +2427,8 @@ class ForceQuitDialog(BaseDialog):
             str | None,
         ] | Exception,
     ) -> None:
+        if ctx is not self._overlay_ctx:
+            return
         overlay = self._overlay
         proc = getattr(self, "_overlay_watchdog_proc", None)
         if proc is not None:
