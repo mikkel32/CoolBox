@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 1.3.42 - 2025-08-08
+
+- **Fix:** Run the Force Quit watchdog in a separate process gated by developer mode so crashes don't freeze the main app.
+
+## 1.3.41 - 2025-08-08
+
+- **Fix:** Restore Force Quit window and state when cancelling Kill by Click even if the worker thread hangs.
+
+## 1.3.40 - 2025-08-08
+
+- **Fix:** Clear Kill by Click thread on cancel even if the worker sticks so
+  retries don't hang.
+
+## 1.3.39 - 2025-08-08
+
+- **Fix:** Reset Kill by Click worker thread when cancelled so the overlay can
+  be relaunched without hanging.
+
 ## 1.3.38 - 2025-08-08
 
 - **Fix:** Replace deprecated ``psutil`` ``connections`` calls with

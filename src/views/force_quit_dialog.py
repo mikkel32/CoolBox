@@ -21,10 +21,11 @@ import time
 import socket
 import sys
 import threading
+import multiprocessing as mp
 import traceback
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
-from queue import Queue
+from queue import Empty, Queue
 from typing import Any, Optional
 import tkinter as tk
 from tkinter import messagebox, filedialog
@@ -48,6 +49,7 @@ from src.utils.helpers import (
     darken_color,
 )
 from src.utils.mouse_listener import get_global_listener
+from src.utils.force_quit_watchdog import watch_overlay
 
 # Import the click overlay early so its heavy dependencies are loaded
 # before the first "Kill by Click" invocation.
@@ -55,7 +57,6 @@ from .click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
 KILL_BY_CLICK_WATCHDOG = 5.0
 KILL_BY_CLICK_WATCHDOG_MISSES = 2
-KILL_BY_CLICK_WATCHDOG_PROBE = 0.5
 
 
 class ForceQuitDialog(BaseDialog):
@@ -142,7 +143,12 @@ class ForceQuitDialog(BaseDialog):
         self._enum_progress = 0.0
         self._actions_enabled = False
         self._overlay_thread: threading.Thread | None = None
-        self._overlay_timer: threading.Timer | None = None
+        self._overlay_watchdog_proc: mp.Process | None = None
+        self._overlay_last_ping: mp.Value | None = None
+        self._overlay_queue: mp.Queue | None = None
+        self._overlay_sync: threading.Thread | None = None
+        self._overlay_poller: threading.Thread | None = None
+        self._overlay_ctx: ForceQuitDialog._OverlayContext | None = None
         self.paused = False
         fps_env = os.getenv("FORCE_QUIT_FPS")
         if fps_env and fps_env.isdigit():
@@ -2261,6 +2267,7 @@ class ForceQuitDialog(BaseDialog):
             return
         overlay = self._overlay
         ctx = self._OverlayContext(self, overlay)
+        self._overlay_ctx = ctx
         ctx.__enter__()
 
         def run() -> None:
@@ -2301,77 +2308,83 @@ class ForceQuitDialog(BaseDialog):
 
         overlay._last_ping = time.monotonic()
         overlay._watchdog_misses = 0
-        overlay._watchdog_probe = 0.0
         self._overlay_thread = threading.Thread(target=run, daemon=True)
         self._overlay_thread.start()
         if self.app.config.get("developer_mode", False):
-            self._overlay_timer = threading.Timer(
-                KILL_BY_CLICK_WATCHDOG, self._overlay_watchdog, args=(ctx,)
+            self._overlay_last_ping = mp.Value("d", overlay._last_ping)
+            self._overlay_queue = mp.Queue()
+            self._overlay_watchdog_proc = mp.Process(
+                target=watch_overlay,
+                args=(
+                    self._overlay_last_ping,
+                    self._overlay_queue,
+                    KILL_BY_CLICK_WATCHDOG,
+                    KILL_BY_CLICK_WATCHDOG_MISSES,
+                ),
+                daemon=True,
             )
-            self._overlay_timer.daemon = True
-            self._overlay_timer.start()
+            self._overlay_watchdog_proc.start()
+            self._overlay_sync = threading.Thread(
+                target=self._sync_watchdog_ping, daemon=True
+            )
+            self._overlay_sync.start()
+            self._overlay_poller = threading.Thread(
+                target=self._poll_watchdog_queue, args=(ctx,), daemon=True
+            )
+            self._overlay_poller.start()
         else:
-            self._overlay_timer = None
+            self._overlay_watchdog_proc = None
+            self._overlay_last_ping = None
+            self._overlay_queue = None
+            self._overlay_sync = None
+            self._overlay_poller = None
 
-    def _overlay_watchdog(self, ctx: "ForceQuitDialog._OverlayContext") -> None:
-        thread = self._overlay_thread
-        if not (thread and thread.is_alive()):
-            return
-        overlay = self._overlay
-        last = getattr(overlay, "_last_ping", 0.0)
-        elapsed = time.monotonic() - last
-        probe = getattr(overlay, "_watchdog_probe", 0.0)
-        if elapsed <= KILL_BY_CLICK_WATCHDOG:
-            overlay._watchdog_misses = 0
-            overlay._watchdog_probe = 0.0
-            self._overlay_timer = threading.Timer(
-                KILL_BY_CLICK_WATCHDOG, self._overlay_watchdog, args=(ctx,)
-            )
-            self._overlay_timer.daemon = True
-            self._overlay_timer.start()
-            return
-        if probe <= last:
-            overlay._watchdog_probe = time.monotonic()
+    def _sync_watchdog_ping(self) -> None:
+        while True:
+            thread = self._overlay_thread
+            if not (thread and thread.is_alive() and self._overlay_last_ping):
+                break
             try:
-                overlay.after(0, lambda: setattr(overlay, "_last_ping", time.monotonic()))
+                self._overlay_last_ping.value = getattr(
+                    self._overlay, "_last_ping", time.monotonic()
+                )
             except Exception:
                 pass
-            self._overlay_timer = threading.Timer(
-                KILL_BY_CLICK_WATCHDOG_PROBE, self._overlay_watchdog, args=(ctx,)
-            )
-            self._overlay_timer.daemon = True
-            self._overlay_timer.start()
-            return
-        overlay._watchdog_probe = 0.0
-        overlay._watchdog_misses = getattr(overlay, "_watchdog_misses", 0) + 1
-        if overlay._watchdog_misses < KILL_BY_CLICK_WATCHDOG_MISSES:
-            self._overlay_timer = threading.Timer(
-                KILL_BY_CLICK_WATCHDOG, self._overlay_watchdog, args=(ctx,)
-            )
-            self._overlay_timer.daemon = True
-            self._overlay_timer.start()
-            return
-        def _safe(name: str):
-            val = getattr(overlay, name, None)
-            return None if isinstance(val, Mock) else val
-        info = {
-            "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-            "state": _safe("state"),
-            "cursor": {"x": _safe("_cursor_x"), "y": _safe("_cursor_y")},
-            "hover_pid": _safe("pid"),
-            "hover_title": _safe("title_text"),
-            "missed_heartbeats": overlay._watchdog_misses,
-            "stalled_for": round(elapsed, 3),
-            "stack": traceback.format_stack(limit=5),
-        }
-        print("Kill by Click timed out", file=sys.stderr)
-        print(json.dumps(info, indent=2), file=sys.stderr)
-        try:
-            overlay.close()
-        except Exception:
-            pass
-        self._overlay_thread = None
-        self.after(0, lambda: self._finish_kill_by_click(ctx, TimeoutError("watchdog")))
+            time.sleep(0.05)
+
+    def _poll_watchdog_queue(self, ctx: "ForceQuitDialog._OverlayContext") -> None:
+        q = self._overlay_queue
+        proc = self._overlay_watchdog_proc
+        while q and proc and proc.is_alive():
+            try:
+                msg = q.get(timeout=KILL_BY_CLICK_WATCHDOG)
+            except Empty:
+                continue
+            overlay = self._overlay
+            elapsed = msg.get("elapsed", 0.0)
+            misses = msg.get("misses", 0)
+            def _safe(name: str):
+                val = getattr(overlay, name, None)
+                return None if isinstance(val, Mock) else val
+            info = {
+                "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                "state": _safe("state"),
+                "cursor": {"x": _safe("_cursor_x"), "y": _safe("_cursor_y")},
+                "hover_pid": _safe("pid"),
+                "hover_title": _safe("title_text"),
+                "missed_heartbeats": misses,
+                "stalled_for": round(elapsed, 3),
+                "stack": traceback.format_stack(limit=5),
+            }
+            print("Kill by Click timed out", file=sys.stderr)
+            print(json.dumps(info, indent=2), file=sys.stderr)
+            try:
+                overlay.close()
+            except Exception:
+                pass
+            self._overlay_thread = None
+            self.after(0, lambda: self._finish_kill_by_click(ctx, TimeoutError("watchdog")))
+            break
 
     def _finish_kill_by_click(
         self,
@@ -2385,12 +2398,24 @@ class ForceQuitDialog(BaseDialog):
         ] | Exception,
     ) -> None:
         overlay = self._overlay
-        timer = getattr(self, "_overlay_timer", None)
-        if timer is not None:
-            timer.cancel()
-            self._overlay_timer = None
+        proc = getattr(self, "_overlay_watchdog_proc", None)
+        if proc is not None:
+            proc.terminate()
+            proc.join(timeout=0.1)
+            self._overlay_watchdog_proc = None
+        sync = getattr(self, "_overlay_sync", None)
+        if sync is not None and sync.is_alive():
+            sync.join(timeout=0.1)
+        self._overlay_sync = None
+        poller = getattr(self, "_overlay_poller", None)
+        if poller is not None and poller.is_alive():
+            poller.join(timeout=0.1)
+        self._overlay_poller = None
+        self._overlay_queue = None
+        self._overlay_last_ping = None
         if isinstance(result, Exception):
             ctx.__exit__(type(result), result, result.__traceback__)
+            self._overlay_ctx = None
             self._overlay_thread = None
             def _safe(name: str):
                 val = getattr(overlay, name, None)
@@ -2422,6 +2447,7 @@ class ForceQuitDialog(BaseDialog):
             return
         pid, title, ctime, cmd, exe = result
         ctx.__exit__(None, None, None)
+        self._overlay_ctx = None
         self._overlay_thread = None
         if pid is None:
             def _safe(name: str):
@@ -2586,15 +2612,33 @@ class ForceQuitDialog(BaseDialog):
 
     def cancel_kill_by_click(self) -> None:
         """Abort an in-progress Kill by Click operation."""
-        if self._overlay_thread and self._overlay_thread.is_alive():
+        thread = self._overlay_thread
+        if thread and thread.is_alive():
             try:
                 self._overlay.close()
             except Exception:
                 pass
-        timer = getattr(self, "_overlay_timer", None)
-        if timer is not None:
-            timer.cancel()
-            self._overlay_timer = None
+            thread.join(timeout=0.1)
+        self._overlay_thread = None
+        proc = getattr(self, "_overlay_watchdog_proc", None)
+        if proc is not None:
+            proc.terminate()
+            proc.join(timeout=0.1)
+            self._overlay_watchdog_proc = None
+        sync = getattr(self, "_overlay_sync", None)
+        if sync is not None and sync.is_alive():
+            sync.join(timeout=0.1)
+        self._overlay_sync = None
+        poller = getattr(self, "_overlay_poller", None)
+        if poller is not None and poller.is_alive():
+            poller.join(timeout=0.1)
+        self._overlay_poller = None
+        self._overlay_queue = None
+        self._overlay_last_ping = None
+        ctx = getattr(self, "_overlay_ctx", None)
+        if ctx is not None:
+            ctx.__exit__(None, None, None)
+            self._overlay_ctx = None
 
     def _calibrate_click_interval(self) -> None:
         """Re-run click interval calibration."""
