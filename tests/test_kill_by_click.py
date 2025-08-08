@@ -715,6 +715,10 @@ def test_kill_by_click_watchdog_reports_timeout() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
+    def _reset() -> None:
+        overlay._last_ping = time.monotonic()
+        overlay._watchdog_misses = 0
+    overlay.reset_watchdog = mock.Mock(side_effect=_reset)
     overlay.choose.side_effect = lambda: time.sleep(0.5) or (None, None)
 
     dialog._overlay = overlay
@@ -761,11 +765,14 @@ def test_kill_by_click_watchdog_ignores_recent_activity() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
-    overlay._last_ping = time.monotonic()
+    def _reset() -> None:
+        overlay._last_ping = time.monotonic()
+        overlay._watchdog_misses = 0
+    overlay.reset_watchdog = mock.Mock(side_effect=_reset)
 
     def choose() -> tuple[int | None, str | None]:
         for _ in range(5):
-            overlay._last_ping = time.monotonic()
+            overlay.reset_watchdog()
             time.sleep(0.02)
         return (None, None)
 
@@ -814,6 +821,10 @@ def test_kill_by_click_watchdog_requires_multiple_misses() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
+    def _reset() -> None:
+        overlay._last_ping = time.monotonic()
+        overlay._watchdog_misses = 0
+    overlay.reset_watchdog = mock.Mock(side_effect=_reset)
     overlay.choose.side_effect = lambda: time.sleep(0.5) or (None, None)
 
     dialog._overlay = overlay
@@ -857,6 +868,10 @@ def test_kill_by_click_watchdog_separate_process() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
+    def _reset() -> None:
+        overlay._last_ping = time.monotonic()
+        overlay._watchdog_misses = 0
+    overlay.reset_watchdog = mock.Mock(side_effect=_reset)
     overlay.choose.side_effect = lambda: time.sleep(0.5) or (None, None)
 
     dialog._overlay = overlay
@@ -896,6 +911,10 @@ def test_kill_by_click_watchdog_disabled_without_developer_mode() -> None:
     overlay.label = object()
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
+    def _reset() -> None:
+        overlay._last_ping = time.monotonic()
+        overlay._watchdog_misses = 0
+    overlay.reset_watchdog = mock.Mock(side_effect=_reset)
     overlay.choose.return_value = (None, None)
 
     dialog._overlay = overlay

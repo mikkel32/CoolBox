@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.56 - 2025-08-08
+
+- **Refactor:** Add watchdog heartbeat reset helper and expose misses counter.
+
 ## 1.3.55 - 2025-08-08
 
 - **Fix:** Stop the global listener only when it successfully starts to avoid erroneous stop calls.

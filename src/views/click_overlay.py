@@ -589,6 +589,7 @@ class ClickOverlay(tk.Toplevel):
         self.backend = "canvas"
         self._closed = tk.BooleanVar(value=False)
         self._last_ping = time.monotonic()
+        self._watchdog_misses = 0
         env = os.getenv("KILL_BY_CLICK_CROSSHAIR")
         if env in ("0", "false", "no"):
             show_crosshair = False
@@ -1708,6 +1709,11 @@ class ClickOverlay(tk.Toplevel):
             self.delay_scale = tuning.delay_scale
         env = os.getenv("KILL_BY_CLICK_SKIP_CONFIRM")
         self.skip_confirm = env not in (None, "0", "false", "no")
+
+    def reset_watchdog(self) -> None:
+        """Record a heartbeat for the external watchdog."""
+        self._last_ping = time.monotonic()
+        self._watchdog_misses = 0
 
     def reset(self) -> None:
         """Hide the overlay and clear runtime state."""
