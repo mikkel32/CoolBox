@@ -94,6 +94,7 @@ def test_kill_by_click_selects_and_kills_pid() -> None:
         overlay.on_hover(789, "win")
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         Proc.return_value.create_time.return_value = 1.0
         Proc.return_value.cmdline.return_value = ["cmd"]
         Proc.return_value.exe.return_value = "/bin/foo"
@@ -330,6 +331,7 @@ def test_kill_by_click_reports_when_no_selection(capsys) -> None:
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (None, None, None, None, None))
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
@@ -370,6 +372,7 @@ def test_kill_by_click_skips_vanished_process() -> None:
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "gone", 1.0, ("cmd",), "/bin/old"))
         MB.showwarning.assert_called_once()
 
@@ -414,6 +417,7 @@ def test_kill_by_click_skips_pid_reuse() -> None:
         Proc.return_value.exe.return_value = "/bin/original"
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "reused", 1.0, ("cmd",), "/bin/original"))
         MB.showwarning.assert_called_once()
 
@@ -458,6 +462,7 @@ def test_kill_by_click_skips_cmdline_change() -> None:
         Proc.return_value.exe.return_value = "/bin/exe"
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "changed", 1.0, ("old",), "/bin/exe"))
         MB.showwarning.assert_called_once()
 
@@ -502,6 +507,7 @@ def test_kill_by_click_skips_exe_change() -> None:
         Proc.return_value.exe.return_value = "/bin/new"
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "changed", 1.0, ("cmd",), "/bin/old"))
         MB.showwarning.assert_called_once()
 
@@ -542,6 +548,7 @@ def test_kill_by_click_skips_self() -> None:
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (os.getpid(), "self", None, None, None))
         MB.showwarning.assert_called_once()
 
@@ -582,6 +589,7 @@ def test_kill_by_click_handles_no_selection() -> None:
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (None, None, None, None, None))
         MB.showwarning.assert_called_once()
 
@@ -618,11 +626,46 @@ def test_kill_by_click_reports_exception() -> None:
     with patch("builtins.print") as mock_print:
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, RuntimeError("boom"))
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click raised an exception" in out
     assert "boom" in out
+    dialog.force_kill.assert_not_called()
+
+
+def test_finish_kill_by_click_ignores_stale_context() -> None:
+    dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+    dialog._overlay_thread = None
+    dialog.accent = "#f00"
+    dialog.paused = True
+    dialog._watcher = mock.Mock()
+    dialog._populate = mock.Mock()
+    dialog.withdraw = mock.Mock()
+    dialog.deiconify = mock.Mock()
+    dialog.after_idle = mock.Mock()
+    dialog.force_kill = mock.Mock()
+    dialog._highlight_pid = mock.Mock()
+
+    overlay = mock.Mock()
+    overlay.canvas = mock.Mock()
+    overlay.rect = object()
+    overlay.hline = object()
+    overlay.vline = object()
+    overlay.label = object()
+    overlay.reset = mock.Mock()
+    overlay.apply_defaults = mock.Mock()
+
+    dialog._overlay = overlay
+    dialog.app = SimpleNamespace(config={"developer_mode": True})
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+    ctx = dialog._OverlayContext(dialog, overlay)
+    ctx.__enter__()
+    dialog._overlay_ctx = None
+    with patch("builtins.print") as mock_print:
+        dialog._finish_kill_by_click(ctx, (None, None, None, None, None))
+    assert mock_print.call_count == 0
     dialog.force_kill.assert_not_called()
 
 
@@ -660,6 +703,7 @@ def test_kill_by_click_reports_when_kill_fails() -> None:
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
+        dialog._overlay_ctx = ctx
         Proc.return_value.create_time.return_value = 1.0
         Proc.return_value.cmdline.return_value = ["cmd"]
         Proc.return_value.exe.return_value = "/bin/bad"
