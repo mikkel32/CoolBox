@@ -21,6 +21,7 @@ from src.views.click_overlay import (  # noqa: E402
     COLORKEY_RECHECK_MS,
     OverlayState,
     DEFAULT_INTERVAL,
+    HOOK_PING_TIMEOUT,
 )
 from src.views.force_quit_dialog import ForceQuitDialog  # noqa: E402
 
@@ -1069,13 +1070,27 @@ class TestClickOverlay(unittest.TestCase):
 
         overlay.after = fake_after
         overlay.after_cancel = fake_after_cancel
-        overlay._update_rect = lambda e=None: None
-        overlay.wait_window = lambda: None
-        with patch("src.views.click_overlay.capture_mouse") as cap:
-            cm = cap.return_value
-            cm.__enter__.return_value = None
+        overlay._queue_update = lambda *a, **k: None
+        overlay.wait_variable = lambda *a, **k: None
+
+        class DummyListener:
+            def start(self, on_move=None, on_click=None):
+                return True
+
+            def stop(self):
+                pass
+
+        with (
+            patch(
+                "src.views.click_overlay.get_global_listener",
+                return_value=DummyListener(),
+            ),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough",
+                return_value=True,
+            ),
+        ):
             overlay.choose()
-            cap.assert_called_once()
         self.assertEqual(calls[0], int(1.5 * 1000))
 
         overlay.close()
@@ -1090,18 +1105,28 @@ class TestClickOverlay(unittest.TestCase):
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
-        overlay._update_rect = lambda e=None: None
-        overlay.wait_window = lambda: None
+        overlay._queue_update = lambda *a, **k: None
+        overlay.wait_variable = lambda *a, **k: None
+
+        class DummyListener:
+            def start(self, on_move=None, on_click=None):
+                return True
+
+            def stop(self):
+                pass
+
         with (
+            patch(
+                "src.views.click_overlay.get_global_listener",
+                return_value=DummyListener(),
+            ),
             patch(
                 "src.views.click_overlay.make_window_clickthrough",
                 return_value=False,
             ),
-            patch("src.views.click_overlay.capture_mouse") as cap,
         ):
-            cap.return_value.__enter__.return_value = None
             overlay.choose()
-            cap.assert_not_called()
+        self.assertFalse(overlay._using_hooks)
 
         overlay.destroy()
         root.destroy()
@@ -1121,19 +1146,91 @@ class TestClickOverlay(unittest.TestCase):
         ):
             overlay = ClickOverlay(root)
 
-        overlay._update_rect = lambda e=None: None
-        overlay.wait_window = lambda: None
+        overlay._queue_update = lambda *a, **k: None
+        overlay.wait_variable = lambda *a, **k: None
+
+        listener = Mock()
+        listener.start.return_value = False
+
         with (
+            patch(
+                "src.views.click_overlay.get_global_listener",
+                return_value=listener,
+            ),
+            patch("src.views.click_overlay.make_window_clickthrough") as mk,
             patch("src.views.click_overlay.remove_window_clickthrough") as rm,
-            patch("src.views.click_overlay.capture_mouse") as cap,
         ):
-            cm = cap.return_value
-            cm.__enter__.return_value = None
             overlay.choose()
-            cap.assert_called_once()
-            rm.assert_called_once_with(overlay)
+            listener.start.assert_called_once()
+            mk.assert_not_called()
+            rm.assert_not_called()
             self.assertFalse(overlay._using_hooks)
             self.assertFalse(overlay._clickthrough)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_hooks_fail_without_clickthrough(self) -> None:
+        root = tk.Tk()
+        with (
+            patch("src.views.click_overlay.is_supported", return_value=True),
+            patch(
+                "src.views.click_overlay.get_active_window",
+                return_value=WindowInfo(None),
+            ),
+        ):
+            overlay = ClickOverlay(root)
+
+        overlay._queue_update = lambda *a, **k: None
+        overlay.wait_variable = lambda *a, **k: None
+
+        class DummyListener:
+            def start(self, on_move=None, on_click=None):
+                return False if on_move or on_click else True
+
+            def stop(self):
+                pass
+
+        with (
+            patch(
+                "src.views.click_overlay.get_global_listener",
+                return_value=DummyListener(),
+            ),
+            patch("src.views.click_overlay.make_window_clickthrough") as mk,
+            patch("src.views.click_overlay.remove_window_clickthrough"),
+        ):
+            overlay.choose()
+            mk.assert_not_called()
+            self.assertFalse(overlay._clickthrough)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_unresponsive_hooks_fall_back_to_polling(self) -> None:
+        root = tk.Tk()
+        with patch(
+            "src.views.click_overlay.get_active_window", return_value=WindowInfo(None)
+        ):
+            overlay = ClickOverlay(root)
+
+        overlay._queue_update = lambda *a, **k: None
+        overlay._listener = type("L", (), {"stop": lambda self: None})()
+        overlay._using_hooks = True
+        overlay._clickthrough = True
+        overlay.state = OverlayState.HOOKED
+        overlay._last_ping = time.monotonic() - (HOOK_PING_TIMEOUT + 0.1)
+
+        with patch("src.views.click_overlay.remove_window_clickthrough") as rm:
+            overlay._monitor_hooks()
+            rm.assert_called_once()
+
+        self.assertFalse(overlay._using_hooks)
+        self.assertFalse(overlay._clickthrough)
+        self.assertEqual(overlay.state, OverlayState.POLLING)
+        self.assertIsNotNone(overlay.bind("<Motion>"))
+        self.assertIsNotNone(overlay.bind("<Button-1>"))
 
         overlay.destroy()
         root.destroy()
@@ -1153,13 +1250,25 @@ class TestClickOverlay(unittest.TestCase):
         ):
             overlay = ClickOverlay(root)
 
-        overlay._update_rect = lambda e=None: None
-        overlay.wait_window = lambda: None
-        with patch("src.views.click_overlay.capture_mouse") as cap:
-            cm = cap.return_value
-            cm.__enter__.return_value = object()
+        overlay._queue_update = lambda *a, **k: None
+        overlay.wait_variable = lambda *a, **k: None
+
+        listener = Mock()
+        listener.start.return_value = True
+        listener.stop = Mock()
+
+        with (
+            patch(
+                "src.views.click_overlay.get_global_listener",
+                return_value=listener,
+            ),
+            patch(
+                "src.views.click_overlay.make_window_clickthrough",
+                return_value=True,
+            ),
+        ):
             overlay.choose()
-            cap.assert_called_once()
+            listener.start.assert_called_once()
             self.assertTrue(overlay._using_hooks)
 
         overlay.destroy()
@@ -1210,19 +1319,28 @@ class TestClickOverlay(unittest.TestCase):
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
-        overlay.wait_window = lambda: None
-        overlay._update_rect = lambda e=None: None
+        overlay.wait_variable = lambda *a, **k: None
+        overlay._queue_update = lambda *a, **k: None
+
+        class DummyListener:
+            def start(self, on_move=None, on_click=None):
+                return True
+
+            def stop(self):
+                pass
+
         with (
+            patch(
+                "src.views.click_overlay.get_global_listener",
+                return_value=DummyListener(),
+            ),
             patch(
                 "src.views.click_overlay.make_window_clickthrough",
                 return_value=False,
             ),
-            patch("src.views.click_overlay.capture_mouse") as cap,
             patch.object(overlay, "bind") as bind_mock,
         ):
-            cap.return_value.__enter__.return_value = None
             overlay.choose()
-            cap.assert_not_called()
             bind_mock.assert_any_call("<Motion>", overlay._queue_update)
 
         overlay.destroy()
