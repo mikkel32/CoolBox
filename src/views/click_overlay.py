@@ -686,25 +686,32 @@ class ClickOverlay(tk.Toplevel):
                 True,
             )
         self.adaptive_interval = adaptive_interval
-        self.interval = interval
+        self.interval = max(interval, 0.0)
         if min_interval is None:
-            self.min_interval = _load_calibrated(
-                "KILL_BY_CLICK_MIN_INTERVAL",
-                "kill_by_click_min_interval",
-                tuning.min_interval,
+            self.min_interval = max(
+                _load_calibrated(
+                    "KILL_BY_CLICK_MIN_INTERVAL",
+                    "kill_by_click_min_interval",
+                    tuning.min_interval,
+                ),
+                0.0,
             )
         else:
-            self.min_interval = min_interval
+            self.min_interval = max(min_interval, 0.0)
         if max_interval is None:
-            self.max_interval = _load_calibrated(
-                "KILL_BY_CLICK_MAX_INTERVAL",
-                "kill_by_click_max_interval",
-                tuning.max_interval,
+            self.max_interval = max(
+                _load_calibrated(
+                    "KILL_BY_CLICK_MAX_INTERVAL",
+                    "kill_by_click_max_interval",
+                    tuning.max_interval,
+                ),
+                0.0,
             )
         else:
-            self.max_interval = max_interval
+            self.max_interval = max(max_interval, 0.0)
         if self.min_interval > self.max_interval:
             self.min_interval, self.max_interval = self.max_interval, self.min_interval
+        self.interval = min(max(self.interval, self.min_interval), self.max_interval)
         if delay_scale is None:
             try:
                 self.delay_scale = float(
