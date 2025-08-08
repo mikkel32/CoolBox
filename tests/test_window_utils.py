@@ -61,6 +61,60 @@ class TestWindowUtils(unittest.TestCase):
             info = wu.get_window_under_cursor()
         self.assertEqual(info, wu.WindowInfo(None))
 
+    def test_get_window_at_no_match_mac(self):
+        from src.utils import window_utils as wu
+
+        fake_quartz = type(
+            "Q",
+            (),
+            {
+                "CGWindowListCopyWindowInfo": lambda _opt, _id: [
+                    {"kCGWindowBounds": {"X": 0, "Y": 0, "Width": 10, "Height": 10}}
+                ],
+                "kCGWindowListOptionOnScreenOnly": 0,
+                "kCGNullWindowID": 0,
+            },
+        )
+
+        with (
+            mock.patch.object(wu.sys, "platform", "darwin"),
+            mock.patch.dict(sys.modules, {"Quartz": fake_quartz}),
+        ):
+            info = wu.get_window_at(100, 100)
+        self.assertEqual(info, wu.WindowInfo(None))
+
+    def test_get_window_at_match_mac(self):
+        from src.utils import window_utils as wu
+
+        windows = [
+            {"kCGWindowBounds": {"X": 0, "Y": 0, "Width": 5, "Height": 5}},
+            {
+                "kCGWindowBounds": {"X": 10, "Y": 10, "Width": 20, "Height": 20},
+                "kCGWindowOwnerPID": 1,
+                "kCGWindowName": "target",
+            },
+            {"kCGWindowBounds": {"X": 30, "Y": 30, "Width": 5, "Height": 5}},
+        ]
+
+        fake_quartz = type(
+            "Q",
+            (),
+            {
+                "CGWindowListCopyWindowInfo": lambda _opt, _id: windows,
+                "kCGWindowListOptionOnScreenOnly": 0,
+                "kCGNullWindowID": 0,
+            },
+        )
+
+        with (
+            mock.patch.object(wu.sys, "platform", "darwin"),
+            mock.patch.dict(sys.modules, {"Quartz": fake_quartz}),
+        ):
+            info = wu.get_window_at(15, 15)
+        self.assertEqual(info.pid, 1)
+        self.assertEqual(info.rect, (10, 10, 20, 20))
+        self.assertEqual(info.title, "target")
+
     def test_support_flags(self):
         self.assertIsInstance(has_active_window_support(), bool)
         self.assertIsInstance(has_cursor_window_support(), bool)

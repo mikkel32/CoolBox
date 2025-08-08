@@ -676,6 +676,9 @@ def get_window_at(x: int, y: int) -> WindowInfo:
                 Quartz.kCGWindowListOptionOnScreenOnly,
                 Quartz.kCGNullWindowID,
             )
+            pid = None
+            title = None
+            wx = wy = ww = wh = 0
             for win in windows:
                 bounds = win.get("kCGWindowBounds")
                 if not bounds:
@@ -687,6 +690,9 @@ def get_window_at(x: int, y: int) -> WindowInfo:
                 if wx <= x <= wx + ww and wy <= y <= wy + wh:
                     pid = int(win.get("kCGWindowOwnerPID", 0))
                     title = win.get("kCGWindowName")
+                    break
+            if pid is None:
+                return WindowInfo(None)
             return WindowInfo(pid, (wx, wy, ww, wh), title)
         except Exception:
             return WindowInfo(None)
