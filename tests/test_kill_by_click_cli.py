@@ -1,3 +1,22 @@
+import os
+import sys
+from types import SimpleNamespace
+from unittest import mock
+import pytest
+
+os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
+psutil_stub = SimpleNamespace(net_if_addrs=lambda: {}, Process=object, pid_exists=lambda pid: True)
+sys.modules.setdefault("psutil", psutil_stub)
+sys.modules.setdefault("PIL", mock.Mock())
+sys.modules.setdefault("PIL.Image", mock.Mock())
+sys.modules.setdefault("PIL.ImageTk", mock.Mock())
+sys.modules.setdefault("pyperclip", mock.Mock())
+sys.modules.setdefault("matplotlib", mock.Mock())
+sys.modules.setdefault("matplotlib.pyplot", mock.Mock())
+sys.modules.setdefault("matplotlib.backends", mock.Mock())
+sys.modules.setdefault("matplotlib.backends.backend_tkagg", mock.Mock())
+sys.modules.setdefault("matplotlib.figure", mock.Mock())
+
 import scripts.kill_by_click as kbc
 
 
@@ -57,3 +76,14 @@ def test_calibrate_flag(monkeypatch, capsys):
     kbc.main(['--calibrate'])
     out = capsys.readouterr().out
     assert 'Calibrated' in out
+
+
+def test_main_no_display(monkeypatch, capsys):
+    def raise_err():
+        raise kbc.tk.TclError('no display')
+
+    monkeypatch.setattr(kbc.tk, 'Tk', raise_err)
+    with pytest.raises(SystemExit) as e:
+        kbc.main([])
+    assert e.value.code != 0
+    assert 'No display available' in capsys.readouterr().out

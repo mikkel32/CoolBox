@@ -2,6 +2,7 @@
 """Select a window by clicking it and print the PID and title."""
 
 import argparse
+import sys
 import tkinter as tk
 from src.views.click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
 
@@ -49,7 +50,11 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Calibrated: interval={interval:.4f} min={min_i:.4f} max={max_i:.4f}")
         return
 
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        print("No display available")
+        sys.exit(1)
     root.withdraw()
     kwargs = {"skip_confirm": args.skip_confirm, "interval": args.interval}
     if args.min_interval is not None:
