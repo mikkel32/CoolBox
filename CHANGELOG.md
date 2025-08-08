@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.58 - 2025-08-08
+
+- **Fix:** Load process icons within a context manager to ensure files close promptly.
+
 ## 1.3.57 - 2025-08-08
 
 - **Fix:** Restore configured refresh intervals after reset by reapplying defaults.
