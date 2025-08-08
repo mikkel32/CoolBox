@@ -2482,6 +2482,41 @@ class ForceQuitDialog(BaseDialog):
             }
             print("Kill by Click failed to return a process", file=sys.stderr)
             print(json.dumps(info, indent=2), file=sys.stderr)
+            messagebox.showwarning(
+                "Force Quit", "No process was selected", parent=self
+            )
+            self._populate()
+            return
+        if pid == os.getpid():
+            def _safe(name: str):
+                val = getattr(overlay, name, None)
+                return None if isinstance(val, Mock) else val
+            last = getattr(overlay, "_last_ping", 0.0)
+            if isinstance(last, Mock):
+                last = 0.0
+            misses = getattr(overlay, "_watchdog_misses", 0)
+            if isinstance(misses, Mock):
+                misses = 0
+            info = {
+                "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                "pid": pid,
+                "title": title,
+                "cmdline": cmd,
+                "exe": exe,
+                "state": _safe("state"),
+                "cursor": {"x": _safe("_cursor_x"), "y": _safe("_cursor_y")},
+                "hover_pid": _safe("pid"),
+                "hover_title": _safe("title_text"),
+                "missed_heartbeats": misses,
+                "stalled_for": round(time.monotonic() - last, 3),
+                "stack": traceback.format_stack(limit=5),
+            }
+            print("Kill by Click refused to terminate self", file=sys.stderr)
+            print(json.dumps(info, indent=2), file=sys.stderr)
+            messagebox.showwarning(
+                "Force Quit", "Cannot terminate this application", parent=self
+            )
+            self._populate()
             return
         def _target_vanished() -> None:
             def _safe(name: str):
