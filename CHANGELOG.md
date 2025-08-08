@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 1.3.72 - 2025-08-08
+
+- **Fix:** Define Qt widget type aliases for Pylance-friendly annotations.
+
 ## 1.3.71 - 2025-08-08
 
 - **Fix:** Guard optional PyQt5 imports and annotate Qt types to satisfy linters.
