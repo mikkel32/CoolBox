@@ -107,3 +107,44 @@ def test_wrap_callbacks_log_exceptions(monkeypatch):
     key_cb(object())
 
     assert len(messages) == 3
+
+
+def test_stop_logs_when_join_times_out(monkeypatch):
+    messages = []
+    monkeypatch.setattr(mouse_listener, "log", lambda msg: messages.append(msg))
+
+    class StuckListener:
+        def __init__(self, *args, **kwargs):
+            self.join_timeout = None
+
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def join(self, timeout=None):
+            self.join_timeout = timeout
+
+        def is_alive(self):
+            return True
+
+    class DummyMouse:
+        Listener = StuckListener
+
+    class DummyKeyboard:
+        Listener = StuckListener
+
+    monkeypatch.setattr(mouse_listener, "mouse", DummyMouse)
+    monkeypatch.setattr(mouse_listener, "keyboard", DummyKeyboard)
+
+    listener = mouse_listener.GlobalMouseListener()
+    assert listener.start(on_move=lambda x, y: None, on_key=lambda k, p: None)
+    mouse_inst = listener._mouse_listener
+    keyboard_inst = listener._keyboard_listener
+    listener.stop(force=True)
+
+    assert mouse_inst.join_timeout is not None
+    assert keyboard_inst.join_timeout is not None
+    assert any("mouse listener" in m and "failed" in m for m in messages)
+    assert any("keyboard listener" in m and "failed" in m for m in messages)
