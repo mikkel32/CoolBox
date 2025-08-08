@@ -3,6 +3,7 @@ from __future__ import annotations
 """Helpers for retrieving information about desktop windows."""
 
 import ctypes
+import logging
 import os
 import re
 import shutil
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import warnings
 from collections import deque
 from dataclasses import dataclass
 from ctypes import wintypes
@@ -29,6 +31,8 @@ except Exception:  # noqa: F401
     _NET_CLIENT_LIST_STACKING = None
     _WM_PID = None
     _WM_NAME = None
+
+logger = logging.getLogger(__name__)
 
 # Cache populated by a background enumeration thread.  The cache is intentionally
 # long lived so repeated overlay updates can reuse results without blocking.
@@ -159,17 +163,28 @@ def has_active_window_support() -> bool:
     return bool(shutil.which("xdotool") and shutil.which("xprop"))
 
 
-def has_cursor_window_support() -> bool:
+def has_cursor_window_support(*, warn: bool = False) -> bool:
     """Return ``True`` if detecting the window under the cursor is supported."""
     if sys.platform.startswith("win"):
         return True
     if sys.platform == "darwin":
         try:
             import Quartz  # noqa: F401
-        except Exception:
+        except Exception as exc:
+            logger.exception("Quartz import failed")
+            if warn:
+                warnings.warn(
+                    f"Cursor window detection unavailable: {exc}",
+                    RuntimeWarning,
+                )
             return False
         return True
     if not os.environ.get("DISPLAY"):
+        if warn:
+            warnings.warn(
+                "Cursor window detection unavailable: DISPLAY not set",
+                RuntimeWarning,
+            )
         return False
     return bool(
         shutil.which("xdotool") and shutil.which("xprop") and shutil.which("xwininfo")
@@ -951,7 +966,7 @@ def list_windows_at(x: int, y: int, depth: int | None = None) -> List[WindowInfo
     return stack
 
 
-def make_window_clickthrough(win: Any) -> bool:
+def make_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
     """Attempt to make ``win`` ignore mouse events.
 
     Parameters
@@ -994,18 +1009,30 @@ def make_window_clickthrough(win: Any) -> bool:
                 ns_win = objc.objc_object(c_void_p=win.winfo_id())
                 NSWindow(ns_win).setIgnoresMouseEvents_(True)
                 return True
-            except Exception:
+            except Exception as exc:
+                logger.exception("macOS clickthrough failed")
+                if warn:
+                    warnings.warn(
+                        f"Click-through unsupported: {exc}",
+                        RuntimeWarning,
+                    )
                 return False
 
         # X11: fall back to making the background fully transparent
         win.attributes("-transparentcolor", win.cget("bg"))
         win.update_idletasks()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.exception("clickthrough setup failed")
+        if warn:
+            warnings.warn(
+                f"Click-through setup failed: {exc}",
+                RuntimeWarning,
+            )
         return False
 
 
-def remove_window_clickthrough(win: Any) -> bool:
+def remove_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
     """Attempt to restore normal mouse interaction for ``win``.
 
     Parameters
@@ -1040,17 +1067,29 @@ def remove_window_clickthrough(win: Any) -> bool:
                 ns_win = objc.objc_object(c_void_p=win.winfo_id())
                 NSWindow(ns_win).setIgnoresMouseEvents_(False)
                 return True
-            except Exception:
+            except Exception as exc:
+                logger.exception("macOS clickthrough restore failed")
+                if warn:
+                    warnings.warn(
+                        f"Restore click-through failed: {exc}",
+                        RuntimeWarning,
+                    )
                 return False
 
         win.attributes("-transparentcolor", "")
         win.update_idletasks()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.exception("clickthrough restore failed")
+        if warn:
+            warnings.warn(
+                f"Click-through restore failed: {exc}",
+                RuntimeWarning,
+            )
         return False
 
 
-def set_window_colorkey(win: Any) -> bool:
+def set_window_colorkey(win: Any, *, warn: bool = False) -> bool:
     """Set a transparent color key for ``win`` without changing event handling."""
 
     try:
@@ -1080,11 +1119,23 @@ def set_window_colorkey(win: Any) -> bool:
                 NSWindow(ns_win).setOpaque_(False)
                 NSWindow(ns_win).setBackgroundColor_(NSColor.clearColor())
                 return True
-            except Exception:
+            except Exception as exc:
+                logger.exception("macOS colorkey failed")
+                if warn:
+                    warnings.warn(
+                        f"Color key unsupported: {exc}",
+                        RuntimeWarning,
+                    )
                 return False
 
         win.attributes("-transparentcolor", win.cget("bg"))
         win.update_idletasks()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.exception("colorkey setup failed")
+        if warn:
+            warnings.warn(
+                f"Color key setup failed: {exc}",
+                RuntimeWarning,
+            )
         return False
