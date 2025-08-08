@@ -140,6 +140,29 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_reset_applies_defaults(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "KILL_BY_CLICK_INTERVAL": "0.2",
+                "KILL_BY_CLICK_MIN_INTERVAL": "0.1",
+                "KILL_BY_CLICK_MAX_INTERVAL": "0.3",
+            },
+        ):
+            root = tk.Tk()
+            with patch("src.views.click_overlay.is_supported", return_value=False):
+                overlay = ClickOverlay(root)
+            overlay.interval = 5
+            overlay.min_interval = 6
+            overlay.max_interval = 7
+            overlay.reset()
+            self.assertAlmostEqual(overlay.interval, 0.2)
+            self.assertAlmostEqual(overlay.min_interval, 0.1)
+            self.assertAlmostEqual(overlay.max_interval, 0.3)
+            overlay.destroy()
+            root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_enriched_label_uses_process_name(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):

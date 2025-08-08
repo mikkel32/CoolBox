@@ -1755,9 +1755,7 @@ class ClickOverlay(tk.Toplevel):
         self._closed.set(False)
         self.update_state = UpdateState.IDLE
         self.state = OverlayState.INIT
-        self.interval = tuning.interval
-        self.min_interval = tuning.min_interval
-        self.max_interval = tuning.max_interval
+        self.apply_defaults()
 
     def close(self, _e: object | None = None) -> None:
         if self._after_id is not None:
