@@ -21,7 +21,11 @@ import threading
 from contextlib import contextmanager
 from typing import Callable, Optional
 
+import logging
+
 from .helpers import log
+
+logger = logging.getLogger(__name__)
 
 _JOIN_TIMEOUT = 0.2  # seconds
 
@@ -251,8 +255,8 @@ class GlobalMouseListener:
         def _on_move(x: int, y: int) -> None:
             try:
                 cb(x, y)
-            except Exception as e:
-                log(f"move callback error: {e}")
+            except Exception:
+                logger.exception("move callback error")
 
         return _on_move
 
@@ -264,8 +268,8 @@ class GlobalMouseListener:
             try:
                 if button == getattr(mouse, "Button", object()).left:
                     cb(x, y, pressed)
-            except Exception as e:
-                log(f"click callback error: {e}")
+            except Exception:
+                logger.exception("click callback error")
 
         return _on_click
 
@@ -276,8 +280,8 @@ class GlobalMouseListener:
         def _on_press(key) -> None:
             try:
                 cb(getattr(key, "vk", getattr(getattr(key, "value", key), "vk", 0)), True)
-            except Exception as e:
-                log(f"key callback error: {e}")
+            except Exception:
+                logger.exception("key callback error")
 
         return _on_press
 
