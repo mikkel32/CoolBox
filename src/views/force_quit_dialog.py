@@ -2407,7 +2407,7 @@ class ForceQuitDialog(BaseDialog):
                 "stack": traceback.format_stack(limit=5),
             }
             print("Kill by Click timed out", file=sys.stderr)
-            print(json.dumps(info, indent=2), file=sys.stderr)
+            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
             try:
                 overlay.close()
             except Exception:
@@ -2479,7 +2479,7 @@ class ForceQuitDialog(BaseDialog):
                 "stack": traceback.format_exception(type(result), result, result.__traceback__),
             }
             print("Kill by Click raised an exception", file=sys.stderr)
-            print(json.dumps(info, indent=2), file=sys.stderr)
+            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
             return
         pid, title, ctime, cmd, exe = result
         ctx.__exit__(None, None, None)
@@ -2512,7 +2512,7 @@ class ForceQuitDialog(BaseDialog):
                 "stack": traceback.format_stack(limit=5),
             }
             print("Kill by Click failed to return a process", file=sys.stderr)
-            print(json.dumps(info, indent=2), file=sys.stderr)
+            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
             messagebox.showwarning(
                 "Force Quit", "No process was selected", parent=self
             )
@@ -2543,7 +2543,7 @@ class ForceQuitDialog(BaseDialog):
                 "stack": traceback.format_stack(limit=5),
             }
             print("Kill by Click refused to terminate self", file=sys.stderr)
-            print(json.dumps(info, indent=2), file=sys.stderr)
+            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
             messagebox.showwarning(
                 "Force Quit", "Cannot terminate this application", parent=self
             )
@@ -2578,7 +2578,7 @@ class ForceQuitDialog(BaseDialog):
                 "stack": traceback.format_stack(limit=5),
             }
             print("Kill by Click target vanished", file=sys.stderr)
-            print(json.dumps(info, indent=2), file=sys.stderr)
+            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
             messagebox.showwarning(
                 "Force Quit", f"Process {pid} no longer exists", parent=self
             )
@@ -2635,7 +2635,7 @@ class ForceQuitDialog(BaseDialog):
                         "stack": traceback.format_stack(limit=5),
                     }
                     print("Kill by Click target changed", file=sys.stderr)
-                    print(json.dumps(info, indent=2), file=sys.stderr)
+                    print(json.dumps(info, indent=2, default=str), file=sys.stderr)
                     messagebox.showwarning(
                         "Force Quit", f"Process {pid} changed", parent=self
                     )
@@ -2675,7 +2675,7 @@ class ForceQuitDialog(BaseDialog):
                 "stack": traceback.format_stack(limit=5),
             }
             print("Kill by Click could not terminate process", file=sys.stderr)
-            print(json.dumps(info, indent=2), file=sys.stderr)
+            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
             messagebox.showerror(
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
             )
