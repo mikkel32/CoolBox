@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## 1.3.64 - 2025-08-08
+
 - **Fix:** Guard asynchronous window queries to prevent callback exceptions.
 - **Fix:** Validate kill-by-click intervals and ensure overlay cleanup.
+- **Fix:** Skip malformed key-value lines when parsing window data.
 
 ## 1.3.59 - 2025-08-08
 
