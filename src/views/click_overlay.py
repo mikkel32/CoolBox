@@ -21,12 +21,6 @@ from threading import Lock
 import atexit
 import psutil
 from PIL import Image, ImageTk
-
-try:  # pragma: no cover - optional dependency
-    from PyQt5 import QtCore, QtWidgets, QtQuick, QtOpenGL, QtGui
-except Exception:  # pragma: no cover - optional dependency
-    QtCore = QtWidgets = QtQuick = QtOpenGL = QtGui = None
-
 from src.utils.window_utils import (
     get_active_window,
     get_window_at,
@@ -46,6 +40,17 @@ from ._fast_confidence import weighted_confidence as _weighted_confidence_np
 from src.utils import get_screen_refresh_rate
 from src.utils.helpers import log
 from src.config import Config
+
+QtCore: Any
+QtWidgets: Any
+QtQuick: Any
+QtOpenGL: Any
+QtGui: Any
+
+try:  # pragma: no cover - optional dependency
+    from PyQt5 import QtCore, QtWidgets, QtQuick, QtOpenGL, QtGui  # type: ignore[import]
+except Exception:  # pragma: no cover - optional dependency
+    QtCore = QtWidgets = QtQuick = QtOpenGL = QtGui = None
 
 QT_AVAILABLE = QtWidgets is not None
 QT_QUICK_AVAILABLE = QtQuick is not None
