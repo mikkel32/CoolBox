@@ -1,6 +1,6 @@
 """Public package interface for CoolBox."""
 
-__version__ = "1.3.56"
+__version__ = "1.3.57"
 
 import os
 
