@@ -2316,8 +2316,7 @@ class ForceQuitDialog(BaseDialog):
             if self._overlay_thread:
                 self.after(0, lambda: self._finish_kill_by_click(ctx, result))
 
-        overlay._last_ping = time.monotonic()
-        overlay._watchdog_misses = 0
+        overlay.reset_watchdog()
         self._overlay_thread = threading.Thread(target=run, daemon=True)
         self._overlay_thread.start()
         if self.app.config.get("developer_mode", False):
