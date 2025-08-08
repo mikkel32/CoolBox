@@ -6,6 +6,7 @@ import importlib.util
 import pathlib
 import types
 import io
+import subprocess
 from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import patch
@@ -734,7 +735,7 @@ def test_kill_by_click_watchdog_requires_multiple_misses() -> None:
         dialog._kill_by_click()
         time.sleep(0.07)
         overlay.close.assert_not_called()
-        time.sleep(0.07)
+        time.sleep(0.1)
         overlay.close.assert_called_once()
     thread = dialog._overlay_thread
     if thread and thread.is_alive():
@@ -777,6 +778,7 @@ def test_kill_by_click_watchdog_separate_process() -> None:
         proc = dialog._overlay_watchdog_proc
         assert proc is not None
         assert proc.pid and proc.pid != os.getpid()
+        assert isinstance(proc, subprocess.Popen)
         dialog.cancel_kill_by_click()
 
 

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.3.45 - 2025-08-08
+
+- **Perf:** Update Force Quit watchdog to sync via file modification times, reducing I/O overhead.
+
+## 1.3.44 - 2025-08-08
+
+- **Fix:** Launch the Force Quit watchdog as an independent subprocess only in developer mode.
+
+## 1.3.43 - 2025-08-08
+
+- **Fix:** Start the Force Quit watchdog using a spawn context so it runs as an isolated process only when developer mode is enabled.
+
 ## 1.3.42 - 2025-08-08
 
 - **Fix:** Run the Force Quit watchdog in a separate process gated by developer mode so crashes don't freeze the main app.
