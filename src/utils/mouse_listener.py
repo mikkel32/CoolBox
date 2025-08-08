@@ -237,6 +237,7 @@ class GlobalMouseListener:
         self._move_cb: Optional[Callable[[int, int], None]] = None
         self._click_cb: Optional[Callable[[int, int, bool], None]] = None
         self._key_cb: Optional[Callable[[int, bool], None]] = None
+        self._ref_count = 0
 
     # -- Fallback wrappers -------------------------------------------------
     def _wrap_move(self, cb: Callable[[int, int], None] | None):
@@ -343,9 +344,17 @@ class GlobalMouseListener:
                 self._keyboard_listener.on_press = key_cb
                 started = True
 
-        return started or self._mouse_listener is not None or self._keyboard_listener is not None
+        running = (
+            started
+            or self._listener is not None
+            or self._mouse_listener is not None
+            or self._keyboard_listener is not None
+        )
+        if running:
+            self._ref_count += 1
+        return running
 
-    def stop(self) -> None:
+    def _stop_listeners(self) -> None:
         if self._listener is not None and isinstance(self._listener, threading.Thread):
             stop = getattr(self._listener, "stop", None)
             if stop is not None:
@@ -373,6 +382,16 @@ class GlobalMouseListener:
             finally:
                 self._keyboard_listener = None
 
+    def stop(self, force: bool = False) -> None:
+        if self._ref_count > 0:
+            self._ref_count -= 1
+        if self._ref_count == 0 or force:
+            self._ref_count = 0
+            self._stop_listeners()
+
+    def release(self) -> None:
+        self.stop()
+
 
 @contextmanager
 def capture_mouse(
@@ -388,7 +407,7 @@ def capture_mouse(
         yield listener if started else None
     finally:
         if started:
-            listener.stop()
+            listener.release()
 
 
 _GLOBAL_LISTENER = GlobalMouseListener()
@@ -400,5 +419,5 @@ def get_global_listener() -> GlobalMouseListener:
     return _GLOBAL_LISTENER
 
 
-atexit.register(_GLOBAL_LISTENER.stop)
+atexit.register(_GLOBAL_LISTENER.stop, True)
 
