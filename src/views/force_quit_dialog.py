@@ -2488,6 +2488,10 @@ class ForceQuitDialog(BaseDialog):
         self._overlay_ctx = None
         self._overlay_thread = None
         if pid is None:
+            try:
+                overlay.close()
+            except Exception:
+                pass
             def _safe(name: str):
                 val = getattr(overlay, name, None)
                 return None if isinstance(val, Mock) else val

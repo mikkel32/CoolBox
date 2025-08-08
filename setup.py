@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "1.3.75"
+__version__ = "1.3.76"
 
 import argparse
 import os
