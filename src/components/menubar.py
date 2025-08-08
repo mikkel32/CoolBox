@@ -47,6 +47,9 @@ class MenuBar:
         self.fullscreen_var = tk.BooleanVar(
             value=self.app.window.attributes("-fullscreen")
         )
+        self.developer_var = tk.BooleanVar(
+            value=self.app.config.get("developer_mode", False)
+        )
 
         view_menu.add_checkbutton(
             label="Toolbar", variable=self.toolbar_var, command=self._toggle_toolbar
@@ -56,6 +59,11 @@ class MenuBar:
         )
         view_menu.add_checkbutton(
             label="Full Screen", variable=self.fullscreen_var, command=self._toggle_fullscreen
+        )
+        view_menu.add_checkbutton(
+            label="Developer Mode",
+            variable=self.developer_var,
+            command=self._toggle_developer_mode,
         )
         self.menu.add_cascade(label="View", menu=view_menu)
         self.menus.append(view_menu)
@@ -76,6 +84,7 @@ class MenuBar:
         self.toolbar_var.set(self.app.config.get("show_toolbar", True))
         self.status_var.set(self.app.config.get("show_statusbar", True))
         self.fullscreen_var.set(self.app.window.attributes("-fullscreen"))
+        self.developer_var.set(self.app.config.get("developer_mode", False))
 
     # ------------------------------------------------------------------
     def _call_toolbar(self, name: str) -> None:
@@ -96,6 +105,13 @@ class MenuBar:
     def _toggle_statusbar(self) -> None:
         self.app.config.set("show_statusbar", self.status_var.get())
         self.app.update_ui_visibility()
+
+    def _toggle_developer_mode(self) -> None:
+        self.app.config.set("developer_mode", self.developer_var.get())
+        try:
+            self.app.config.save()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     def update_recent_files(self) -> None:

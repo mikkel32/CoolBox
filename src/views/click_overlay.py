@@ -585,6 +585,7 @@ class ClickOverlay(tk.Toplevel):
         super().__init__(parent)
         self.backend = "canvas"
         self._closed = tk.BooleanVar(value=False)
+        self._last_ping = time.monotonic()
         env = os.getenv("KILL_BY_CLICK_CROSSHAIR")
         if env in ("0", "false", "no"):
             show_crosshair = False
@@ -1133,6 +1134,7 @@ class ClickOverlay(tk.Toplevel):
         tracking fields so fallback bindings behave like the hook-based path.
         """
         # Refresh active PID from the cached window to avoid polling the OS
+        self._last_ping = time.monotonic()
         active = self._active_window
         self._active_pid = active.pid
         if isinstance(_e, tk.Event):
@@ -1295,6 +1297,7 @@ class ClickOverlay(tk.Toplevel):
         Tk event loop using :meth:`after_idle`. Small, rapid movements are
         ignored based on dynamic thresholds from :meth:`_move_thresholds`.
         """
+        self._last_ping = time.monotonic()
         now = time.time()
         self._pending_move = (x, y, now)
         if self._move_scheduled:
@@ -1653,6 +1656,7 @@ class ClickOverlay(tk.Toplevel):
 
     def _click(self, x: int, y: int, pressed: bool) -> None:
         if pressed:
+            self._last_ping = time.monotonic()
             with self._state_lock:
                 self._cursor_x = x
                 self._cursor_y = y
@@ -1661,6 +1665,7 @@ class ClickOverlay(tk.Toplevel):
             self.after(0, self._on_click)
 
     def _click_event(self, e: tk.Event) -> None:
+        self._last_ping = time.monotonic()
         with self._state_lock:
             self._cursor_x = e.x_root
             self._cursor_y = e.y_root
@@ -1752,6 +1757,7 @@ class ClickOverlay(tk.Toplevel):
     def choose(self) -> tuple[int | None, str | None]:
         """Show the overlay and return the PID and title of the clicked window."""
         self._closed.set(False)
+        self._last_ping = time.monotonic()
         listener = get_global_listener()
         listener.start()
         try:

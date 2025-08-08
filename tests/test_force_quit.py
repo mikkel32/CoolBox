@@ -29,6 +29,29 @@ class TestForceQuit(unittest.TestCase):
         time.sleep(0.1)
         self.assertFalse(psutil.pid_exists(pid))
 
+    def test_force_kill_ignores_missing_process(self) -> None:
+        with mock.patch(
+            "src.views.force_quit_dialog.psutil.pid_exists", return_value=False
+        ):
+            ok = ForceQuitDialog.force_kill(123456)
+        self.assertTrue(ok)
+
+    def test_force_kill_handles_vanished_process(self) -> None:
+        with (
+            mock.patch(
+                "src.views.force_quit_dialog.psutil.pid_exists",
+                side_effect=[True, False],
+            ),
+            mock.patch(
+                "src.views.force_quit_dialog.kill_process", return_value=False
+            ) as kp,
+            mock.patch("src.views.force_quit_dialog.kill_process_tree") as kpt,
+        ):
+            ok = ForceQuitDialog.force_kill(999)
+        self.assertTrue(ok)
+        kp.assert_called_once_with(999, timeout=3.0)
+        kpt.assert_not_called()
+
     def test_terminate_tree(self) -> None:
         cmd = [
             sys.executable,

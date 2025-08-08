@@ -2,6 +2,61 @@
 
 ## Unreleased
 
+## 1.3.36 - 2025-08-08
+
+- **Enhance:** Record a target's executable path in addition to start time and
+  command line so Kill by Click avoids terminating a PID reused by a different
+  program.
+
+## 1.3.35 - 2025-08-08
+
+- **Enhance:** Capture a target's command line and verify it alongside start
+  time before killing to avoid terminating a new process that reused the PID.
+
+## 1.3.34 - 2025-08-08
+
+- **Enhance:** Verify a selected process's start time before killing to avoid terminating a new process that reused the PID.
+
+## 1.3.33 - 2025-08-07
+
+- **Fix:** Treat targets that vanish during `force_kill` as already terminated, preventing spurious failure diagnostics.
+
+## 1.3.32 - 2025-08-07
+
+- **Fix:** Skip Kill by Click targets that vanish before termination, logging details instead of reporting a failure.
+
+## 1.3.31 - 2025-08-07
+
+- **Enhance:** Gate the Kill by Click watchdog behind a developer mode toggle to avoid runtime overhead.
+
+## 1.3.30 - 2025-08-07
+
+- **Enhance:** Probe the Kill by Click overlay before counting a watchdog miss so only unresponsive sessions are aborted.
+
+## 1.3.29 - 2025-08-07
+
+- **Enhance:** Require multiple missed heartbeats before aborting Kill by Click and report stall duration and miss count.
+
+## 1.3.28 - 2025-08-07
+
+- **Enhance:** Watchdog monitors Kill by Click overlay heartbeats and only aborts when the UI stops responding, logging diagnostics on timeout.
+
+## 1.3.27 - 2025-08-07
+
+- **Enhance:** Add watchdog that aborts hung Kill by Click sessions and logs overlay state.
+
+## 1.3.26 - 2025-08-07
+
+- **Enhance:** Add safety diagnostics and fallback logging when Kill by Click or force kill fails.
+
+## 1.3.25 - 2025-08-07
+
+- **Enhance:** Emit structured JSON diagnostics when Kill by Click makes no selection.
+
+## 1.3.24 - 2025-08-07
+
+- **Fix:** Log diagnostic details when Kill by Click fails to select a process.
+
 ## 1.3.23 - 2025-08-07
 
 - **Enhance:** Increase default window height for better console visibility.
