@@ -1,3 +1,5 @@
+import types
+
 from src.utils import mouse_listener
 
 
@@ -83,7 +85,11 @@ def test_keyboard_listener(monkeypatch):
 
 def test_wrap_callbacks_log_exceptions(monkeypatch):
     messages = []
-    monkeypatch.setattr(mouse_listener, "log", lambda msg: messages.append(msg))
+    monkeypatch.setattr(
+        mouse_listener,
+        "logger",
+        types.SimpleNamespace(exception=lambda msg, *a, **k: messages.append(msg)),
+    )
     listener = mouse_listener.GlobalMouseListener()
 
     def boom(*args, **kwargs):

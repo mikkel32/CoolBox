@@ -1872,6 +1872,5 @@ class ClickOverlay(tk.Toplevel):
             try:
                 if started:
                     listener.stop()
-                listener.release()
             finally:
                 self.reset()
