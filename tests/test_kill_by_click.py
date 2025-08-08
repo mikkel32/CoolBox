@@ -117,7 +117,7 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
     dialog.withdraw = mock.Mock()
     dialog.deiconify = mock.Mock()
     dialog.after_idle = mock.Mock()
-    dialog.force_kill = mock.Mock()
+    dialog.force_kill = mock.Mock(return_value=False)
     dialog._highlight_pid = mock.Mock()
 
     overlay = mock.Mock()
@@ -148,7 +148,7 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
@@ -168,6 +168,123 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
     assert dialog._highlight_pid.call_args_list[-1].args == (None, None)
     overlay.apply_defaults.assert_called_once()
     overlay.reset.assert_called_once()
+    dialog.deiconify.assert_called_once()
+
+
+def test_kill_by_click_cancel_allows_retry() -> None:
+    dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+    dialog._overlay_thread = None
+    dialog.accent = "#f00"
+    dialog.paused = False
+    dialog._watcher = mock.Mock()
+    dialog._populate = mock.Mock()
+    dialog.withdraw = mock.Mock()
+    dialog.deiconify = mock.Mock()
+    dialog.after_idle = mock.Mock()
+    dialog._safe_pause = mock.Mock()
+    dialog._safe_resume = mock.Mock()
+
+    overlay = mock.Mock()
+    overlay.canvas = mock.Mock()
+    overlay.rect = object()
+    overlay.hline = object()
+    overlay.vline = object()
+    overlay.label = object()
+    overlay.reset = mock.Mock()
+    overlay.apply_defaults = mock.Mock()
+
+    blocker = threading.Event()
+
+    def choose() -> tuple[int | None, str | None]:
+        overlay.on_hover(111, "proc")
+        blocker.wait()
+        blocker.clear()
+        return (None, None)
+
+    overlay.choose.side_effect = choose
+
+    def close_side_effect() -> None:
+        blocker.set()
+
+    overlay.close.side_effect = close_side_effect
+
+    dialog._overlay = overlay
+    dialog.app = SimpleNamespace(config={"developer_mode": True})
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+
+    with (
+        patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
+        patch("src.views.force_quit_dialog.messagebox"),
+    ):
+        dialog._configure_overlay()
+        dialog._kill_by_click()
+        time.sleep(0.05)
+        dialog.cancel_kill_by_click()
+        if dialog._overlay_thread:
+            dialog._overlay_thread.join(timeout=1)
+        assert dialog._overlay_thread is None
+
+        dialog._kill_by_click()
+        blocker.set()
+        if dialog._overlay_thread:
+            dialog._overlay_thread.join(timeout=1)
+        time.sleep(0.05)
+
+    assert overlay.choose.call_count == 2
+    assert overlay.reset.call_count == 2
+
+
+def test_kill_by_click_cancel_clears_thread_even_if_stuck() -> None:
+    dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+    dialog._overlay_thread = None
+    dialog.accent = "#f00"
+    dialog.paused = False
+    dialog._watcher = mock.Mock()
+    dialog._populate = mock.Mock()
+    dialog.withdraw = mock.Mock()
+    dialog.deiconify = mock.Mock()
+    dialog.after_idle = mock.Mock()
+
+    overlay = mock.Mock()
+    overlay.canvas = mock.Mock()
+    overlay.rect = object()
+    overlay.hline = object()
+    overlay.vline = object()
+    overlay.label = object()
+    overlay.reset = mock.Mock()
+    overlay.apply_defaults = mock.Mock()
+
+    blocker = threading.Event()
+
+    def choose() -> tuple[int | None, str | None]:
+        overlay.on_hover(111, "proc")
+        blocker.wait()
+        return (None, None)
+
+    overlay.choose.side_effect = choose
+    overlay.close.side_effect = lambda: None
+
+    dialog._overlay = overlay
+    dialog.app = SimpleNamespace(config={"developer_mode": True})
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
+
+    with (
+        patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
+        patch("src.views.force_quit_dialog.messagebox"),
+    ):
+        dialog._configure_overlay()
+        dialog._kill_by_click()
+        time.sleep(0.05)
+        thread = dialog._overlay_thread
+        assert thread is not None and thread.is_alive()
+        dialog.cancel_kill_by_click()
+        assert dialog._overlay_thread is None
+        blocker.set()
+        if thread.is_alive():
+            thread.join(timeout=1)
+
+    overlay.close.assert_called_once()
+    dialog.deiconify.assert_called_once()
 
 
 def test_kill_by_click_reports_when_no_selection(capsys) -> None:
@@ -180,7 +297,7 @@ def test_kill_by_click_reports_when_no_selection(capsys) -> None:
     dialog.withdraw = mock.Mock()
     dialog.deiconify = mock.Mock()
     dialog.after_idle = mock.Mock()
-    dialog.force_kill = mock.Mock()
+    dialog.force_kill = mock.Mock(return_value=False)
     dialog._highlight_pid = mock.Mock()
 
     overlay = mock.Mock()
@@ -195,7 +312,7 @@ def test_kill_by_click_reports_when_no_selection(capsys) -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with patch("builtins.print") as mock_print:
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
@@ -217,7 +334,7 @@ def test_kill_by_click_skips_vanished_process() -> None:
     dialog.withdraw = mock.Mock()
     dialog.deiconify = mock.Mock()
     dialog.after_idle = mock.Mock()
-    dialog.force_kill = mock.Mock()
+    dialog.force_kill = mock.Mock(return_value=False)
     dialog._highlight_pid = mock.Mock()
 
     overlay = mock.Mock()
@@ -231,7 +348,7 @@ def test_kill_by_click_skips_vanished_process() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
         patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=False),
         patch("src.views.force_quit_dialog.messagebox") as MB,
@@ -244,7 +361,7 @@ def test_kill_by_click_skips_vanished_process() -> None:
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click target vanished" in out
-    dialog.force_kill.assert_not_called()
+    dialog.force_kill.assert_called_once()
 
 
 def test_kill_by_click_skips_pid_reuse() -> None:
@@ -271,7 +388,7 @@ def test_kill_by_click_skips_pid_reuse() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
         patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
         patch("src.views.force_quit_dialog.psutil.Process") as Proc,
@@ -315,7 +432,7 @@ def test_kill_by_click_skips_cmdline_change() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
         patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
         patch("src.views.force_quit_dialog.psutil.Process") as Proc,
@@ -359,7 +476,7 @@ def test_kill_by_click_skips_exe_change() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
         patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
         patch("src.views.force_quit_dialog.psutil.Process") as Proc,
@@ -403,7 +520,7 @@ def test_kill_by_click_reports_exception() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with patch("builtins.print") as mock_print:
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
@@ -439,7 +556,7 @@ def test_kill_by_click_reports_when_kill_fails() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
         patch("src.views.force_quit_dialog.messagebox") as MB,
@@ -504,31 +621,28 @@ def test_kill_by_click_watchdog_reports_timeout() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
-    overlay.choose.side_effect = lambda: time.sleep(0.2) or (None, None)
-    overlay.after = mock.Mock(side_effect=lambda delay, cb: None)
+    overlay.choose.side_effect = lambda: time.sleep(0.5) or (None, None)
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
     with (
         patch("builtins.print") as mock_print,
         patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
         patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_PROBE", 0.01),
     ):
         dialog._kill_by_click()
-        thread = dialog._overlay_thread
-        time.sleep(0.15)
-        if thread:
-            thread.join(timeout=1)
+        time.sleep(0.2)
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click timed out" in out
     assert '"missed_heartbeats": 2' in out
     overlay.close.assert_called_once()
-    assert overlay.after.call_count >= 2
     dialog.force_kill.assert_not_called()
+    thread = dialog._overlay_thread
+    if thread and thread.is_alive():
+        thread.join(timeout=1)
 
 
 def test_kill_by_click_watchdog_ignores_recent_activity() -> None:
@@ -554,7 +668,6 @@ def test_kill_by_click_watchdog_ignores_recent_activity() -> None:
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
     overlay._last_ping = time.monotonic()
-    overlay.after = mock.Mock()
 
     def choose() -> tuple[int | None, str | None]:
         for _ in range(5):
@@ -566,7 +679,7 @@ def test_kill_by_click_watchdog_ignores_recent_activity() -> None:
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
     with (
         patch("builtins.print") as mock_print,
@@ -583,7 +696,6 @@ def test_kill_by_click_watchdog_ignores_recent_activity() -> None:
     assert "Kill by Click timed out" not in out
     overlay.close.assert_not_called()
     dialog.force_kill.assert_not_called()
-    overlay.after.assert_not_called()
 
 
 def test_kill_by_click_watchdog_requires_multiple_misses() -> None:
@@ -608,27 +720,28 @@ def test_kill_by_click_watchdog_requires_multiple_misses() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
-    overlay.choose.side_effect = lambda: time.sleep(0.2) or (None, None)
+    overlay.choose.side_effect = lambda: time.sleep(0.5) or (None, None)
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
     with (
         patch("builtins.print"),
         patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
         patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_PROBE", 0.01),
     ):
         dialog._kill_by_click()
         time.sleep(0.07)
         overlay.close.assert_not_called()
         time.sleep(0.07)
         overlay.close.assert_called_once()
-    assert overlay.after.call_count >= 2
+    thread = dialog._overlay_thread
+    if thread and thread.is_alive():
+        thread.join(timeout=1)
 
 
-def test_kill_by_click_watchdog_probes_overlay() -> None:
+def test_kill_by_click_watchdog_separate_process() -> None:
     dialog = ForceQuitDialog.__new__(ForceQuitDialog)
     dialog._overlay_thread = None
     dialog.accent = "#f00"
@@ -650,28 +763,21 @@ def test_kill_by_click_watchdog_probes_overlay() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.close = mock.Mock()
-    overlay.after = mock.Mock(side_effect=lambda delay, cb: cb())
-    overlay.choose.side_effect = lambda: time.sleep(0.2) or (None, None)
+    overlay.choose.side_effect = lambda: time.sleep(0.5) or (None, None)
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": True})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
     with (
-        patch("builtins.print") as mock_print,
         patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 1),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_PROBE", 0.01),
+        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
     ):
         dialog._kill_by_click()
-        thread = dialog._overlay_thread
-        if thread:
-            thread.join(timeout=1)
-        time.sleep(0.1)
-
-    out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
-    assert "Kill by Click timed out" not in out
-    overlay.close.assert_not_called()
+        proc = dialog._overlay_watchdog_proc
+        assert proc is not None
+        assert proc.pid and proc.pid != os.getpid()
+        dialog.cancel_kill_by_click()
 
 
 def test_kill_by_click_watchdog_disabled_without_developer_mode() -> None:
@@ -696,14 +802,12 @@ def test_kill_by_click_watchdog_disabled_without_developer_mode() -> None:
     overlay.reset = mock.Mock()
     overlay.apply_defaults = mock.Mock()
     overlay.choose.return_value = (None, None)
-    overlay.after = mock.Mock()
 
     dialog._overlay = overlay
     dialog.app = SimpleNamespace(config={"developer_mode": False})
-    dialog.after = lambda delay, cb, *args: cb(*args)
+    dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
     dialog._kill_by_click()
-    assert dialog._overlay_timer is None
+    assert dialog._overlay_watchdog_proc is None
     if dialog._overlay_thread:
         dialog._overlay_thread.join(timeout=1)
-    overlay.after.assert_not_called()

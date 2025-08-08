@@ -1464,7 +1464,8 @@ class TestForceQuit(unittest.TestCase):
         dialog.cancel_kill_by_click()
         overlay.close.assert_called_once()
         blocker.set()
-        dialog._overlay_thread.join(timeout=1)
+        if dialog._overlay_thread:
+            dialog._overlay_thread.join(timeout=1)
         dialog.force_kill.assert_not_called()
 
     def test_configure_overlay_applies_updates(self) -> None:
