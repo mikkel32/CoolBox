@@ -61,6 +61,38 @@ class TestWindowUtils(unittest.TestCase):
             info = wu.get_window_under_cursor()
         self.assertEqual(info, wu.WindowInfo(None))
 
+    def test_get_window_under_cursor_malformed_output(self):
+        from src.utils import window_utils as wu
+
+        fake_info = "WINDOW=0x1\nBADLINE\nEXTRA=foo=bar\n"
+        geom_out = (
+            "Absolute upper-left X: 1\n"
+            "Absolute upper-left Y: 2\n"
+            "Width: 3\n"
+            "Height: 4\n"
+        )
+
+        with (
+            mock.patch.object(wu.sys, "platform", "linux"),
+            mock.patch.object(wu, "_X_DISPLAY", None),
+            mock.patch.object(wu.shutil, "which", return_value="/usr/bin/true"),
+            mock.patch.object(
+                wu.subprocess,
+                "check_output",
+                side_effect=[
+                    fake_info,
+                    "_NET_WM_PID(CARDINAL) = 5\n",
+                    geom_out,
+                    'WM_NAME(STRING) = "t"\n',
+                ],
+            ),
+        ):
+            info = wu.get_window_under_cursor()
+
+        self.assertEqual(info.pid, 5)
+        self.assertEqual(info.rect, (1, 2, 3, 4))
+        self.assertEqual(info.title, "t")
+
     def test_get_window_at_no_match_mac(self):
         from src.utils import window_utils as wu
 

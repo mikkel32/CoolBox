@@ -603,7 +603,13 @@ def get_window_under_cursor() -> WindowInfo:
         info = subprocess.check_output(
             [xdotool, "getmouselocation", "--shell"], text=True
         )
-        data = dict(line.split("=") for line in info.splitlines() if "=" in line)
+        data: dict[str, str] = {}
+        for line in info.splitlines():
+            try:
+                key, value = line.split("=", 1)
+            except ValueError:
+                continue
+            data[key] = value
         win = data.get("WINDOW")
         if not win:
             return WindowInfo(None)
