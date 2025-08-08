@@ -151,6 +151,26 @@ class TestWindowUtils(unittest.TestCase):
         self.assertIsInstance(has_active_window_support(), bool)
         self.assertIsInstance(has_cursor_window_support(), bool)
 
+    def test_has_cursor_window_support_display_missing(self):
+        from src.utils import window_utils as wu
+
+        with (
+            mock.patch.object(wu.sys, "platform", "linux"),
+            mock.patch.dict(wu.os.environ, {}, clear=True),
+            mock.patch.object(wu.shutil, "which", return_value="/usr/bin/true"),
+        ):
+            self.assertFalse(wu.has_cursor_window_support())
+
+    def test_has_cursor_window_support_display_present(self):
+        from src.utils import window_utils as wu
+
+        with (
+            mock.patch.object(wu.sys, "platform", "linux"),
+            mock.patch.dict(wu.os.environ, {"DISPLAY": ":0"}, clear=True),
+            mock.patch.object(wu.shutil, "which", return_value="/usr/bin/true"),
+        ):
+            self.assertTrue(wu.has_cursor_window_support())
+
     def test_list_windows_at(self):
         from src.utils.window_utils import list_windows_at
 

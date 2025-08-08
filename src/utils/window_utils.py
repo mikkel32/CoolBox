@@ -3,6 +3,7 @@ from __future__ import annotations
 """Helpers for retrieving information about desktop windows."""
 
 import ctypes
+import os
 import re
 import shutil
 import subprocess
@@ -168,6 +169,8 @@ def has_cursor_window_support() -> bool:
         except Exception:
             return False
         return True
+    if not os.environ.get("DISPLAY"):
+        return False
     return bool(
         shutil.which("xdotool") and shutil.which("xprop") and shutil.which("xwininfo")
     )
