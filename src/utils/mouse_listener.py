@@ -399,13 +399,20 @@ class GlobalMouseListener:
                 self._keyboard_listener = None
 
     def stop(self, force: bool = False) -> None:
+        """Decrease the reference count and stop hooks when it hits zero."""
+
         if self._ref_count > 0:
             self._ref_count -= 1
-        if self._ref_count == 0 or force:
-            self._ref_count = 0
+            if self._ref_count == 0 or force:
+                self._ref_count = 0
+                self._stop_listeners()
+        elif force:
+            # Allow forcibly stopping even when the count is already zero.
             self._stop_listeners()
 
     def release(self) -> None:
+        """Backward-compatible alias for :meth:`stop`."""
+
         self.stop()
 
 
@@ -423,7 +430,7 @@ def capture_mouse(
         yield listener if started else None
     finally:
         if started:
-            listener.release()
+            listener.stop()
 
 
 _GLOBAL_LISTENER = GlobalMouseListener()

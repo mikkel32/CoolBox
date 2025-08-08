@@ -1124,9 +1124,6 @@ class TestClickOverlay(unittest.TestCase):
             def start(self, on_move=None, on_click=None):
                 return True
 
-            def release(self):
-                pass
-
             def stop(self):
                 pass
 
@@ -1161,9 +1158,6 @@ class TestClickOverlay(unittest.TestCase):
         class DummyListener:
             def start(self, on_move=None, on_click=None):
                 return True
-
-            def release(self):
-                pass
 
             def stop(self):
                 pass
@@ -1242,9 +1236,6 @@ class TestClickOverlay(unittest.TestCase):
             def start(self, on_move=None, on_click=None):
                 return False if on_move or on_click else True
 
-            def release(self):
-                pass
-
             def stop(self):
                 pass
 
@@ -1311,7 +1302,6 @@ class TestClickOverlay(unittest.TestCase):
 
         listener = Mock()
         listener.start.return_value = True
-        listener.release = Mock()
 
         with (
             patch(
@@ -1353,7 +1343,7 @@ class TestClickOverlay(unittest.TestCase):
             return True
 
         listener.start.side_effect = start_side_effect
-        listener.release = Mock()
+        listener.stop = Mock()
 
         with (
             patch("src.views.click_overlay.get_global_listener", return_value=listener),
@@ -1363,7 +1353,7 @@ class TestClickOverlay(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 overlay.choose()
 
-        listener.release.assert_called_once()
+        listener.stop.assert_called_once()
         self.assertTrue(unbind_mock.called)
 
         overlay.destroy()
@@ -1381,9 +1371,6 @@ class TestClickOverlay(unittest.TestCase):
         class DummyListener:
             def start(self, on_move=None, on_click=None):
                 return True
-
-            def release(self):
-                pass
 
             def stop(self):
                 pass
@@ -1439,13 +1426,10 @@ class TestClickOverlay(unittest.TestCase):
                 self.ref += 1
                 return True
 
-            def release(self):
+            def stop(self):
                 self.ref -= 1
                 if self.ref == 0:
                     self.stops += 1
-
-            def stop(self):
-                pass
 
         listener = DummyListener()
 
