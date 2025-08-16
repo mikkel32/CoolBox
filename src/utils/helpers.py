@@ -1,5 +1,3 @@
-"""Various helper utilities."""
-
 from __future__ import annotations
 
 import hashlib
@@ -7,43 +5,117 @@ import os
 import platform
 import re
 import subprocess
-from typing import Literal, Dict, Any, Iterable, Callable
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, Literal
 
 from .cache import CacheManager
-try:
-    import psutil
-except ImportError:  # pragma: no cover - runtime dependency check
+
+try:  # pragma: no cover - runtime dependency check
+    import psutil  # type: ignore
+except ImportError:  # pragma: no cover
     from ..ensure_deps import ensure_psutil
 
     psutil = ensure_psutil()
-from concurrent.futures import ThreadPoolExecutor, as_completed
-try:
-    from rich.console import Console
-    from rich.progress import (
-        Progress,
-        SpinnerColumn,
-        TextColumn,
-        TimeElapsedColumn,
-    )
-except ImportError:  # pragma: no cover - runtime dependency check
-    from ..ensure_deps import ensure_rich
 
-    ensure_rich()
-    from rich.console import Console
-    from rich.progress import (
-        Progress,
-        SpinnerColumn,
-        TextColumn,
-        TimeElapsedColumn,
-    )
+from rich.console import Console
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 console = Console()
+plain_console = Console(no_color=True, force_terminal=False)
 
 
 def log(message: str) -> None:
     """Log a message with rich formatting."""
     console.log(message)
+
+
+def get_system_info() -> str:
+    """Return a concise multi-line system info string."""
+    lines = [
+        f"Python:   {sys.version.split()[0]} ({sys.executable})",
+        f"Platform: {platform.system()} {platform.release()} ({platform.machine()})",
+        f"Processor:{platform.processor() or 'unknown'}",
+        f"Prefix:   {getattr(sys, 'prefix', '')}",
+        f"TTY:      {console.is_terminal}",
+    ]
+    return "\n".join(lines)
+
+
+def run_with_spinner(
+    cmd: Iterable[str],
+    *,
+    message: str = "Working",
+    timeout: float | None = None,
+    capture_output: bool = False,
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> str | None:
+    """Run *cmd* while displaying a spinner and streaming output.
+
+    - Streams STDOUT live.
+    - Kills on timeout.
+    - Returns captured output if requested.
+    - Falls back to plain output if not a TTY.
+    """
+    proc = subprocess.Popen(
+        list(cmd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=env,
+        cwd=cwd,
+    )
+    start = time.time()
+    captured: list[str] = []
+
+    if not console.is_terminal:
+        # Plain fallback
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            print(line.rstrip())
+            if capture_output:
+                captured.append(line)
+            if timeout is not None and (time.time() - start) > timeout:
+                proc.kill()
+                raise subprocess.TimeoutExpired(proc.args, timeout)
+        code = proc.wait(timeout=timeout)
+        if code:
+            raise subprocess.CalledProcessError(code, list(cmd))
+        return "".join(captured) if capture_output else None
+
+    with Progress(
+        SpinnerColumn(style="bold blue"),
+        TextColumn("{task.description}"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    ) as progress:
+        task_id = progress.add_task(message, start=True)
+        assert proc.stdout is not None
+        try:
+            for line in proc.stdout:
+                progress.console.print(line.rstrip())
+                if capture_output:
+                    captured.append(line)
+                if timeout is not None and (time.time() - start) > timeout:
+                    proc.kill()
+                    raise subprocess.TimeoutExpired(proc.args, timeout)
+            code = proc.wait(timeout=0.2 if timeout is None else max(0.2, timeout))
+            if code:
+                raise subprocess.CalledProcessError(code, list(cmd))
+        finally:
+            progress.update(task_id, completed=1)
+
+    return "".join(captured) if capture_output else None
 
 
 def open_path(path: str) -> None:
@@ -56,62 +128,12 @@ def open_path(path: str) -> None:
         subprocess.Popen(["xdg-open", path])
 
 
-def run_with_spinner(
-    cmd: Iterable[str], *, message: str = "Working", timeout: float | None = None,
-    capture_output: bool = False, env: dict[str, str] | None = None,
-    cwd: str | None = None
-) -> str | None:
-    """Run *cmd* while displaying an animated spinner and streaming output.
-
-    If ``capture_output`` is ``True`` the process output is returned as a single
-    string. Additional environment variables can be supplied via ``env``.
-    The process can be run in a different directory using ``cwd``.
-    """
-    proc = subprocess.Popen(
-        list(cmd),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        env=env,
-        cwd=cwd,
-    )
-    with Progress(
-        SpinnerColumn(style="bold blue"),
-        TextColumn("{task.description}"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        progress.add_task(message, start=True)
-        assert proc.stdout is not None
-        captured: list[str] = []
-        for line in proc.stdout:
-            progress.console.print(line.rstrip())
-            if capture_output:
-                captured.append(line)
-        try:
-            code = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            raise
-        if code:
-            raise subprocess.CalledProcessError(code, list(cmd))
-    return "".join(captured) if capture_output else None
-
-
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def slugify(text: str, sep: str = "_") -> str:
-    """Return *text* normalized for filenames or URLs.
-
-    Parameters
-    ----------
-    sep:
-        Character used to replace non-alphanumeric sequences.
-    """
+    """Return *text* normalized for filenames or URLs."""
     text = text.lower()
     text = _SLUG_RE.sub(sep, text)
     return text.strip(sep)
@@ -150,16 +172,7 @@ def calc_hash_cached(
     ttl: float = 365 * 24 * 60 * 60,
     refresh_cache: bool = True,
 ) -> str:
-    """Return hash of ``path`` using *algo* with disk caching.
-
-    Parameters
-    ----------
-    refresh_cache:
-        If true, the cache will be reloaded from disk before reading.
-        When computing many hashes concurrently the caller can disable
-        this and refresh the cache once beforehand for better
-        performance.
-    """
+    """Return hash of ``path`` using *algo* with optional disk caching."""
     if cache is None:
         return calc_hash(path, algo)
 
@@ -198,32 +211,25 @@ def calc_hashes(
     if workers is None:
         workers = min(32, os.cpu_count() or 1)
 
+    if cache is not None:
+        cache.refresh()
+
     total = len(paths)
     completed = 0
     results: Dict[str, str] = {}
 
-    if cache is not None:
-        cache.refresh()
-
-    def update(value: float | None) -> None:
-        if progress is not None:
-            progress(value)
-
-    cached: Dict[str, Any] = {}
-    if cache is not None:
-        keys = [f"{p}:{algo}" for p in paths]
-        cached = cache.get_many(keys)
-
-    def worker(path: str) -> tuple[str, str]:
-        mtime = Path(path).stat().st_mtime
-        key = f"{path}:{algo}"
-        entry = cached.get(key)
-        if entry and abs(float(entry.get("mtime", 0.0)) - mtime) < 1e-6:
-            return path, str(entry.get("digest", ""))
-        digest = calc_hash(path, algo)
+    def worker(p: str) -> tuple[str, str]:
+        mtime = Path(p).stat().st_mtime
+        key = f"{p}:{algo}"
+        digest: str
+        if cache is not None:
+            entry = cache.get(key)
+            if entry and abs(float(entry.get("mtime", 0.0)) - mtime) < 1e-6:
+                return p, str(entry.get("digest", ""))
+        digest = calc_hash(p, algo)
         if cache is not None:
             cache.set(key, {"mtime": mtime, "digest": digest}, ttl)
-        return path, digest
+        return p, digest
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_map = {executor.submit(worker, p): p for p in paths}
@@ -231,29 +237,15 @@ def calc_hashes(
             path, digest = fut.result()
             results[path] = digest
             completed += 1
-            update(completed / total)
+            if progress is not None:
+                progress(completed / total)
 
-    update(None)
+    if progress is not None:
+        progress(None)
     return results
 
 
-def get_system_info() -> str:
-    """Return a formatted multi-line string with detailed system information."""
-    vm = psutil.virtual_memory()
-    total_mem = vm.total / (1024**3)
-    info_lines = [
-        f"Platform: {platform.system()} {platform.release()}",
-        f"Processor: {platform.processor()}",
-        f"Architecture: {platform.architecture()[0]}",
-        f"Physical Cores: {psutil.cpu_count(logical=False)}",
-        f"Logical Cores: {psutil.cpu_count(logical=True)}",
-        f"Total Memory: {total_mem:.1f} GB",
-        f"Python: {platform.python_version()}",
-    ]
-    return "\n".join(info_lines)
-
-
-def get_system_metrics() -> dict[str, Any]:
+def get_system_metrics() -> Dict[str, Any]:
     """Return live system metrics for UI dashboards."""
     cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
     cpu = sum(cpu_per_core) / len(cpu_per_core) if cpu_per_core else 0.0
@@ -262,7 +254,7 @@ def get_system_metrics() -> dict[str, Any]:
     net = psutil.net_io_counters()
     disk_io = psutil.disk_io_counters()
     freq = psutil.cpu_freq()
-    per_core_freq = []
+    per_core_freq: list[float] = []
     try:
         per_core_freq = [f.current for f in psutil.cpu_freq(percpu=True)]
     except Exception:
@@ -305,13 +297,7 @@ def get_system_metrics() -> dict[str, Any]:
 
 
 def adjust_color(color: str, factor: float) -> str:
-    """Return *color* adjusted by *factor*.
-
-    ``factor`` may range from ``-1`` (black) to ``1`` (white). Positive values
-    lighten the color while negative values darken it. The input may be in
-    ``#rrggbb`` or ``#rgb`` form and the output is normalized to ``#rrggbb``.
-    """
-
+    """Return *color* adjusted by *factor*."""
     color = color.lstrip("#")
     if len(color) == 3:
         color = "".join(c * 2 for c in color)
@@ -337,7 +323,6 @@ def adjust_color(color: str, factor: float) -> str:
 
 def hex_brightness(color: str) -> float:
     """Return the perceptual brightness of *color* between 0 and 1."""
-
     color = color.lstrip("#")
     if len(color) == 3:
         color = "".join(c * 2 for c in color)
@@ -347,17 +332,15 @@ def hex_brightness(color: str) -> float:
     r = int(color[0:2], 16)
     g = int(color[2:4], 16)
     b = int(color[4:6], 16)
-
     return (0.299 * r + 0.587 * g + 0.114 * b) / 255
 
 
 def lighten_color(color: str, factor: float) -> str:
     """Return *color* lightened by *factor* in the range ``0``-``1``."""
-
     return adjust_color(color, max(0.0, min(1.0, factor)))
 
 
 def darken_color(color: str, factor: float) -> str:
     """Return *color* darkened by *factor* in the range ``0``-``1``."""
-
     return adjust_color(color, -max(0.0, min(1.0, factor)))
+
