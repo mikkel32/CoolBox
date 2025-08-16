@@ -393,6 +393,11 @@ def _should_install(req: Path, upgrade: bool) -> bool:
     return h != prev
 
 
+def _upgrade_args(upgrade: bool) -> list[str]:
+    """Return ['--upgrade'] when upgrade is True, otherwise an empty list."""
+    return ["--upgrade"] if upgrade else []
+
+
 def run_tests(extra: Iterable[str] | None = None) -> None:
     python = ensure_venv()
     cmd = [str(python), "-m", "pytest", "-q"]
@@ -420,7 +425,13 @@ def install(
 
     if req_path.is_file():
         if _should_install(req_path, upgrade):
-            steps.append(("Install requirements", ["install", "-r", str(req_path), *("--upgrade" if upgrade else [])], True))
+            steps.append(
+                (
+                    "Install requirements",
+                    ["install", "-r", str(req_path), *_upgrade_args(upgrade)],
+                    True,
+                )
+            )
         else:
             log("Requirements unchanged. Skipping install.")
     else:
@@ -428,7 +439,13 @@ def install(
 
     if dev:
         for pkg in DEV_PACKAGES:
-            steps.append((f"Install {pkg}", ["install", pkg, *("--upgrade" if upgrade else [])], False))
+            steps.append(
+                (
+                    f"Install {pkg}",
+                    ["install", pkg, *_upgrade_args(upgrade)],
+                    False,
+                )
+            )
 
     # Execute steps
     for title, args, upgrade_pip in steps:
