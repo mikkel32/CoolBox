@@ -31,7 +31,7 @@ from typing import Sequence, Tuple, TYPE_CHECKING, TypeAlias
 import urllib.request
 
 if TYPE_CHECKING:  # pragma: no cover - for static type checkers
-    from rich.console import Console
+    from rich.console import Console as ConsoleType
     from rich.table import Table
     from rich.panel import Panel
     from rich.progress import (
@@ -42,8 +42,11 @@ if TYPE_CHECKING:  # pragma: no cover - for static type checkers
         MofNCompleteColumn,
         ProgressColumn,
     )
-    from rich.text import Text
+    from rich.text import Text as TextType
     from rich import box
+else:  # pragma: no cover - runtime fallbacks for annotations
+    ConsoleType: TypeAlias = object
+    TextType: TypeAlias = str
 
 # ---------- rich UI ----------
 RICH_AVAILABLE = False
@@ -274,7 +277,7 @@ class RainbowSpinnerColumn(ProgressColumn):
         return Text(char, style=color)
 
 
-def rainbow_text(msg: str, colors: Sequence[str] | None = None) -> Text:
+def rainbow_text(msg: str, colors: Sequence[str] | None = None) -> TextType:
     """Return Text with a simple rainbow gradient."""
     colors = list(colors or RAINBOW_COLORS)
     t = Text()
@@ -285,7 +288,7 @@ def rainbow_text(msg: str, colors: Sequence[str] | None = None) -> Text:
 # ---------- atomic console ----------
 class LockingConsole:
     """Thread-safe console wrapper compatible with Rich. Exposes .raw for internals."""
-    def __init__(self, base: Console | None = None):
+    def __init__(self, base: ConsoleType | None = None):
         self._lock = threading.RLock()
         self._console = base or Console(soft_wrap=False, highlight=False)
 
@@ -318,7 +321,7 @@ class LockingConsole:
                 pass
 
     @property
-    def raw(self) -> Console:
+    def raw(self) -> ConsoleType:
         """Underlying Rich Console for constructs that expect a real Console."""
         return self._console
 
