@@ -28,6 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Sequence, Tuple, TYPE_CHECKING, TypeAlias
+from types import ModuleType
 import urllib.request
 
 if TYPE_CHECKING:  # pragma: no cover - for static type checkers
@@ -159,16 +160,32 @@ if not RICH_AVAILABLE:  # pragma: no cover - executed when rich unavailable
 # ---------- optional project helpers ----------
 try:
     from src.ensure_deps import ensure_numpy  # type: ignore
-except Exception:  # pragma: no cover
-    def ensure_numpy() -> None:  # type: ignore
-        pass
+except Exception as exc:  # pragma: no cover
+    print(
+        f"Warning: could not import ensure_numpy ({exc}).", file=sys.stderr
+    )
+
+    def ensure_numpy(version: str | None = None) -> ModuleType:  # type: ignore
+        """Fallback numpy import that errors loudly if numpy is missing."""
+        try:
+            return __import__("numpy")
+        except ImportError as np_exc:
+            msg = (
+                "numpy is required but was not found. Install it with 'pip install numpy'."
+            )
+            print(msg, file=sys.stderr)
+            raise ImportError(msg) from np_exc
 
 try:
     from src.utils.helpers import (  # type: ignore
         get_system_info,
         console as _helper_console,
     )
-except Exception:
+except Exception as exc:  # pragma: no cover
+    print(
+        f"Warning: helper utilities unavailable ({exc}). Using fallbacks.",
+        file=sys.stderr,
+    )
     _helper_console = None
 
     def get_system_info() -> str:  # type: ignore
@@ -728,33 +745,11 @@ def clean_pyc() -> None:
             n += 1
     log(f"Removed {n} __pycache__ folders.")
 
-def install(
-    requirements: Path | None = None,
-    *,
-    dev: bool = False,
-    upgrade: bool = False,
-    skip_update: bool = False,
-    no_anim: bool | None = None,
-    border: bool | None = None,
-    alt_screen: bool | None = None,
-) -> None:
-    os.chdir(ROOT_DIR)
-    if not skip_update:
-        update_repo()
 
-    ensure_numpy()
-    py = ensure_venv()
-
-    # runtime toggles
-    if no_anim is True:
-        CONFIG.no_anim = True
-    if alt_screen is True:
-        CONFIG.alt_screen = True
-    border_enabled = CONFIG.border_enabled_default if border is None else bool(border)
-    if CONFIG.no_anim:
-        border_enabled = False
-
-    req_path = requirements or REQUIREMENTS_FILE
+def _build_install_plan(
+    req_path: Path, dev: bool, upgrade: bool
+) -> list[tuple[str, list[str], bool]]:
+    """Assemble pip commands needed for installation."""
     planned: list[tuple[str, list[str], bool]] = []
 
     if req_path.is_file():
@@ -782,6 +777,52 @@ def install(
                     args.append("-U")
                 planned.append((f"Install {pkg}", args, False))
 
+    return planned
+
+
+def _execute_install_plan(planned: Sequence[tuple[str, list[str], bool]]) -> None:
+    """Run the pip commands described by *planned*."""
+    if not planned:
+        return
+    with _progress() as prog:
+        t = prog.add_task("Executing install plan", total=len(planned))
+        for title, pip_args, upgrade_pip in planned:
+            prog.update(t, description=title)
+            try:
+                _pip(pip_args, upgrade_pip=upgrade_pip, attempts=3)
+            except Exception as e:
+                SUMMARY.add_error(f"{title} failed: {e}")
+            prog.advance(t)
+
+def install(
+    requirements: Path | None = None,
+    *,
+    dev: bool = False,
+    upgrade: bool = False,
+    skip_update: bool = False,
+    no_anim: bool | None = None,
+    border: bool | None = None,
+    alt_screen: bool | None = None,
+) -> None:
+    os.chdir(ROOT_DIR)
+    if not skip_update:
+        update_repo()
+
+    ensure_numpy()
+    py = ensure_venv()
+
+    # runtime toggles
+    if no_anim is True:
+        CONFIG.no_anim = True
+    if alt_screen is True:
+        CONFIG.alt_screen = True
+    border_enabled = CONFIG.border_enabled_default if border is None else bool(border)
+    if CONFIG.no_anim:
+        border_enabled = False
+
+    req_path = requirements or REQUIREMENTS_FILE
+    planned = _build_install_plan(req_path, dev, upgrade)
+
     border_ctx = (
         NeonPulseBorder(
             speed=0.04,
@@ -798,16 +839,7 @@ def install(
     try:
         with border_ctx:
             show_setup_banner()
-            if planned:
-                with _progress() as prog:
-                    t = prog.add_task("Executing install plan", total=len(planned))
-                    for title, pip_args, upgrade_pip in planned:
-                        prog.update(t, description=title)
-                        try:
-                            _pip(pip_args, upgrade_pip=upgrade_pip, attempts=3)
-                        except Exception as e:
-                            SUMMARY.add_error(f"{title} failed: {e}")
-                        prog.advance(t)
+            _execute_install_plan(planned)
 
             try:
                 _retry([py, "-m", "pip", "check"], attempts=1)
@@ -871,7 +903,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def _load_plugins(sub) -> None:
+def _load_plugins(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Load external CLI plugins via entry points."""
     try:
         from importlib.metadata import entry_points
