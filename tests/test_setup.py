@@ -42,6 +42,7 @@ def test_pip_invokes_run(monkeypatch):
 
     monkeypatch.setattr(setup, "NeonPulseBorder", DummyBorder)
     monkeypatch.setattr(setup, "_run", fake_run)
+    setup.set_offline(False)
 
     setup._pip(["install", "pkg"], python=sys.executable)
 
@@ -62,3 +63,13 @@ def test_pip_offline_skips(monkeypatch):
     setup._pip(["install", "pkg"], python=sys.executable)
 
     assert run_calls == []
+
+
+def test_cli_offline_flag(monkeypatch):
+    monkeypatch.delenv("COOLBOX_OFFLINE", raising=False)
+    importlib.reload(setup)
+    setup.set_offline(False)
+    monkeypatch.setattr(setup, "show_info", lambda: None)
+
+    setup.main(["--offline", "info"])
+    assert setup.is_offline() is True

@@ -20,6 +20,7 @@ import subprocess
 import sys
 import time
 import threading
+import socket
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Sequence, Tuple
@@ -174,7 +175,44 @@ class LockingConsole:
 
 # ---------- env + constants ----------
 IS_TTY = sys.stdout.isatty()
-OFFLINE = os.environ.get("COOLBOX_OFFLINE") == "1"
+
+
+def _detect_offline(timeout: float = 1.5) -> bool:
+    """Return True if network appears unreachable."""
+    try:
+        with socket.create_connection(("pypi.org", 443), timeout=timeout):
+            return False
+    except OSError:
+        return True
+
+_OFFLINE_FORCED = os.environ.get("COOLBOX_OFFLINE") == "1"
+_OFFLINE_AUTO: bool | None = None
+
+
+def set_offline(value: bool) -> None:
+    global _OFFLINE_FORCED, _OFFLINE_AUTO, BASE_ENV
+    _OFFLINE_FORCED = value
+    _OFFLINE_AUTO = True if value else False
+    if value:
+        os.environ["COOLBOX_OFFLINE"] = "1"
+        BASE_ENV["COOLBOX_OFFLINE"] = "1"
+    else:
+        os.environ.pop("COOLBOX_OFFLINE", None)
+        BASE_ENV.pop("COOLBOX_OFFLINE", None)
+
+
+def is_offline() -> bool:
+    if _OFFLINE_FORCED:
+        return True
+    global _OFFLINE_AUTO
+    if _OFFLINE_AUTO is None:
+        _OFFLINE_AUTO = _detect_offline()
+    return _OFFLINE_AUTO
+
+
+def offline_auto_detected() -> bool:
+    return (_OFFLINE_AUTO is True) and not _OFFLINE_FORCED
+
 NO_GIT = os.environ.get("COOLBOX_NO_GIT") == "1"
 
 CLI_NO_ANIM = os.environ.get("COOLBOX_FORCE_NO_ANIM") == "1"
@@ -351,7 +389,7 @@ def _write_req_stamp(req: Path) -> None:
     _stamp_path().write_text(_file_hash(req), encoding="utf-8")
 
 def update_repo() -> None:
-    if NO_GIT or OFFLINE:
+    if NO_GIT or is_offline():
         log("Skip git update (disabled or offline).")
         return
     if not (ROOT_DIR / ".git").exists():
@@ -398,7 +436,7 @@ def _pip(
     py = str(python or ensure_venv())
     base_cmd = [py, "-m", "pip"]
 
-    if OFFLINE:
+    if is_offline():
         SUMMARY.add_warning(
             "Offline mode: skipping " + " ".join(base_cmd + list(args))
         )
@@ -470,8 +508,8 @@ def run_tests(extra: Sequence[str]) -> None:
 
 def doctor() -> None:
     problems: list[str] = []
-    if OFFLINE:
-        problems.append("OFFLINE set, downloads disabled.")
+    if is_offline():
+        problems.append("offline mode active, downloads disabled.")
     if NO_GIT:
         problems.append("NO_GIT set, repo update disabled.")
     if not REQUIREMENTS_FILE.exists():
@@ -607,6 +645,7 @@ def install(
 # ---------- CLI ----------
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="coolbox-setup", description="Install and inspect CoolBox deps.")
+    p.add_argument("--offline", action="store_true", help="Force offline mode (skip network calls)")
     sub = p.add_subparsers(dest="command", required=False)
 
     p_install = sub.add_parser("install", help="Install requirements and dev extras")
@@ -646,6 +685,11 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = _parse_args(argv or sys.argv[1:])
+    if getattr(args, "offline", False):
+        set_offline(True)
+    is_offline()  # prime detection so we can report status early
+    if offline_auto_detected():
+        log("Offline mode detected (network unreachable).")
     cmd = args.command
 
     try:
