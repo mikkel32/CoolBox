@@ -47,3 +47,18 @@ def test_pip_invokes_run(monkeypatch):
 
     assert border_calls == []
     assert run_calls and run_calls[0][:4] == [sys.executable, "-m", "pip", "install"]
+
+
+def test_pip_offline_skips(monkeypatch):
+    monkeypatch.setenv("COOLBOX_OFFLINE", "1")
+    importlib.reload(setup)
+
+    run_calls = []
+
+    def fake_run(cmd, **kw):
+        run_calls.append(cmd)
+
+    monkeypatch.setattr(setup, "_run", fake_run)
+    setup._pip(["install", "pkg"], python=sys.executable)
+
+    assert run_calls == []

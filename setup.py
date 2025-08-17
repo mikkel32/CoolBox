@@ -31,12 +31,13 @@ try:
     from rich.panel import Panel
     from rich.progress import (
         Progress,
-        SpinnerColumn,
         BarColumn,
         TimeElapsedColumn,
         TaskProgressColumn,
         MofNCompleteColumn,
+        ProgressColumn,
     )
+    from rich.text import Text
     from rich import box
     from rich.traceback import install as _rich_tb_install
     _rich_tb_install(show_locals=False)
@@ -47,12 +48,13 @@ except ImportError:  # pragma: no cover
     from rich.panel import Panel
     from rich.progress import (
         Progress,
-        SpinnerColumn,
         BarColumn,
         TimeElapsedColumn,
         TaskProgressColumn,
         MofNCompleteColumn,
+        ProgressColumn,
     )
+    from rich.text import Text
     from rich import box
 
 # ---------- optional project helpers ----------
@@ -91,6 +93,41 @@ except Exception:
 
 def NeonPulseBorder(**kwargs):
     return _BorderImpl(**kwargs)
+
+# ---------- rainbow helpers ----------
+
+RAINBOW_COLORS: Sequence[str] = (
+    "#e40303",
+    "#ff8c00",
+    "#ffed00",
+    "#008026",
+    "#004dff",
+    "#750787",
+)
+
+
+class RainbowSpinnerColumn(ProgressColumn):
+    """Spinner that cycles through a rainbow of colors."""
+
+    def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
+        self.frames = frames
+        self.colors = list(colors or RAINBOW_COLORS)
+        self._index = 0
+
+    def render(self, task):  # type: ignore[override]
+        char = self.frames[self._index % len(self.frames)]
+        color = self.colors[self._index % len(self.colors)]
+        self._index += 1
+        return Text(char, style=color)
+
+
+def rainbow_text(msg: str, colors: Sequence[str] | None = None) -> Text:
+    """Return Text with a simple rainbow gradient."""
+    colors = list(colors or RAINBOW_COLORS)
+    t = Text()
+    for i, ch in enumerate(msg):
+        t.append(ch, style=colors[i % len(colors)])
+    return t
 
 # ---------- atomic console ----------
 class LockingConsole:
@@ -149,8 +186,12 @@ NO_ANIM = (
     or not IS_TTY
 )
 
-# Border disabled by default to avoid any UI deadlocks. Opt-in.
-BORDER_ENABLED_DEFAULT = os.environ.get("COOLBOX_BORDER") == "1"
+# Border enabled on interactive terminals unless explicitly disabled.
+_border_env = os.environ.get("COOLBOX_BORDER")
+if _border_env is None:
+    BORDER_ENABLED_DEFAULT = IS_TTY
+else:
+    BORDER_ENABLED_DEFAULT = _border_env == "1"
 
 ALT_SCREEN = False  # keep false; alt-screens + subprocess output can wedge terminals
 
@@ -159,9 +200,11 @@ if sys.version_info < MIN_PYTHON:
     raise RuntimeError(f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required")
 
 def locate_root(start: Path) -> Path:
+    """Locate project root by walking parents for common markers."""
     p = Path(start).resolve()
+    markers = {"requirements.txt", "pyproject.toml", ".git"}
     for parent in (p, *p.parents):
-        if (parent / "requirements.txt").exists():
+        if any((parent / m).exists() for m in markers):
             return parent
     return p
 
@@ -201,8 +244,11 @@ def log(msg: str) -> None:
 
 
 def show_setup_banner() -> None:
-    """Display a simple setup banner for CoolBox."""
-    console.print(f"[bold cyan]CoolBox[/] setup v{__version__}")
+    """Display a fancy rainbow setup banner for CoolBox."""
+    banner = rainbow_text(f" CoolBox setup v{__version__} ")
+    path = Text(str(ROOT_DIR), style="bold magenta")
+    content = Text.assemble(banner, "\n", path)
+    console.print(Panel(content, box=box.ROUNDED, expand=False))
 
 
 def check_python_version() -> None:
@@ -328,9 +374,9 @@ def build_extensions() -> None:
 def _progress(**overrides):
     """Progress configured for safety on all terminals."""
     return Progress(
-        SpinnerColumn(),
+        RainbowSpinnerColumn(),
         "[progress.description]{task.description}",
-        BarColumn(),
+        BarColumn(bar_width=None),
         TaskProgressColumn(),
         MofNCompleteColumn(),
         TimeElapsedColumn(),
@@ -351,6 +397,13 @@ def _pip(
     """Run pip with retries. No border by default to avoid UI deadlocks."""
     py = str(python or ensure_venv())
     base_cmd = [py, "-m", "pip"]
+
+    if OFFLINE:
+        SUMMARY.add_warning(
+            "Offline mode: skipping " + " ".join(base_cmd + list(args))
+        )
+        return
+
     if upgrade_pip:
         _retry(base_cmd + ["install", "-U", "pip", "setuptools", "wheel"], attempts=attempts)
     cmd = base_cmd + list(args)
@@ -408,10 +461,12 @@ def show_info() -> None:
 
 def run_tests(extra: Sequence[str]) -> None:
     py = ensure_venv()
-    try:
-        _run([py, "-m", "pytest", "-q", *extra])
-    except Exception as e:
-        SUMMARY.add_error(f"pytest failed: {e}")
+    with _progress() as prog:
+        prog.add_task("Running tests")
+        try:
+            _run([py, "-m", "pytest", "-q", *extra])
+        except Exception as e:
+            SUMMARY.add_error(f"pytest failed: {e}")
 
 def doctor() -> None:
     problems: list[str] = []
@@ -491,19 +546,26 @@ def install(
         SUMMARY.add_warning(f"Requirements file missing: {req_path}")
 
     if dev:
-        for pkg in DEV_PACKAGES:
-            args = ["install", pkg]
+        dev_req = ROOT_DIR / "requirements-dev.txt"
+        if dev_req.is_file():
+            args = ["install", "-r", str(dev_req)]
             if upgrade:
                 args.append("-U")
-            planned.append((f"Install {pkg}", args, False))
+            planned.append(("Install dev requirements", args, True))
+        else:
+            for pkg in DEV_PACKAGES:
+                args = ["install", pkg]
+                if upgrade:
+                    args.append("-U")
+                planned.append((f"Install {pkg}", args, False))
 
     border_ctx = (
         NeonPulseBorder(
             speed=0.04,
             style="rounded",
             theme="pride",
-            thickness=1,
-            use_alt_screen=False,   # keep false; safer
+            thickness=2,
+            use_alt_screen=ALT_SCREEN,
             console=console.raw,    # pass real Console
         )
         if border_enabled
@@ -512,6 +574,7 @@ def install(
 
     try:
         with border_ctx:
+            show_setup_banner()
             if planned:
                 with _progress() as prog:
                     t = prog.add_task("Executing install plan", total=len(planned))
