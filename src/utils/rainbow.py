@@ -34,10 +34,16 @@ class LockingConsole(Console):
         with self._lock:
             return super().control(*args, **kwargs)
 
+# `threading.RLock` is a factory function which returns an instance of the
+# underlying `_thread.RLock` type.  Using it directly with `isinstance`
+# therefore raises ``TypeError`` because it's not a class.  Capture the actual
+# lock type once so we can make safe ``isinstance`` checks later.
+_RLOCK_TYPE = type(threading.RLock())
+
 @contextmanager
 def _console_lock_ctx(console: Console):
     lock = getattr(console, "_lock", None)
-    if isinstance(lock, threading.RLock):
+    if isinstance(lock, _RLOCK_TYPE):
         lock.acquire()
         try:
             yield
