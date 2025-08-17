@@ -199,6 +199,19 @@ console = LockingConsole(_helper_console or Console(soft_wrap=False, highlight=F
 def log(msg: str) -> None:
     console.print(f"[dim]»[/] {msg}")
 
+
+def show_setup_banner() -> None:
+    """Display a simple setup banner for CoolBox."""
+    console.print(f"[bold cyan]CoolBox[/] setup v{__version__}")
+
+
+def check_python_version() -> None:
+    """Verify the current Python version meets requirements."""
+    if sys.version_info < MIN_PYTHON:
+        raise RuntimeError(
+            f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required"
+        )
+
 # ---------- summary ----------
 class RunSummary:
     def __init__(self) -> None:

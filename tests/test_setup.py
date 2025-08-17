@@ -24,22 +24,26 @@ def test_get_venv_dir_env(monkeypatch, tmp_path):
     assert setup.get_venv_dir() == tmp_path / "v"
 
 
-def test_pip_uses_blue_glow(monkeypatch):
-    calls = []
+def test_pip_invokes_run(monkeypatch):
+    border_calls = []
 
     class DummyBorder:
         def __enter__(self):
-            calls.append("enter")
+            border_calls.append("enter")
             return self
 
         def __exit__(self, exc_type, exc, tb):
-            calls.append("exit")
+            border_calls.append("exit")
+
+    run_calls = []
+
+    def fake_run(cmd, **kw):
+        run_calls.append(cmd)
 
     monkeypatch.setattr(setup, "NeonPulseBorder", DummyBorder)
-    monkeypatch.setattr(
-        setup.subprocess,
-        "check_call",
-        lambda cmd, **kw: calls.append(cmd),
-    )
+    monkeypatch.setattr(setup, "_run", fake_run)
+
     setup._pip(["install", "pkg"], python=sys.executable)
-    assert calls[0] == "enter" and calls[-1] == "exit"
+
+    assert border_calls == []
+    assert run_calls and run_calls[0][:4] == [sys.executable, "-m", "pip", "install"]
