@@ -1,5 +1,10 @@
 import importlib
 import sys
+import subprocess
+import time
+from pathlib import Path
+
+import pytest
 
 import setup
 
@@ -71,5 +76,49 @@ def test_cli_offline_flag(monkeypatch):
     setup.set_offline(False)
     monkeypatch.setattr(setup, "show_info", lambda: None)
 
-    setup.main(["--offline", "info"])
+    with pytest.raises(SystemExit):
+        setup.main(["--offline", "info"])
     assert setup.is_offline() is True
+
+
+@pytest.mark.parametrize(
+    "platform, expected",
+    [
+        ("linux", Path("venv") / "bin" / "python"),
+        ("darwin", Path("venv") / "bin" / "python"),
+        ("win32", Path("venv") / "Scripts" / "python.exe"),
+    ],
+)
+def test_venv_python_platform(monkeypatch, tmp_path, platform, expected):
+    monkeypatch.setenv("COOLBOX_VENV", str(tmp_path / "venv"))
+    monkeypatch.setattr(sys, "platform", platform)
+    path = Path(setup._venv_python())
+    assert path == (tmp_path / expected).resolve()
+
+
+def test_setup_run_speed():
+    start = time.perf_counter()
+    subprocess.run(
+        [sys.executable, "setup.py", "--help"],
+        check=True,
+        cwd=Path(__file__).resolve().parent.parent,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=5,
+    )
+    duration = time.perf_counter() - start
+    assert duration < 5
+
+
+def test_run_timeout():
+    with pytest.raises(RuntimeError):
+        setup._run([sys.executable, "-c", "import time; time.sleep(1)"], timeout=0.1)
+
+
+def test_config_file_overrides(monkeypatch, tmp_path):
+    cfg = tmp_path / ".coolboxrc"
+    cfg.write_text("{""no_anim"": true}")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    import importlib
+    importlib.reload(setup)
+    assert setup.CONFIG.no_anim is True

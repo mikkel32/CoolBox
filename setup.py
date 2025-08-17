@@ -21,11 +21,17 @@ import sys
 import time
 import threading
 import socket
+import logging
+import json
+from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Sequence, Tuple
+import urllib.request
 
 # ---------- rich UI ----------
+RICH_AVAILABLE = False
 try:
     from rich.console import Console
     from rich.table import Table
@@ -42,21 +48,91 @@ try:
     from rich import box
     from rich.traceback import install as _rich_tb_install
     _rich_tb_install(show_locals=False)
+    RICH_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    subprocess.run([sys.executable, "-m", "pip", "install", "rich>=13"], check=False)
-    from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.progress import (
-        Progress,
-        BarColumn,
-        TimeElapsedColumn,
-        TaskProgressColumn,
-        MofNCompleteColumn,
-        ProgressColumn,
-    )
-    from rich.text import Text
-    from rich import box
+    try:
+        res = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "rich>=13"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.progress import (
+            Progress,
+            BarColumn,
+            TimeElapsedColumn,
+            TaskProgressColumn,
+            MofNCompleteColumn,
+            ProgressColumn,
+        )
+        from rich.text import Text
+        from rich import box
+        RICH_AVAILABLE = True
+    except Exception:
+        RICH_AVAILABLE = False
+
+if not RICH_AVAILABLE:  # pragma: no cover - executed when rich unavailable
+    class _PlainConsole:
+        def print(self, *args, **kwargs):
+            print(*args, **kwargs)
+
+        def log(self, *args, **kwargs):
+            print(*args, **kwargs)
+
+        def flush(self):
+            sys.stdout.flush()
+
+    class _PlainTable:
+        def __init__(self, *_, **__):
+            self._rows: list[str] = []
+
+        def add_column(self, *_, **__):
+            pass
+
+        def add_row(self, *args, **__):
+            self._rows.append(" ".join(str(a) for a in args))
+
+        def __str__(self) -> str:  # pragma: no cover - simple fallback
+            return "\n".join(self._rows)
+
+    class _PlainPanel:
+        def __init__(self, content, **__):
+            self.content = content
+
+        def __str__(self) -> str:  # pragma: no cover
+            return str(self.content)
+
+    class _PlainProgress:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def add_task(self, *_, **__):
+            return 0
+
+        def advance(self, *_, **__):
+            pass
+
+    class _PlainText(str):
+        def append(self, ch: str, style: str | None = None) -> None:
+            pass
+
+    Console = _PlainConsole  # type: ignore
+    Table = _PlainTable  # type: ignore
+    Panel = _PlainPanel  # type: ignore
+    Progress = _PlainProgress  # type: ignore
+    BarColumn = TimeElapsedColumn = TaskProgressColumn = MofNCompleteColumn = ProgressColumn = object  # type: ignore
+    Text = _PlainText  # type: ignore
+
+    class _Box:
+        SIMPLE_HEAVY = ROUNDED = MINIMAL_DOUBLE_HEAD = None
+
+    box = _Box()
 
 # ---------- optional project helpers ----------
 try:
@@ -81,6 +157,72 @@ except Exception:
             "cwd": str(Path.cwd()),
         }
 
+# ---------- logging ----------
+logger = logging.getLogger("coolbox.setup")
+logger.setLevel(logging.INFO)
+if os.environ.get("COOLBOX_LOG_FILE"):
+    fh = logging.FileHandler(os.environ["COOLBOX_LOG_FILE"])
+    fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    logger.addHandler(fh)
+else:
+    logger.addHandler(logging.NullHandler())
+
+# ---------- configuration ----------
+
+DEFAULT_RAINBOW = (
+    "#e40303",
+    "#ff8c00",
+    "#ffed00",
+    "#008026",
+    "#004dff",
+    "#750787",
+)
+
+
+def _load_user_config() -> dict:
+    for p in (Path.home() / ".coolboxrc", Path.cwd() / ".coolboxrc"):
+        if p.exists():
+            try:
+                return json.loads(p.read_text())
+            except Exception:
+                logger.warning("Failed to read config %s", p)
+    return {}
+
+
+@dataclass
+class Config:
+    no_git: bool = os.environ.get("COOLBOX_NO_GIT") == "1"
+    cli_no_anim: bool = os.environ.get("COOLBOX_FORCE_NO_ANIM") == "1"
+    no_anim: bool = False
+    border_enabled_default: bool = False
+    alt_screen: bool = False
+    rainbow_colors: Sequence[str] = field(default_factory=lambda: DEFAULT_RAINBOW)
+
+
+CONFIG = Config()
+USER_CFG = _load_user_config()
+for key, value in USER_CFG.items():
+    if hasattr(CONFIG, key):
+        setattr(CONFIG, key, value)
+
+IS_TTY = sys.stdout.isatty()
+
+CONFIG.no_anim = (
+    CONFIG.cli_no_anim
+    or os.environ.get("COOLBOX_NO_ANIM") == "1"
+    or os.environ.get("COOLBOX_CI") == "1"
+    or os.environ.get("CI") == "1"
+    or not IS_TTY
+)
+_border_env = os.environ.get("COOLBOX_BORDER")
+CONFIG.border_enabled_default = IS_TTY if _border_env is None else _border_env == "1"
+CONFIG.alt_screen = os.environ.get("COOLBOX_ALT_SCREEN") == "1"
+
+if os.environ.get("COOLBOX_COLORS"):
+    CONFIG.rainbow_colors = tuple(os.environ["COOLBOX_COLORS"].split(","))
+
+RAINBOW_COLORS: Sequence[str] = tuple(CONFIG.rainbow_colors)
+
 # ---------- neon border fallback ----------
 class _NoopBorder:
     def __init__(self, *_, **__): ...
@@ -96,15 +238,6 @@ def NeonPulseBorder(**kwargs):
     return _BorderImpl(**kwargs)
 
 # ---------- rainbow helpers ----------
-
-RAINBOW_COLORS: Sequence[str] = (
-    "#e40303",
-    "#ff8c00",
-    "#ffed00",
-    "#008026",
-    "#004dff",
-    "#750787",
-)
 
 
 class RainbowSpinnerColumn(ProgressColumn):
@@ -174,7 +307,6 @@ class LockingConsole:
         return getattr(self._console, name)
 
 # ---------- env + constants ----------
-IS_TTY = sys.stdout.isatty()
 
 
 def _detect_offline(timeout: float = 1.5) -> bool:
@@ -184,6 +316,7 @@ def _detect_offline(timeout: float = 1.5) -> bool:
             return False
     except OSError:
         return True
+
 
 _OFFLINE_FORCED = os.environ.get("COOLBOX_OFFLINE") == "1"
 _OFFLINE_AUTO: bool | None = None
@@ -213,25 +346,17 @@ def is_offline() -> bool:
 def offline_auto_detected() -> bool:
     return (_OFFLINE_AUTO is True) and not _OFFLINE_FORCED
 
-NO_GIT = os.environ.get("COOLBOX_NO_GIT") == "1"
+BASE_ENV = {
+    **os.environ,
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    "PIP_NO_INPUT": "1",
+    "PYTHONUNBUFFERED": "1",
+    "PYTHONIOENCODING": "utf-8",
+    "GIT_TERMINAL_PROMPT": "0",
+}
 
-CLI_NO_ANIM = os.environ.get("COOLBOX_FORCE_NO_ANIM") == "1"
-NO_ANIM = (
-    CLI_NO_ANIM
-    or os.environ.get("COOLBOX_NO_ANIM") == "1"
-    or os.environ.get("COOLBOX_CI") == "1"
-    or os.environ.get("CI") == "1"
-    or not IS_TTY
-)
-
-# Border enabled on interactive terminals unless explicitly disabled.
-_border_env = os.environ.get("COOLBOX_BORDER")
-if _border_env is None:
-    BORDER_ENABLED_DEFAULT = IS_TTY
-else:
-    BORDER_ENABLED_DEFAULT = _border_env == "1"
-
-ALT_SCREEN = False  # keep false; alt-screens + subprocess output can wedge terminals
+# One global console
+console = LockingConsole(_helper_console or Console(soft_wrap=False, highlight=False))
 
 MIN_PYTHON: Tuple[int, int] = (3, 10)
 if sys.version_info < MIN_PYTHON:
@@ -265,20 +390,13 @@ DEV_PACKAGES: Sequence[str] = ("pip-tools>=7", "build>=1", "wheel>=0.43", "pytes
 # default lightweight mode
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 
-# Non-interactive env defaults. Our keys override OS env.
-BASE_ENV = {
-    **os.environ,
-    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
-    "PIP_NO_INPUT": "1",
-    "PYTHONUNBUFFERED": "1",
-    "GIT_TERMINAL_PROMPT": "0",
-}
-
-# One global console
-console = LockingConsole(_helper_console or Console(soft_wrap=False, highlight=False))
 
 def log(msg: str) -> None:
-    console.print(f"[dim]»[/] {msg}")
+    logger.info(msg)
+    try:
+        console.print(f"[dim]»[/] {msg}")
+    except Exception:
+        print(msg)
 
 
 def show_setup_banner() -> None:
@@ -326,6 +444,27 @@ class RunSummary:
 
 SUMMARY = RunSummary()
 
+
+def send_telemetry(summary: RunSummary) -> None:
+    """Send anonymized telemetry if configured."""
+    url = os.environ.get("COOLBOX_TELEMETRY_URL")
+    if not url:
+        return
+    data = {
+        "warnings": summary.warnings,
+        "errors": summary.errors,
+        "platform": sys.platform,
+    }
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=2)  # pragma: no cover - network
+    except Exception:
+        pass
+
 # ---------- helpers ----------
 def _venv_python() -> str:
     venv_dir = get_venv_dir()
@@ -340,20 +479,28 @@ def ensure_venv() -> str:
         _venv.EnvBuilder(with_pip=True, clear=False, upgrade=False).create(str(venv_dir))
     return _venv_python()
 
-def _run(cmd: Sequence[str], *, cwd: Path | None = None, env: dict | None = None) -> None:
+def _run(
+    cmd: Sequence[str], *, cwd: Path | None = None, env: dict | None = None, timeout: float | None = None
+) -> None:
     """Run command in non-interactive mode. Inherit IO for live display."""
     final_env = dict(BASE_ENV)
     if env:
         final_env.update(env)
-    res = subprocess.run(list(cmd), cwd=cwd, env=final_env)
+    try:
+        res = subprocess.run(list(cmd), cwd=cwd, env=final_env, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"Command '{' '.join(cmd)}' timed out after {timeout}s") from e
     if res.returncode != 0:
         raise subprocess.CalledProcessError(res.returncode, cmd)
 
-def _retry(cmd: Sequence[str], *, attempts: int = 3, delay: float = 0.8, cwd: Path | None = None) -> None:
+
+def _retry(
+    cmd: Sequence[str], *, attempts: int = 3, delay: float = 0.8, cwd: Path | None = None, timeout: float | None = None
+) -> None:
     last: Exception | None = None
     for i in range(1, attempts + 1):
         try:
-            _run(cmd, cwd=cwd)
+            _run(cmd, cwd=cwd, timeout=timeout)
             return
         except Exception as e:  # pragma: no cover
             last = e
@@ -389,7 +536,7 @@ def _write_req_stamp(req: Path) -> None:
     _stamp_path().write_text(_file_hash(req), encoding="utf-8")
 
 def update_repo() -> None:
-    if NO_GIT or is_offline():
+    if CONFIG.no_git or is_offline():
         log("Skip git update (disabled or offline).")
         return
     if not (ROOT_DIR / ".git").exists():
@@ -421,7 +568,7 @@ def _progress(**overrides):
         refresh_per_second=12,
         console=console.raw,          # use real Console
         transient=True,
-        disable=NO_ANIM,              # auto-disable when not TTY or CI
+        disable=CONFIG.no_anim,              # auto-disable when not TTY or CI
         **overrides,
     )
 
@@ -472,14 +619,20 @@ def check_outdated(*, requirements: Path | None, upgrade: bool = False) -> None:
     if upgrade and pkgs:
         with _progress() as prog:
             t = prog.add_task("Upgrading outdated packages", total=len(pkgs))
-            for item in pkgs:
-                name = item.get("name")
-                if name:
-                    try:
-                        _pip(["install", "-U", name], upgrade_pip=False, attempts=2)
-                    except Exception as e:
-                        SUMMARY.add_error(f"Upgrade {name} failed: {e}")
-                prog.advance(t)
+
+            def _worker(name: str) -> None:
+                try:
+                    _pip(["install", "-U", name], upgrade_pip=False, attempts=2)
+                except Exception as e:  # pragma: no cover - network failures
+                    SUMMARY.add_error(f"Upgrade {name} failed: {e}")
+                finally:
+                    prog.advance(t)
+
+            with ThreadPoolExecutor() as ex:
+                for item in pkgs:
+                    name = item.get("name")
+                    if name:
+                        ex.submit(_worker, name)
     else:
         table = Table(title="Outdated packages", box=box.SIMPLE_HEAVY)
         table.add_column("Name")
@@ -510,7 +663,7 @@ def doctor() -> None:
     problems: list[str] = []
     if is_offline():
         problems.append("offline mode active, downloads disabled.")
-    if NO_GIT:
+    if CONFIG.no_git:
         problems.append("NO_GIT set, repo update disabled.")
     if not REQUIREMENTS_FILE.exists():
         problems.append("requirements.txt not found.")
@@ -537,6 +690,14 @@ def sync(lock_file: Path | None, *, upgrade: bool = False) -> None:
     except Exception as e:
         SUMMARY.add_error(f"Sync failed: {e}")
 
+
+def self_update() -> None:
+    py = ensure_venv()
+    try:
+        _run([py, "-m", "pip", "install", "-U", "coolbox"])
+    except Exception as e:  # pragma: no cover - network/install issues
+        SUMMARY.add_error(f"Self-update failed: {e}")
+
 def clean_pyc() -> None:
     n = 0
     for p in ROOT_DIR.rglob("*"):
@@ -553,6 +714,7 @@ def install(
     skip_update: bool = False,
     no_anim: bool | None = None,
     border: bool | None = None,
+    alt_screen: bool | None = None,
 ) -> None:
     os.chdir(ROOT_DIR)
     if not skip_update:
@@ -562,11 +724,12 @@ def install(
     py = ensure_venv()
 
     # runtime toggles
-    global NO_ANIM
     if no_anim is True:
-        NO_ANIM = True
-    border_enabled = BORDER_ENABLED_DEFAULT if border is None else bool(border)
-    if NO_ANIM:
+        CONFIG.no_anim = True
+    if alt_screen is True:
+        CONFIG.alt_screen = True
+    border_enabled = CONFIG.border_enabled_default if border is None else bool(border)
+    if CONFIG.no_anim:
         border_enabled = False
 
     req_path = requirements or REQUIREMENTS_FILE
@@ -603,7 +766,7 @@ def install(
             style="rounded",
             theme="pride",
             thickness=2,
-            use_alt_screen=ALT_SCREEN,
+            use_alt_screen=CONFIG.alt_screen,
             console=console.raw,    # pass real Console
         )
         if border_enabled
@@ -632,7 +795,6 @@ def install(
             build_extensions()
     finally:
         console.flush()
-        SUMMARY.render()
 
     if req_path.is_file():
         try:
@@ -655,6 +817,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p_install.add_argument("--skip-update", action="store_true")
     p_install.add_argument("--no-anim", action="store_true", help="Disable animations for this run")
     p_install.add_argument("--border", action="store_true", help="Enable neon border UI")
+    p_install.add_argument("--alt-screen", action="store_true", help="Use alternate screen buffer")
 
     sub.add_parser("info", help="Show system info")
     sub.add_parser("doctor", help="Run quick diagnostics")
@@ -679,9 +842,27 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p_test.add_argument("extra", nargs="*", default=[])
 
     sub.add_parser("update", help="git fetch/pull if repo")
+    sub.add_parser("self-update", help="Update the CoolBox setup script")
 
     p.set_defaults(command="install")
+    _load_plugins(sub)
     return p.parse_args(argv)
+
+
+def _load_plugins(sub) -> None:
+    """Load external CLI plugins via entry points."""
+    try:
+        from importlib.metadata import entry_points
+    except Exception:
+        return
+    try:
+        for ep in entry_points().select(group="coolbox.plugins"):
+            try:
+                ep.load()(sub)
+            except Exception as exc:  # pragma: no cover - plugin errors
+                SUMMARY.add_warning(f"Plugin {ep.name} failed: {exc}")
+    except Exception:
+        pass
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = _parse_args(argv or sys.argv[1:])
@@ -692,6 +873,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         log("Offline mode detected (network unreachable).")
     cmd = args.command
 
+    exit_code = 0
     try:
         if cmd == "install":
             install(
@@ -701,16 +883,14 @@ def main(argv: Sequence[str] | None = None) -> None:
                 skip_update=getattr(args, "skip_update", False),
                 no_anim=getattr(args, "no_anim", False),
                 border=getattr(args, "border", None),
+                alt_screen=getattr(args, "alt_screen", None),
             )
         elif cmd == "check":
             check_outdated(requirements=args.requirements)
-            SUMMARY.render()
         elif cmd == "upgrade":
             check_outdated(requirements=None, upgrade=True)
-            SUMMARY.render()
         elif cmd == "info":
             show_info()
-            SUMMARY.render()
         elif cmd == "venv":
             if getattr(args, "recreate", False):
                 vdir = get_venv_dir()
@@ -719,35 +899,37 @@ def main(argv: Sequence[str] | None = None) -> None:
                     log("Virtualenv removed.")
             ensure_venv()
             log("Virtualenv ready.")
-            SUMMARY.render()
         elif cmd == "clean-pyc":
             clean_pyc()
-            SUMMARY.render()
         elif cmd == "test":
             run_tests(args.extra)
-            SUMMARY.render()
         elif cmd == "update":
             update_repo()
-            SUMMARY.render()
         elif cmd == "doctor":
             doctor()
-            SUMMARY.render()
         elif cmd == "lock":
             lock()
-            SUMMARY.render()
         elif cmd == "sync":
             sync(args.lock_file, upgrade=args.upgrade)
-            SUMMARY.render()
+        elif cmd == "self-update":
+            self_update()
         else:
             install()
     except KeyboardInterrupt:
         SUMMARY.add_warning("Interrupted by user.")
-        SUMMARY.render()
-        sys.exit(130)
+        exit_code = 130
     except BaseException as e:
         SUMMARY.add_error(f"Fatal: {e.__class__.__name__}: {e}")
-        SUMMARY.render()
+        exit_code = 1
         raise
+    else:
+        exit_code = 0
+    finally:
+        SUMMARY.render()
+        send_telemetry(SUMMARY)
+        if exit_code == 0 and SUMMARY.errors:
+            exit_code = 1
+        sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()
