@@ -1,8 +1,9 @@
-"""Utility helpers for installing and inspecting CoolBox dependencies."""
+#!/usr/bin/env python3
+"""CoolBox — install/inspect utilities with neon border UI, atomic console, and end-of-run summary."""
 
 from __future__ import annotations
 
-__version__ = "1.4.0"
+__version__ = "1.5.1"
 
 import argparse
 import hashlib
@@ -13,10 +14,12 @@ import sys
 import time
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence, Tuple
 
+# ---------- rich UI ----------
 try:
-    from rich.text import Text
+    from rich.table import Table
+    from rich.panel import Panel
     from rich.progress import (
         Progress,
         SpinnerColumn,
@@ -25,15 +28,11 @@ try:
         TaskProgressColumn,
         MofNCompleteColumn,
     )
-    from rich.console import Console, Control
-    from rich.table import Table
-    from rich.panel import Panel
     from rich import box
 except ImportError:  # pragma: no cover
-    from src.ensure_deps import ensure_rich
-
-    ensure_rich()
-    from rich.text import Text
+    subprocess.run([sys.executable, "-m", "pip", "install", "rich>=13"], check=False)
+    from rich.table import Table
+    from rich.panel import Panel
     from rich.progress import (
         Progress,
         SpinnerColumn,
@@ -42,370 +41,341 @@ except ImportError:  # pragma: no cover
         TaskProgressColumn,
         MofNCompleteColumn,
     )
-    from rich.console import Console, Control
-    from rich.table import Table
-    from rich.panel import Panel
     from rich import box
 
-from src.ensure_deps import ensure_numpy
-from src.utils.helpers import (
-    log,
-    get_system_info,
-    run_with_spinner,
-    console,
-)
-
-# Optional speedups
+# ---------- project helpers ----------
 try:
-    ensure_numpy()
+    from src.ensure_deps import ensure_numpy
 except Exception:  # pragma: no cover
-    pass
+    def ensure_numpy() -> None:  # type: ignore
+        pass
 
-# Behavior toggles
+try:
+    from src.utils.helpers import (
+        log as _helper_log,
+        get_system_info,
+        run_with_spinner,
+        console as _helper_console,
+    )
+except Exception:
+    _helper_console = None
+    def _helper_log(msg: str) -> None:  # type: ignore
+        pass
+    def get_system_info() -> dict:  # type: ignore
+        return {
+            "python": sys.version.split()[0],
+            "executable": sys.executable,
+            "platform": sys.platform,
+            "cwd": str(Path.cwd()),
+        }
+    def run_with_spinner(fn, message: str):  # type: ignore
+        return fn()
+
+# Neon border + atomic console
+from src.utils.rainbow import NeonPulseBorder, LockingConsole
+
+# ---------- env + constants ----------
 IS_TTY = sys.stdout.isatty()
+OFFLINE = os.environ.get("COOLBOX_OFFLINE") == "1"
+NO_GIT = os.environ.get("COOLBOX_NO_GIT") == "1"
 NO_ANIM = (
     os.environ.get("COOLBOX_NO_ANIM") == "1"
     or os.environ.get("COOLBOX_CI") == "1"
     or os.environ.get("CI") == "1"
     or not IS_TTY
 )
-OFFLINE = os.environ.get("COOLBOX_OFFLINE") == "1"
-NO_GIT = os.environ.get("COOLBOX_NO_GIT") == "1"
+ALT_SCREEN = os.environ.get("COOLBOX_ALT_SCREEN", "1") == "1"
 
-os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")  # noqa: E402
+MIN_PYTHON: Tuple[int, int] = (3, 10)
+if sys.version_info < MIN_PYTHON:
+    raise RuntimeError(f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required")
 
-from src.utils.rainbow import NeonPulseBorder  # noqa: E402
+ROOT_DIR = Path(__file__).resolve().parent
+VENV_DIR = ROOT_DIR / ".venv"
+REQUIREMENTS_FILE = ROOT_DIR / "requirements.txt"
+DEV_PACKAGES: Sequence[str] = ("pip-tools>=7", "build>=1", "wheel>=0.43", "pytest>=8")
 
+# Default lightweight mode for downstream modules
+os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 
-MIN_PYTHON = (3, 10)
+# One console for everything, wrapped with a global lock to avoid flicker or torn output.
+console = LockingConsole()
+def log(msg: str) -> None:
+    console.print(f"[dim]»[/] {msg}")
 
-COOLBOX_ART = r"""
-  ____            _ ____
- / ___|___   ___ | | __ )  _____  __
-| |   / _ \ / _ \| |  _ \ / _ \ \/ /
-| |__| (_) | (_) | | |_) | (_) >  <
- \____\___/ \___/|_|____/ \___/_/\_\
-""".strip("\n")
+# ---------- summary tracking ----------
+class RunSummary:
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+        self.errors: list[str] = []
 
+    def add_warning(self, msg: str) -> None:
+        self.warnings.append(msg)
+        log(f"[yellow]WARN[/]: {msg}")
 
-# ---------- color helpers ----------
-def _blend(c1: str, c2: str, t: float) -> str:
-    c1 = c1.lstrip("#")
-    c2 = c2.lstrip("#")
-    if len(c1) == 3:
-        c1 = "".join(ch * 2 for ch in c1)
-    if len(c2) == 3:
-        c2 = "".join(ch * 2 for ch in c2)
-    r1, g1, b1 = int(c1[0:2], 16), int(c1[2:4], 16), int(c1[4:6], 16)
-    r2, g2, b2 = int(c2[0:2], 16), int(c2[2:4], 16), int(c2[4:6], 16)
-    r = round(r1 + (r2 - r1) * t)
-    g = round(g1 + (g2 - g1) * t)
-    b = round(b1 + (b2 - b1) * t)
-    return f"#{r:02x}{g:02x}{b:02x}"
+    def add_error(self, msg: str) -> None:
+        self.errors.append(msg)
+        log(f"[red]ERROR[/]: {msg}")
 
+    def render(self) -> None:
+        # Always show a box at the end.
+        if not self.warnings and not self.errors:
+            panel = Panel.fit("[green]No warnings or errors.[/]", title="Summary", box=box.ROUNDED)
+            console.print(panel)
+            return
 
-def _gradient_line(line: str, offset: float = 0.0) -> Text:
-    base_a = "#00eaff"
-    base_b = "#ff00d0"
-    gloss_w = max(3, len(line) // 6)
-    sweep = int((offset * 1.5) % (len(line) + gloss_w))
+        table = Table(box=box.SIMPLE_HEAVY)
+        table.add_column("Type", no_wrap=True)
+        table.add_column("Message", overflow="fold")
+        for w in self.warnings:
+            table.add_row("[yellow]Warning[/]", w)
+        for e in self.errors:
+            table.add_row("[red]Error[/]", e)
+        console.print(Panel(table, title="Summary", box=box.ROUNDED))
 
-    text = Text()
-    n = max(len(line) - 1, 1)
-    for i, ch in enumerate(line):
-        pos = (i + offset) / n
-        color = _blend(base_a, base_b, (pos % 1.0))
-        if sweep - gloss_w <= i <= sweep:
-            k = (i - (sweep - gloss_w)) / max(1, gloss_w)
-            color = _blend(color, "#ffffff", 0.65 * (1.0 - (k - 0.5) ** 2) * 1.5)
-        text.append(ch, style=color)
-    return text
+SUMMARY = RunSummary()
 
-
-# ---------- banner ----------
-def _render_centered_ascii(lines: list[Text]) -> None:
-    width, height = console.size
-    content_h = len(lines)
-    start_row = max(1, (height // 2) - (content_h // 2))
-    max_w = min(width - 2, max((len(l.plain) for l in lines), default=0))
-    for j, t in enumerate(lines):
-        y = start_row + j
-        x = max(1, (width // 2) - (len(t.plain) // 2))
-        console.control(Control.move_to(max(0, x - 2), y))
-        console.print(" " * (max_w + 4), end="")
-        console.control(Control.move_to(x, y))
-        console.print(t, end="")
-    console.file.flush()
+# ---------- helpers ----------
+def _run(cmd: Sequence[str], *, cwd: Path | None = None, env: dict | None = None) -> None:
+    """Run a command and raise if it fails."""
+    subprocess.check_call(list(cmd), cwd=cwd, env=env)
 
 
-def show_setup_banner() -> None:
-    if NO_ANIM:
-        console.print(Panel.fit(Text(COOLBOX_ART), style="cyan", border_style="cyan"))
-        console.rule("[bold cyan]CoolBox Setup")
-        return
-
-    console.clear()
-    art_lines = COOLBOX_ART.splitlines()
-
-    with NeonPulseBorder(speed=0.032):
-        frames = 54
-        import math
-
-        for f in range(frames):
-            phase = f / 8.0
-            rendered: list[Text] = []
-            for idx, raw in enumerate(art_lines):
-                wobble = 0.75 * math.sin(phase + idx * 0.6)
-                rendered.append(_gradient_line(raw, offset=phase * 2.0 + wobble))
-            _render_centered_ascii(rendered)
-            time.sleep(1 / 60)
-
-    with Progress(
-        SpinnerColumn(style="bold magenta"),
-        BarColumn(bar_width=None),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("Initializing", total=150)
-        for _ in range(150):
-            progress.update(task, advance=1)
-            time.sleep(0.0075)
-
-    console.rule("[bold cyan]CoolBox Setup")
+def _retry(
+    cmd: Sequence[str], *, attempts: int = 3, delay: float = 0.8, cwd: Path | None = None
+) -> None:
+    """Retry a command a few times with exponential backoff."""
+    last: Exception | None = None
+    for i in range(1, attempts + 1):
+        try:
+            _run(cmd, cwd=cwd)
+            return
+        except Exception as e:  # pragma: no cover - exercised via tests
+            last = e
+            if i < attempts:
+                time.sleep(delay * i)
+    if last is not None:
+        raise last
 
 
-# ---------- core ops ----------
-def check_python_version() -> None:
-    if sys.version_info < MIN_PYTHON:
-        sys.exit(f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer required.")
-
-
-def locate_root(start: Path | None = None) -> Path:
-    start = (start or Path(__file__)).resolve()
-    if start.is_file():
-        start = start.parent
-    for path in [start, *start.parents]:
-        if (path / ".git").is_dir() or (path / "requirements.txt").is_file():
-            return path
-    return start
-
-
-def _req_hash(path: Path) -> str:
-    if not path.is_file():
-        return ""
-    # normalize: drop comments and extras whitespace
-    lines = []
-    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
-        lines.append(s)
-    data = ("\n".join(lines)).encode("utf-8")
-    return hashlib.sha256(data).hexdigest()
-
-
-def _write_req_stamp(venv_dir: Path, h: str) -> None:
-    stamp = venv_dir / ".req.hash"
-    try:
-        stamp.write_text(h, encoding="utf-8")
-    except Exception:
-        pass
-
-
-def _read_req_stamp(venv_dir: Path) -> str:
-    try:
-        return (venv_dir / ".req.hash").read_text(encoding="utf-8").strip()
-    except Exception:
-        return ""
-
-
-def update_repo() -> None:
-    os.chdir(ROOT_DIR)
-    if NO_GIT or not (ROOT_DIR / ".git").is_dir():
-        if not NO_GIT:
-            log("No git repository found; skipping update check.")
-        return
-    try:
-        branch = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True
-        ).strip()
-        upstream = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-            text=True,
-        ).strip()
-        remote, remote_branch = upstream.split("/", 1)
-        with (nullcontext() if NO_ANIM else NeonPulseBorder(speed=0.04)):
-            run_with_spinner(["git", "fetch", remote], message="Fetching updates")
-
-        ahead_behind = subprocess.check_output(
-            [
-                "git",
-                "rev-list",
-                "--left-right",
-                "--count",
-                f"{branch}...{remote}/{remote_branch}",
-            ],
-            text=True,
-        ).strip()
-        ahead, behind = map(int, ahead_behind.split())
-        if behind:
-            log(f"Behind upstream by {behind} commit(s); pulling...")
-            with (nullcontext() if NO_ANIM else NeonPulseBorder(speed=0.04)):
-                run_with_spinner(
-                    ["git", "pull", "--ff-only", remote, remote_branch],
-                    message="Pulling updates",
-                )
-            log("Repository updated.")
-        else:
-            log("Repository is up to date.")
-    except Exception as exc:
-        log(f"Failed to update repository: {exc}")
+def locate_root(start: Path) -> Path:
+    """Walk upwards from *start* looking for a requirements.txt file."""
+    p = Path(start).resolve()
+    for parent in (p, *p.parents):
+        if (parent / "requirements.txt").exists():
+            return parent
+    return p
 
 
 def get_root() -> Path:
+    """Return project root, honoring COOLBOX_ROOT if set."""
     env = os.environ.get("COOLBOX_ROOT")
     if env:
-        return Path(env).expanduser().resolve()
-    try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=Path(__file__).resolve().parent,
-            text=True,
-        ).strip()
-        return Path(out)
-    except Exception:
-        return locate_root()
-
-
-ROOT_DIR = get_root()
-STATE_DIR = ROOT_DIR / ".coolbox"
-STATE_DIR.mkdir(exist_ok=True)
+        return Path(env)
+    return locate_root(Path(__file__).resolve())
 
 
 def get_venv_dir() -> Path:
+    """Return virtualenv directory, honoring COOLBOX_VENV if set."""
     env = os.environ.get("COOLBOX_VENV")
     if env:
-        return Path(env).expanduser().resolve()
-    return ROOT_DIR / ".venv"
+        return Path(env)
+    return VENV_DIR
 
+def _venv_python() -> str:
+    if sys.platform.startswith("win"):
+        py = VENV_DIR / "Scripts" / "python.exe"
+    else:
+        py = VENV_DIR / "bin" / "python"
+    return str(py)
 
-REQUIREMENTS_FILE = ROOT_DIR / "requirements.txt"
-VENV_DIR = get_venv_dir()
-DEV_PACKAGES = ["debugpy", "flake8"]
-
-
-def build_extensions() -> None:
-    try:
-        import importlib
-
-        cython_build = importlib.import_module("Cython.Build")
-        cythonize = cython_build.cythonize
-        from setuptools import Extension
-        import numpy
-    except Exception as exc:  # pragma: no cover
-        log(f"Skipping Cython build: {exc}")
-        return
-    try:
-        cythonize(
-            [
-                Extension(
-                    "src.utils._heatmap",
-                    ["src/utils/_heatmap.pyx"],
-                    include_dirs=[numpy.get_include()],
-                ),
-                Extension(
-                    "src.utils._score_samples",
-                    ["src/utils/_score_samples.pyx"],
-                ),
-            ],
-            quiet=True,
-        )
-        log("Built optional Cython extensions.")
-    except Exception as exc:  # pragma: no cover
-        log(f"Failed to build Cython extensions: {exc}")
-
-
-def ensure_venv(venv_dir: Path = VENV_DIR, *, python: str | None = None) -> Path:
-    if sys.prefix != sys.base_prefix:
-        return Path(sys.executable)
-
-    if not venv_dir.exists():
-        py_exe = python or sys.executable
-        log(f"Creating virtual environment at {venv_dir} using {py_exe}")
-        with (nullcontext() if NO_ANIM else NeonPulseBorder(speed=0.04)):
-            run_with_spinner([py_exe, "-m", "venv", str(venv_dir)], message="Creating virtualenv")
-
-    python_path = venv_dir / "bin" / "python"
-    if not python_path.exists():  # Windows
-        python_path = venv_dir / "Scripts" / "python.exe"
-    return python_path
-
-
-def _retry(cmd: list[str], *, attempts: int = 3, message: str = "Working") -> None:
-    delay = 1.0
-    for i in range(1, attempts + 1):
-        try:
-            with NeonPulseBorder():
-                run_with_spinner(cmd, message=message)
-            return
-        except subprocess.CalledProcessError as exc:
-            if i == attempts:
-                raise
-            log(f"{message} failed (try {i}/{attempts}): {exc}. Retrying in {delay:.1f}s")
-            time.sleep(delay)
-            delay *= 2
-
+def ensure_venv() -> str:
+    if not VENV_DIR.exists():
+        log(f"Creating venv at {VENV_DIR}")
+        import venv
+        venv.EnvBuilder(with_pip=True, clear=False, upgrade=False).create(str(VENV_DIR))
+    return _venv_python()
 
 def _pip(
-    args: Iterable[str],
-    python: Path | None = None,
+    args: Sequence[str],
+    python: str | Path | None = None,
     *,
     upgrade_pip: bool = False,
-    attempts: int = 3,
+    attempts: int = 2,
 ) -> None:
-    py = python or ensure_venv()
-    pip_cmd = [str(py), "-m", "pip"]
+    """Run ``pip`` inside a NeonPulseBorder to provide a blue glow.
 
-    # Offline and index config
-    cmd = [*pip_cmd, *args]
-    if OFFLINE:
-        wheelhouse = ROOT_DIR / "wheels"
-        if wheelhouse.is_dir():
-            cmd = [*pip_cmd, "install", "--no-index", "--find-links", str(wheelhouse), *args]
-        else:
-            log("COOLBOX_OFFLINE=1 but wheels/ not found; proceeding online.")
+    Parameters
+    ----------
+    args:
+        Arguments passed directly to ``pip``.
+    python:
+        Python interpreter to invoke. If ``None`` a virtualenv will be
+        created or reused and its interpreter used.
+    upgrade_pip:
+        Whether to upgrade ``pip`` first.
+    attempts:
+        Number of retry attempts on failure.
+    """
 
+    py = str(python or ensure_venv())
+    base_cmd = [py, "-m", "pip"]
     if upgrade_pip:
-        _retry([*pip_cmd, "install", "--upgrade", "pip"], attempts=attempts, message="Upgrading pip")
+        _retry(base_cmd + ["install", "-U", "pip", "setuptools", "wheel"], attempts=attempts)
 
-    log("Running: " + " ".join(cmd))
-    _retry(cmd, attempts=attempts, message="Installing dependencies")
+    cmd = base_cmd + list(args)
+    last: Exception | None = None
+    for i in range(1, attempts + 1):
+        try:
+            # NeonPulseBorder provides a subtle blue glow while pip runs.
+            with NeonPulseBorder():
+                subprocess.check_call(cmd)
+            return
+        except Exception as e:  # pragma: no cover - network failures etc.
+            last = e
+            if i < attempts:
+                time.sleep(0.8 * i)
+    if last is not None:
+        raise last
 
+def _file_hash(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def _stamp_path() -> Path:
+    return VENV_DIR / ".req_hash"
 
 def _should_install(req: Path, upgrade: bool) -> bool:
     if upgrade:
         return True
-    h = _req_hash(req)
-    prev = _read_req_stamp(VENV_DIR)
-    return h != prev
+    if not req.exists():
+        return False
+    sp = _stamp_path()
+    if not sp.exists():
+        return True
+    try:
+        return sp.read_text().strip() != _file_hash(req)
+    except Exception:
+        return True
 
+def _write_req_stamp(req: Path) -> None:
+    _stamp_path().write_text(_file_hash(req), encoding="utf-8")
 
-def _upgrade_args(upgrade: bool) -> list[str]:
-    """Return ['--upgrade'] when upgrade is True, otherwise an empty list."""
-    return ["--upgrade"] if upgrade else []
+def update_repo() -> None:
+    if NO_GIT or OFFLINE:
+        log("Skip git update (disabled or offline).")
+        return
+    if not (ROOT_DIR / ".git").exists():
+        log("No .git directory. Skipping update.")
+        return
+    log("Updating repository...")
+    try:
+        _retry(["git", "-C", str(ROOT_DIR), "fetch", "--all", "--tags", "--prune"], attempts=2)
+        _retry(["git", "-C", str(ROOT_DIR), "pull", "--rebase", "--autostash"], attempts=2)
+    except Exception as e:
+        SUMMARY.add_warning(f"git update failed: {e}")
 
+def build_extensions() -> None:
+    # Optional native extras, safe to skip if not present
+    try:
+        py = ensure_venv()
+        _run([py, "-m", "build", "--wheel", "--no-isolation"], cwd=ROOT_DIR)
+    except Exception as e:
+        SUMMARY.add_warning(f"native build skipped: {e}")
 
-def run_tests(extra: Iterable[str] | None = None) -> None:
-    python = ensure_venv()
-    cmd = [str(python), "-m", "pytest", "-q"]
-    if extra:
-        cmd.extend(extra)
-    log("Running: " + " ".join(cmd))
-    subprocess.check_call(cmd)
+def check_outdated(*, requirements: Path | None, upgrade: bool = False) -> None:
+    import json
+    py = ensure_venv()
+    cmd = [py, "-m", "pip", "list", "--outdated", "--format=json"]
+    try:
+        out = subprocess.check_output(cmd, text=True)
+        pkgs = json.loads(out)
+    except Exception as e:
+        SUMMARY.add_warning(f"pip list --outdated failed: {e}")
+        pkgs = []
 
+    if upgrade and pkgs:
+        with Progress(
+            SpinnerColumn(),
+            "[progress.description]{task.description}",
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeElapsedColumn(),
+            refresh_per_second=24,
+            console=console,
+            transient=True,
+        ) as prog:
+            t = prog.add_task("Upgrading outdated packages", total=len(pkgs))
+            for item in pkgs:
+                name = item.get("name")
+                if name:
+                    try:
+                        _pip(["install", "-U", name], upgrade_pip=False, attempts=2)
+                    except Exception as e:
+                        SUMMARY.add_error(f"Upgrade {name} failed: {e}")
+                prog.advance(t)
+    else:
+        table = Table(title="Outdated packages", box=box.SIMPLE_HEAVY)
+        table.add_column("Name"), table.add_column("Version"), table.add_column("Latest"), table.add_column("Type")
+        for p in pkgs:
+            table.add_row(p.get("name",""), p.get("version",""), p.get("latest_version",""), p.get("type",""))
+        console.print(table)
+
+def show_info() -> None:
+    info = get_system_info()
+    table = Table(title="CoolBox — System Info", box=box.MINIMAL_DOUBLE_HEAD)
+    for k, v in info.items():
+        table.add_row(k, str(v))
+    console.print(table)
+
+def run_tests(extra: Sequence[str]) -> None:
+    py = ensure_venv()
+    try:
+        _run([py, "-m", "pytest", "-q", *extra])
+    except Exception as e:
+        SUMMARY.add_error(f"pytest failed: {e}")
+
+def doctor() -> None:
+    problems: list[str] = []
+    if OFFLINE:
+        problems.append("OFFLINE set, downloads disabled.")
+    if NO_GIT:
+        problems.append("NO_GIT set, repo update disabled.")
+    if not REQUIREMENTS_FILE.exists():
+        problems.append("requirements.txt not found.")
+    console.print(Panel.fit("\n".join(problems) or "No obvious problems.", title="Doctor", box=box.ROUNDED))
+
+def lock() -> None:
+    py = ensure_venv()
+    try:
+        _pip(["install", "-U", "pip-tools"], upgrade_pip=False)
+        _run([py, "-m", "piptools", "compile", str(REQUIREMENTS_FILE), "--upgrade"])
+    except Exception as e:
+        SUMMARY.add_error(f"Lock failed: {e}")
+
+def sync(lock_file: Path | None, *, upgrade: bool = False) -> None:
+    py = ensure_venv()
+    try:
+        _pip(["install", "-U", "pip-tools"], upgrade_pip=False)
+        args = [py, "-m", "piptools", "sync"]
+        if lock_file:
+            args.append(str(lock_file))
+        if upgrade:
+            _pip(["install", "-U", "-r", str(REQUIREMENTS_FILE)], upgrade_pip=False)
+        _run(args)
+    except Exception as e:
+        SUMMARY.add_error(f"Sync failed: {e}")
+
+def clean_pyc() -> None:
+    n = 0
+    for p in ROOT_DIR.rglob("*"):
+        if p.is_dir() and p.name == "__pycache__":
+            shutil.rmtree(p, ignore_errors=True)
+            n += 1
+    log(f"Removed {n} __pycache__ folders.")
 
 def install(
     requirements: Path | None = None,
@@ -418,237 +388,164 @@ def install(
     if not skip_update:
         update_repo()
 
+    ensure_numpy()  # optional speedups
     py = ensure_venv()
-    req_path = requirements or REQUIREMENTS_FILE
 
-    steps = []
+    req_path = requirements or REQUIREMENTS_FILE
+    planned: list[tuple[str, list[str], bool]] = []
 
     if req_path.is_file():
         if _should_install(req_path, upgrade):
-            steps.append(
-                (
-                    "Install requirements",
-                    ["install", "-r", str(req_path), *_upgrade_args(upgrade)],
-                    True,
-                )
-            )
+            planned.append(("Install requirements", ["install", "-r", str(req_path), *( ["-U"] if upgrade else [] )], True))
         else:
             log("Requirements unchanged. Skipping install.")
     else:
-        log(f"Requirements file {req_path} not found")
+        SUMMARY.add_warning(f"Requirements file missing: {req_path}")
 
     if dev:
         for pkg in DEV_PACKAGES:
-            steps.append(
-                (
-                    f"Install {pkg}",
-                    ["install", pkg, *_upgrade_args(upgrade)],
-                    False,
-                )
-            )
+            planned.append((f"Install {pkg}", ["install", pkg, *( ["-U"] if upgrade else [] )], False))
 
-    # Execute steps
-    for title, args, upgrade_pip in steps:
-        _pip(args, python=py, upgrade_pip=upgrade_pip, attempts=3)
-
-    # Health checks
-    try:
-        _retry([str(py), "-m", "pip", "check"], attempts=1, message="Verifying dependency graph")
-    except Exception as exc:
-        log(f"pip check reported issues: {exc}")
-
-    # Build native extras
-    build_extensions()
-
-    # Write requirement stamp
-    if req_path.is_file():
-        _write_req_stamp(VENV_DIR, _req_hash(req_path))
-
-    log("Dependencies installed.")
-
-
-def check_outdated(requirements: Path | None = None, *, upgrade: bool = False) -> None:
-    os.chdir(ROOT_DIR)
-    req_path = requirements or REQUIREMENTS_FILE
-    result = subprocess.run(
-        [sys.executable, "-m", "pip", "list", "--outdated", "--format=json"],
-        capture_output=True,
-        text=True,
-        check=False,
+    # UI: progress + neon border with atomic console to prevent torn output
+    border_ctx = (
+        NeonPulseBorder(
+            speed=0.04,                 # ~25 FPS, stable
+            style="rounded",
+            theme="pride",
+            thickness=2,
+            use_alt_screen=ALT_SCREEN,  # separate buffer for clean updates
+            console=console,
+        )
+        if not NO_ANIM
+        else nullcontext()
     )
+
     try:
-        pkgs = [
-            f"{p['name']} {p['version']} -> {p['latest_version']}"
-            for p in __import__("json").loads(result.stdout)
-        ]
-    except Exception:
-        pkgs = []
-    if pkgs:
-        log("Packages with updates available:\n" + "\n".join(pkgs))
-        if upgrade:
-            log("Upgrading packages...")
-            names = [p.split()[0] for p in pkgs]
-            _pip(["install", "--upgrade", *names])
-    else:
-        log("All packages up to date.")
+        with border_ctx:
+            if planned:
+                with Progress(
+                    SpinnerColumn(),
+                    "[progress.description]{task.description}",
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    MofNCompleteColumn(),
+                    TimeElapsedColumn(),
+                    refresh_per_second=24,     # throttled, smooth
+                    console=console,           # locked console prevents flicker
+                    transient=True,
+                ) as prog:
+                    t = prog.add_task("Executing install plan", total=len(planned))
+                    for title, pip_args, upgrade_pip in planned:
+                        prog.update(t, description=title)
+                        try:
+                            _pip(pip_args, upgrade_pip=upgrade_pip, attempts=3)
+                        except Exception as e:
+                            SUMMARY.add_error(f"{title} failed: {e}")
+                        prog.advance(t)
 
+            # Verify graph
+            try:
+                _retry([py, "-m", "pip", "check"], attempts=1)
+            except Exception as exc:
+                SUMMARY.add_warning(f"pip check reported issues: {exc}")
 
-def show_info() -> None:
-    print(f"Project Root: {ROOT_DIR}")
-    print(f"Virtualenv: {VENV_DIR}")
-    print(get_system_info())
+            # Optional native build
+            build_extensions()
+    finally:
+        # Always print final summary box
+        SUMMARY.render()
 
-
-# ---------- smart utilities ----------
-def doctor() -> None:
-    """Environment diagnostics."""
-    tbl = Table(title="CoolBox Doctor", box=box.SIMPLE_HEAVY)
-    tbl.add_column("Check", style="bold")
-    tbl.add_column("Result")
-    ok = ":white_check_mark:"
-    warn = ":warning:"
-
-    # Python
-    py_ok = sys.version_info >= MIN_PYTHON
-    tbl.add_row("Python version", f"{ok if py_ok else warn} {sys.version.split()[0]}")
-
-    # Venv
-    py_path = ensure_venv()
-    tbl.add_row("Virtualenv", f"{ok} {py_path}")
-
-    # TTY / CI
-    tbl.add_row("Interactive TTY", f"{ok if IS_TTY else warn} {IS_TTY}")
-    tbl.add_row("Animations", "disabled" if NO_ANIM else "enabled")
-
-    # Git
-    has_git = (ROOT_DIR / ".git").is_dir()
-    tbl.add_row("Git repo", f"{ok if has_git else warn} {has_git}")
-
-    # Offline
-    tbl.add_row("Offline mode", "ON" if OFFLINE else "OFF")
-
-    # Pip reachability (best effort)
-    reach = "skipped (offline)" if OFFLINE else "unknown"
-    if not OFFLINE:
-        import urllib.request
-
+    if req_path.is_file():
         try:
-            with urllib.request.urlopen("https://pypi.org/simple/", timeout=3) as r:
-                reach = f"HTTP {getattr(r, 'status', 200)}"
-        except Exception as exc:
-            reach = f"error: {exc!s}"
-    tbl.add_row("PyPI", reach)
+            _write_req_stamp(req_path)
+        except Exception as e:
+            SUMMARY.add_warning(f"Could not write requirement stamp: {e}")
 
-    console.print(tbl)
-
-
-def lock(requirements_out: Path | None = None) -> None:
-    """Freeze env to requirements.lock in project root."""
-    py = ensure_venv()
-    out = requirements_out or (ROOT_DIR / "requirements.lock")
-    cmd = [str(py), "-m", "pip", "freeze", "--local"]
-    txt = subprocess.check_output(cmd, text=True)
-    out.write_text(txt, encoding="utf-8")
-    log(f"Wrote {out}")
-
-
-def sync(lock_file: Path | None = None, *, upgrade: bool = False) -> None:
-    """Sync env to requirements.lock if present."""
-    py = ensure_venv()
-    lf = lock_file or (ROOT_DIR / "requirements.lock")
-    if not lf.is_file():
-        log(f"No lock file at {lf}")
-        return
-    args = ["install", "-r", str(lf)]
-    if upgrade:
-        args.append("--upgrade")
-    _pip(args, python=py, upgrade_pip=upgrade)
-
-
-def clean_pyc(target: Path | None = None) -> None:
-    """Remove __pycache__ and *.pyc under target or repo root."""
-    root = (target or ROOT_DIR).resolve()
-    count = 0
-    for p in root.rglob("*"):
-        try:
-            if p.is_dir() and p.name == "__pycache__":
-                shutil.rmtree(p, ignore_errors=True)
-                count += 1
-            elif p.is_file() and p.suffix == ".pyc":
-                p.unlink(missing_ok=True)
-        except Exception:
-            pass
-    log(f"Cleaned {count} __pycache__ directories.")
-
+    log("Done.")
 
 # ---------- CLI ----------
-if __name__ == "__main__":
-    show_setup_banner()
-    if sys.version_info < MIN_PYTHON:
-        check_python_version()
+def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(prog="coolbox-setup", description="Install and inspect CoolBox deps.")
+    sub = p.add_subparsers(dest="command", required=False)
 
-    parser = argparse.ArgumentParser(description="Manage CoolBox dependencies and environment")
-    sub = parser.add_subparsers(dest="command")
+    p_install = sub.add_parser("install", help="Install requirements and dev extras")
+    p_install.add_argument("--requirements", type=Path, default=None)
+    p_install.add_argument("--dev", action="store_true")
+    p_install.add_argument("--upgrade", action="store_true")
+    p_install.add_argument("--skip-update", action="store_true")
 
-    install_p = sub.add_parser("install", help="Install required packages")
-    install_p.add_argument("--requirements", type=Path, help="Alternate requirements file")
-    install_p.add_argument("--dev", action="store_true", help="Install development packages")
-    install_p.add_argument("--upgrade", action="store_true", help="Upgrade packages to latest")
-    install_p.add_argument("--skip-update", action="store_true", help="Skip git update")
+    sub.add_parser("info", help="Show system info")
+    sub.add_parser("doctor", help="Run quick diagnostics")
 
-    sub.add_parser("info", help="Show system information")
+    p_check = sub.add_parser("check", help="List outdated packages")
+    p_check.add_argument("--requirements", type=Path, default=None)
 
-    check_p = sub.add_parser("check", help="List outdated packages")
-    check_p.add_argument("--requirements", type=Path, help="Path to the requirements file")
+    p_up = sub.add_parser("upgrade", help="Upgrade all outdated packages")
+    p_up.add_argument("--upgrade", action="store_true", default=True)
 
-    sub.add_parser("update", help="Pull the latest changes from the repository")
-    sub.add_parser("upgrade", help="Upgrade all outdated packages")
-    sub.add_parser("doctor", help="Run environment diagnostics")
-    sub.add_parser("lock", help="Freeze environment to requirements.lock")
-    sync_p = sub.add_parser("sync", help="Sync environment from requirements.lock")
-    sync_p.add_argument("--lock-file", type=Path, default=None)
-    sync_p.add_argument("--upgrade", action="store_true")
-    venv_p = sub.add_parser("venv", help="Create or ensure the project virtualenv")
-    venv_p.add_argument("--recreate", action="store_true", help="Recreate the virtual environment")
-    sub.add_parser("clean", help="Remove the project virtualenv")
-    sub.add_parser("clean-pyc", help="Remove __pycache__ and *.pyc")
-    test_p = sub.add_parser("test", help="Run the test suite")
-    test_p.add_argument("extra", nargs="*", help="Additional pytest arguments")
+    p_lock = sub.add_parser("lock", help="Generate lock file with pip-tools")
+    p_sync = sub.add_parser("sync", help="Sync environment from lock file")
+    p_sync.add_argument("--lock-file", type=Path, default=None)
+    p_sync.add_argument("--upgrade", action="store_true")
 
-    args = parser.parse_args()
+    p_venv = sub.add_parser("venv", help="Create or recreate venv")
+    p_venv.add_argument("--recreate", action="store_true")
 
-    if args.command == "check":
-        check_outdated(requirements=args.requirements)
-    elif args.command == "upgrade":
-        check_outdated(requirements=None, upgrade=True)
-    elif args.command == "info":
-        show_info()
-    elif args.command == "venv":
-        if getattr(args, "recreate", False) and VENV_DIR.exists():
-            shutil.rmtree(VENV_DIR)
-        ensure_venv()
-    elif args.command == "clean":
-        if VENV_DIR.exists():
-            shutil.rmtree(VENV_DIR)
-            log("Virtualenv removed.")
-        else:
-            log("No virtualenv to remove.")
-    elif args.command == "test":
-        run_tests(args.extra)
-    elif args.command == "update":
-        update_repo()
-    elif args.command == "doctor":
-        doctor()
-    elif args.command == "lock":
-        lock()
-    elif args.command == "sync":
-        sync(args.lock_file, upgrade=args.upgrade)
-    elif args.command == "clean-pyc":
-        clean_pyc()
-    else:
+    sub.add_parser("clean-pyc", help="Remove __pycache__ folders")
+
+    p_test = sub.add_parser("test", help="Run pytest")
+    p_test.add_argument("extra", nargs="*", default=[])
+
+    sub.add_parser("update", help="git fetch/pull if repo")
+
+    p.set_defaults(command="install")
+    return p.parse_args(argv)
+
+def main(argv: Sequence[str] | None = None) -> None:
+    args = _parse_args(argv or sys.argv[1:])
+    cmd = args.command
+
+    if cmd == "install":
         install(
             requirements=getattr(args, "requirements", None),
             dev=getattr(args, "dev", False),
             upgrade=getattr(args, "upgrade", False),
             skip_update=getattr(args, "skip_update", False),
         )
+    elif cmd == "check":
+        check_outdated(requirements=args.requirements)
+    elif cmd == "upgrade":
+        check_outdated(requirements=None, upgrade=True)
+    elif cmd == "info":
+        show_info()
+    elif cmd == "venv":
+        if getattr(args, "recreate", False) and VENV_DIR.exists():
+            shutil.rmtree(VENV_DIR, ignore_errors=True)
+            log("Virtualenv removed.")
+        ensure_venv()
+        log("Virtualenv ready.")
+        SUMMARY.render()
+    elif cmd == "clean-pyc":
+        clean_pyc()
+        SUMMARY.render()
+    elif cmd == "test":
+        run_tests(args.extra)
+        SUMMARY.render()
+    elif cmd == "update":
+        update_repo()
+        SUMMARY.render()
+    elif cmd == "doctor":
+        doctor()
+        SUMMARY.render()
+    elif cmd == "lock":
+        lock()
+        SUMMARY.render()
+    elif cmd == "sync":
+        sync(args.lock_file, upgrade=args.upgrade)
+        SUMMARY.render()
+    else:
+        install()
+
+if __name__ == "__main__":
+    main()
+
