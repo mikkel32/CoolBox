@@ -27,8 +27,23 @@ from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, TYPE_CHECKING, TypeAlias
 import urllib.request
+
+if TYPE_CHECKING:  # pragma: no cover - for static type checkers
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.progress import (
+        Progress,
+        BarColumn,
+        TimeElapsedColumn,
+        TaskProgressColumn,
+        MofNCompleteColumn,
+        ProgressColumn,
+    )
+    from rich.text import Text
+    from rich import box
 
 # ---------- rich UI ----------
 RICH_AVAILABLE = False
@@ -122,12 +137,16 @@ if not RICH_AVAILABLE:  # pragma: no cover - executed when rich unavailable
         def append(self, ch: str, style: str | None = None) -> None:
             pass
 
-    Console = _PlainConsole  # type: ignore
-    Table = _PlainTable  # type: ignore
-    Panel = _PlainPanel  # type: ignore
-    Progress = _PlainProgress  # type: ignore
-    BarColumn = TimeElapsedColumn = TaskProgressColumn = MofNCompleteColumn = ProgressColumn = object  # type: ignore
-    Text = _PlainText  # type: ignore
+    Console: TypeAlias = _PlainConsole
+    Table: TypeAlias = _PlainTable
+    Panel: TypeAlias = _PlainPanel
+    Progress: TypeAlias = _PlainProgress
+    BarColumn: TypeAlias = object
+    TimeElapsedColumn: TypeAlias = object
+    TaskProgressColumn: TypeAlias = object
+    MofNCompleteColumn: TypeAlias = object
+    ProgressColumn: TypeAlias = object
+    Text: TypeAlias = _PlainText
 
     class _Box:
         SIMPLE_HEAVY = ROUNDED = MINIMAL_DOUBLE_HEAD = None
@@ -149,13 +168,13 @@ try:
 except Exception:
     _helper_console = None
 
-    def get_system_info() -> dict:  # type: ignore
-        return {
-            "python": sys.version.split()[0],
-            "executable": sys.executable,
-            "platform": sys.platform,
-            "cwd": str(Path.cwd()),
-        }
+    def get_system_info() -> str:  # type: ignore
+        lines = [
+            f"Python:   {sys.version.split()[0]} ({sys.executable})",
+            f"Platform: {sys.platform}",
+            f"CWD:      {Path.cwd()}",
+        ]
+        return "\n".join(lines)
 
 # ---------- logging ----------
 logger = logging.getLogger("coolbox.setup")
