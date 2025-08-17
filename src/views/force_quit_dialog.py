@@ -151,6 +151,9 @@ class ForceQuitDialog(BaseDialog):
         self._overlay_sync: threading.Thread | None = None
         self._overlay_poller: threading.Thread | None = None
         self._overlay_ctx: ForceQuitDialog._OverlayContext | None = None
+        # Track whether the overlay has already been closed to avoid double
+        # invocation when canceling Kill by Click operations.
+        self._overlay_closed = False
         self.paused = False
         fps_env = os.getenv("FORCE_QUIT_FPS")
         if fps_env and fps_env.isdigit():
@@ -2329,7 +2332,7 @@ class ForceQuitDialog(BaseDialog):
             logger.exception("Failed to start overlay")
             raise
         finally:
-            if thread is None or not thread.is_alive():
+            if (thread is None or not thread.is_alive()) and self._overlay_ctx is ctx:
                 try:
                     ctx.__exit__(*sys.exc_info())
                 except Exception:  # pragma: no cover - best effort cleanup
@@ -2430,6 +2433,8 @@ class ForceQuitDialog(BaseDialog):
         if ctx is not self._overlay_ctx:
             return
         overlay = self._overlay
+        closed_by_cancel = getattr(self, "_overlay_closed", False)
+        self._overlay_closed = False
         proc = getattr(self, "_overlay_watchdog_proc", None)
         if proc is not None:
             proc.terminate()
@@ -2488,10 +2493,11 @@ class ForceQuitDialog(BaseDialog):
         self._overlay_ctx = None
         self._overlay_thread = None
         if pid is None:
-            try:
-                overlay.close()
-            except Exception:
-                pass
+            if not closed_by_cancel:
+                try:
+                    overlay.close()
+                except Exception:
+                    pass
             def _safe(name: str):
                 val = getattr(overlay, name, None)
                 return None if isinstance(val, Mock) else val
@@ -2694,6 +2700,7 @@ class ForceQuitDialog(BaseDialog):
         thread = self._overlay_thread
         if thread and thread.is_alive():
             try:
+                self._overlay_closed = True
                 self._overlay.close()
             except Exception:
                 pass

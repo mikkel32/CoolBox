@@ -143,7 +143,13 @@ class RainbowBorder:
                 if self.use_alt_screen:
                     # Enter alternate screen buffer
                     self.console.file.write("\x1b[?1049h")
-                self.console.control(Control.hide_cursor())
+                hide_cursor = getattr(Control, "hide_cursor", None)
+                if hide_cursor:
+                    # Older versions of Rich provide a dedicated hide_cursor
+                    self.console.control(hide_cursor())
+                else:
+                    # Rich 13.7+ merges hide/show into show_cursor
+                    self.console.control(Control.show_cursor(False))
                 self.console.file.flush()
             self._thread = threading.Thread(target=self._run, daemon=True, name="RainbowBorder")
             self._thread.start()
@@ -155,7 +161,13 @@ class RainbowBorder:
             self._thread = None
             self._clear()
             with _console_lock_ctx(self.console):
-                self.console.control(Control.show_cursor())
+                show_cursor = getattr(Control, "show_cursor")
+                try:
+                    # Rich 13.7+ expects a boolean parameter
+                    self.console.control(show_cursor(True))
+                except TypeError:
+                    # Older versions take no parameters
+                    self.console.control(show_cursor())
                 if self.use_alt_screen:
                     # Leave alternate screen buffer
                     self.console.file.write("\x1b[?1049l")
