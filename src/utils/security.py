@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     psutil = ensure_psutil()
 from .win_console import hidden_creation_flags
-from .process_utils import run_command as _run, run_command_background
+from .process_utils import run_command, run_command_background
 from .kill_utils import kill_process, kill_process_tree
 
 
@@ -49,6 +49,11 @@ def _unix_firewall_tool() -> str:
 # ---------------------------------------------------------------------------
 # Firewall helpers
 # ---------------------------------------------------------------------------
+
+def _run(cmd, **kwargs):
+    out, _err = run_command(cmd, **kwargs)
+    return out
+
 
 def is_firewall_enabled() -> Optional[bool]:
     """Return ``True`` if the system firewall is enabled."""
@@ -382,7 +387,8 @@ def launch_security_center(*, hide_console: bool = False) -> bool:
     kwargs["env"] = os.environ.copy()
 
     if is_admin():
-        return run_command_background([str(python), str(script)], **kwargs)
+        ok, _err = run_command_background([str(python), str(script)], **kwargs)
+        return ok
 
     system = platform.system()
 
@@ -396,6 +402,7 @@ def launch_security_center(*, hide_console: bool = False) -> bool:
         except Exception:
             return False
     elif system in {"Linux", "Darwin"}:
-        return run_command_background(["sudo", str(python), str(script)], **kwargs)
+        ok, _err = run_command_background(["sudo", str(python), str(script)], **kwargs)
+        return ok
 
     return False

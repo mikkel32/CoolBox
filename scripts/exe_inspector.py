@@ -39,8 +39,13 @@ except ModuleNotFoundError:  # pragma: no cover - textual is optional
 import psutil  # noqa: E402
 
 from src.utils.hash_utils import calc_hash  # noqa: E402
-from src.utils.process_utils import run_command, run_command_ex  # noqa: E402
+from src.utils.process_utils import run_command as _run_cmd, run_command_ex  # noqa: E402
 from src.utils.security import ensure_admin, is_admin, list_open_ports  # noqa: E402
+
+
+def run_command(cmd: Sequence[str], **kwargs) -> str:
+    out, _err = _run_cmd(cmd, **kwargs)
+    return out or ""
 import shutil  # noqa: E402
 import hashlib
 import ctypes
