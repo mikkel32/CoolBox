@@ -177,7 +177,7 @@ except Exception as exc:  # pragma: no cover
             raise ImportError(msg) from np_exc
 
 try:
-    from src.utils.helpers import (  # type: ignore
+    from src.utils.system_utils import (  # type: ignore
         get_system_info,
         console as _helper_console,
     )

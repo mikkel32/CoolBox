@@ -333,7 +333,7 @@ class ToolsView(BaseView):
         duplicates: dict[str, list[Path]] = {}
 
         from src.utils.cache import CacheManager
-        from src.utils.helpers import calc_hashes
+        from src.utils.hash_utils import calc_hashes
 
         cache_file = self.app.config.cache_dir / "hash_cache.json"
         hash_cache = CacheManager[dict](cache_file)
@@ -878,7 +878,7 @@ class ToolsView(BaseView):
         output.pack(padx=10, pady=10, fill="both", expand=True)
 
         def compute() -> None:
-            from src.utils import calc_hash
+            from src.utils.hash_utils import calc_hash
 
             path = file_var.get()
             if not path:

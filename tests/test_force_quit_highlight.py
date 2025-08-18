@@ -41,7 +41,7 @@ class TestForceQuitHighlight(unittest.TestCase):
                 ProcessEntry=object, ProcessWatcher=object
             ),
             "src.views.base_dialog": types.SimpleNamespace(BaseDialog=object),
-            "src.utils.helpers": types.SimpleNamespace(
+            "src.utils.color_utils": types.SimpleNamespace(
                 hex_brightness=lambda c: c,
                 lighten_color=lambda c, *_a: c,
                 darken_color=lambda c, *_a: c,

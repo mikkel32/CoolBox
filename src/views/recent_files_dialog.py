@@ -3,7 +3,7 @@
 import customtkinter as ctk
 
 from pathlib import Path
-from ..utils import open_path
+from ..utils.system_utils import open_path
 from .base_dialog import BaseDialog
 
 

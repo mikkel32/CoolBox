@@ -15,7 +15,7 @@ from ..views.home_view import HomeView
 from ..views.tools_view import ToolsView
 from ..views.settings_view import SettingsView
 from ..views.about_view import AboutView
-from ..utils.helpers import log
+from ..utils.system_utils import log
 
 
 def setup_ui(app) -> None:

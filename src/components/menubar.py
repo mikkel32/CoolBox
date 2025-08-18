@@ -128,7 +128,7 @@ class MenuBar:
 
     def _open_recent(self, path: str) -> None:
         """Open a recently used file."""
-        from ..utils.helpers import open_path
+        from ..utils.system_utils import open_path
 
         open_path(path)
         self.app.config.add_recent_file(path)

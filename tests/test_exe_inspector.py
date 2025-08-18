@@ -12,10 +12,10 @@ import types
 
 src = types.ModuleType("src")
 utils = types.ModuleType("src.utils")
-helpers = types.ModuleType("src.utils.helpers")
+hash_utils = types.ModuleType("src.utils.hash_utils")
 process_utils = types.ModuleType("src.utils.process_utils")
 security = types.ModuleType("src.utils.security")
-helpers.calc_hash = lambda p, algo="sha256": hashlib.sha256(
+hash_utils.calc_hash = lambda p, algo="sha256": hashlib.sha256(
     Path(p).read_bytes()
 ).hexdigest()
 process_utils.run_command = lambda *a, **kw: ""
@@ -23,13 +23,13 @@ process_utils.run_command_ex = lambda *a, **kw: ("", 0)
 security.ensure_admin = lambda *a, **kw: True
 security.is_admin = lambda: True
 security.list_open_ports = lambda: {}
-utils.helpers = helpers
+utils.hash_utils = hash_utils
 utils.process_utils = process_utils
 utils.security = security
 src.utils = utils
 sys.modules.setdefault("src", src)
 sys.modules.setdefault("src.utils", utils)
-sys.modules.setdefault("src.utils.helpers", helpers)
+sys.modules.setdefault("src.utils.hash_utils", hash_utils)
 sys.modules.setdefault("src.utils.process_utils", process_utils)
 sys.modules.setdefault("src.utils.security", security)
 

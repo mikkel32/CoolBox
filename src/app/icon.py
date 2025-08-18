@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
     Image = pil.Image  # type: ignore[attr-defined]
     ImageTk = pil.ImageTk  # type: ignore[attr-defined]
 
-from ..utils.helpers import log
+from ..utils.system_utils import log
 
 
 def set_app_icon(window):

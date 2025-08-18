@@ -12,7 +12,7 @@ import importlib.util
 from concurrent.futures import ThreadPoolExecutor
 
 from src.utils import launch_vm_debug
-from src.utils.helpers import log
+from src.utils.system_utils import log
 
 # Ensure package imports work when running as a script before other imports.
 sys.path.insert(0, str(Path(__file__).parent))
