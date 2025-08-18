@@ -9,7 +9,7 @@ from types import ModuleType
 from typing import Optional
 
 try:  # Avoid circular imports when utils.helpers requires ensure_deps
-    from .utils.helpers import log
+    from .utils.system_utils import log
 except Exception:  # pragma: no cover - fallback logger
     import logging
 

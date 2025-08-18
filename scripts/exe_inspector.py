@@ -38,7 +38,7 @@ except ModuleNotFoundError:  # pragma: no cover - textual is optional
     TEXTUAL_AVAILABLE = False
 import psutil  # noqa: E402
 
-from src.utils.helpers import calc_hash  # noqa: E402
+from src.utils.hash_utils import calc_hash  # noqa: E402
 from src.utils.process_utils import run_command, run_command_ex  # noqa: E402
 from src.utils.security import ensure_admin, is_admin, list_open_ports  # noqa: E402
 import shutil  # noqa: E402

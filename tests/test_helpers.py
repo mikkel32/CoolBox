@@ -1,22 +1,26 @@
 import sys
 import subprocess
 from types import SimpleNamespace
-from src.utils import (
+from src.utils.system_utils import (
     open_path,
-    calc_hash,
-    calc_hashes,
     get_system_info,
     get_system_metrics,
-)
-from src.utils.cache import CacheManager
-from src.utils.helpers import adjust_color, hex_brightness, lighten_color
-from src.utils.helpers import (
-    darken_color,
     run_with_spinner,
     slugify,
     strip_ansi,
+)
+from src.utils.hash_utils import (
+    calc_hash,
+    calc_hashes,
     calc_data_hash,
 )
+from src.utils.color_utils import (
+    adjust_color,
+    hex_brightness,
+    lighten_color,
+    darken_color,
+)
+from src.utils.cache import CacheManager
 import io
 
 
@@ -225,7 +229,7 @@ def test_run_with_spinner(monkeypatch):
             pass
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    monkeypatch.setattr("src.utils.helpers.Progress", DummyProgress)
+    monkeypatch.setattr("src.utils.system_utils.Progress", DummyProgress)
 
     result = run_with_spinner(
         ["echo", "hi"], message="test", timeout=5, capture_output=True, env={"F": "1"}, cwd="/tmp"

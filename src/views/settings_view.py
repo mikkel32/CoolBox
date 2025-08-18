@@ -4,7 +4,7 @@ Settings view - Application preferences
 import customtkinter as ctk
 from tkinter import messagebox, colorchooser
 import json
-from src.utils import slugify
+from src.utils.system_utils import slugify
 from .base_view import BaseView
 
 
@@ -517,19 +517,19 @@ class SettingsView(BaseView):
 
     def _open_cache_folder(self) -> None:
         """Open the cache directory in the system file manager."""
-        from src.utils import open_path
+        from src.utils.system_utils import open_path
 
         open_path(str(self.app.config.cache_dir))
 
     def _open_config_folder(self) -> None:
         """Open the configuration directory in the system file manager."""
-        from src.utils import open_path
+        from src.utils.system_utils import open_path
 
         open_path(str(self.app.config.config_dir))
 
     def _open_config_file_external(self) -> None:
         """Open the configuration file using the system default editor."""
-        from src.utils import open_path
+        from src.utils.system_utils import open_path
 
         open_path(str(self.app.config.config_file))
 

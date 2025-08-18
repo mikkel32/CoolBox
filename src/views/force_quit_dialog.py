@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
     psutil = ensure_psutil()
 from src.utils.process_monitor import ProcessEntry, ProcessWatcher
 from .base_dialog import BaseDialog
-from src.utils.helpers import (
+from src.utils.color_utils import (
     hex_brightness,
     lighten_color,
     darken_color,

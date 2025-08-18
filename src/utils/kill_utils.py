@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     psutil = ensure_psutil()
 _psutil_process = psutil.Process
-from .helpers import log, console
+from .system_utils import log, console
 from rich.progress import (
     Progress,
     SpinnerColumn,

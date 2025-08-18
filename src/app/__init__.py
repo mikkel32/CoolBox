@@ -20,7 +20,7 @@ from ..components.status_bar import StatusBar
 from ..components.menubar import MenuBar
 from ..models.app_state import AppState
 from ..utils.theme import ThemeManager
-from ..utils.helpers import log
+from ..utils.system_utils import log
 from ..utils.thread_manager import ThreadManager
 
 from .icon import set_app_icon

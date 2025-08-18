@@ -3,7 +3,7 @@ Home view - Main dashboard
 """
 import customtkinter as ctk
 from datetime import datetime
-from src.utils import open_path
+from src.utils.system_utils import open_path
 from .base_view import BaseView
 from ..components.widgets import info_label
 

@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
     ensure_matplotlib()
     from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 
-from ..utils import get_system_info, get_system_metrics
+from ..utils.system_utils import get_system_info, get_system_metrics
 from ..components import LineChart, Gauge, BarChart
 from .base_dialog import BaseDialog
 

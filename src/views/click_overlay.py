@@ -38,7 +38,7 @@ from src.utils.scoring_engine import ScoringEngine, tuning
 from src.utils.hover_tracker import HoverTracker
 from ._fast_confidence import weighted_confidence as _weighted_confidence_np
 from src.utils import get_screen_refresh_rate
-from src.utils.helpers import log
+from src.utils.system_utils import log
 from src.config import Config
 
 try:  # pragma: no cover - optional dependency

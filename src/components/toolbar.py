@@ -5,7 +5,8 @@ Toolbar component with common actions
 import customtkinter as ctk
 from tkinter import filedialog
 
-from ..utils import file_manager, open_path
+from ..utils import file_manager
+from ..utils.system_utils import open_path
 from ..utils.ui import center_window
 try:
     import pyperclip

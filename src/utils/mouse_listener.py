@@ -23,7 +23,7 @@ from typing import Callable, Optional
 
 import logging
 
-from .helpers import log
+from .system_utils import log
 
 logger = logging.getLogger(__name__)
 
