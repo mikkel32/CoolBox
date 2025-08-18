@@ -9,10 +9,11 @@ from pathlib import Path
 from argparse import ArgumentParser
 import hashlib
 import importlib.util
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from src.utils import launch_vm_debug
-from src.utils.system_utils import log
+from src.utils.logging_config import setup_logging
 
 # Ensure package imports work when running as a script before other imports.
 sys.path.insert(0, str(Path(__file__).parent))
@@ -88,6 +89,9 @@ def _missing_requirements(req_path: Path) -> list[str]:
     return missing
 
 
+logger = logging.getLogger(__name__)
+
+
 def _run_setup_if_needed(root: Path | None = None) -> None:
     """Run ``setup.py`` when requirements changed or packages missing."""
     if os.environ.get("SKIP_SETUP") == "1":
@@ -103,8 +107,8 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
             recorded = sentinel.read_text().strip()
             if recorded == current and not _missing_requirements(requirements):
                 return
-        except Exception:
-            pass
+        except Exception:  # pragma: no cover - best effort
+            logger.debug("Failed to read setup sentinel", exc_info=True)
 
     setup_script = root / "setup.py"
     if not setup_script.is_file():
@@ -125,16 +129,18 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
             module.check_python_version()
             missing = _missing_requirements(requirements)
             if missing:
-                log("Installing missing requirements: " + ", ".join(missing))
+                logger.info("Installing missing requirements: %s", ", ".join(missing))
             module.install(skip_update=True)
         if requirements.is_file():
             sentinel.write_text(current)
     except Exception as exc:  # pragma: no cover - best effort setup
-        print(f"warning: failed to run setup: {exc}")
+        logger.warning("failed to run setup: %s", exc)
 
 
 def main() -> None:
     """Initialize and run the application."""
+    setup_logging()
+
     parser = ArgumentParser(description="CoolBox application")
     parser.add_argument(
         "--debug",
@@ -178,10 +184,10 @@ def main() -> None:
             import debugpy  # type: ignore
 
             debugpy.listen(args.debug_port)
-            print(f"Waiting for debugger on port {args.debug_port}...")
+            logger.info("Waiting for debugger on port %s...", args.debug_port)
             debugpy.wait_for_client()
         except Exception as exc:  # pragma: no cover - debug only
-            print(f"Failed to start debugpy: {exc}")
+            logger.warning("Failed to start debugpy: %s", exc)
 
     _run_setup_if_needed()
 

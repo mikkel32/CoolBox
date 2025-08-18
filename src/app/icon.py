@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import ctypes
+import logging
 
 try:
     from PIL import Image, ImageTk
@@ -14,7 +15,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
     Image = pil.Image  # type: ignore[attr-defined]
     ImageTk = pil.ImageTk  # type: ignore[attr-defined]
 
-from ..utils.system_utils import log
+logger = logging.getLogger(__name__)
 
 
 def set_app_icon(window):
@@ -29,7 +30,7 @@ def set_app_icon(window):
     )
     if not icon_path.is_file():
         msg = f"Icon file not found: {icon_path}"
-        log(msg)
+        logger.error(msg)
         raise RuntimeError(msg)
 
     temp_icon: str | None = None
@@ -50,10 +51,10 @@ def set_app_icon(window):
                     pass
                 temp_icon = tmp.name
             except Exception as exc:
-                log(f"Failed to set taskbar icon: {exc}")
+                logger.warning("Failed to set taskbar icon: %s", exc)
                 raise RuntimeError(f"Failed to set taskbar icon: {exc}") from exc
     except Exception as exc:
-        log(f"Failed to set window icon: {exc}")
+        logger.error("Failed to set window icon: %s", exc)
         raise RuntimeError(f"Failed to set window icon: {exc}") from exc
 
     if sys.platform == "darwin":
@@ -63,7 +64,7 @@ def set_app_icon(window):
             ns_image = NSImage.alloc().initByReferencingFile_(str(icon_path))
             NSApplication.sharedApplication().setApplicationIconImage_(ns_image)
         except Exception as exc:
-            log(f"Failed to set dock icon: {exc}")
+            logger.warning("Failed to set dock icon: %s", exc)
             raise RuntimeError(f"Failed to set dock icon: {exc}") from exc
 
     return photo, temp_icon

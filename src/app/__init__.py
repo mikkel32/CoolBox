@@ -13,6 +13,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
 from typing import Dict, Optional, TYPE_CHECKING
 from pathlib import Path
 import sys
+import logging
 
 from ..config import Config
 from ..components.toolbar import Toolbar
@@ -20,11 +21,12 @@ from ..components.status_bar import StatusBar
 from ..components.menubar import MenuBar
 from ..models.app_state import AppState
 from ..utils.theme import ThemeManager
-from ..utils.system_utils import log
 from ..utils.thread_manager import ThreadManager
 
 from .icon import set_app_icon
 from .layout import setup_ui
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - used for type hints only
     from ..views.quick_settings import QuickSettingsDialog
@@ -59,7 +61,7 @@ class CoolBoxApp:
         try:
             self._icon_photo, self._temp_icon = set_app_icon(self.window)
         except Exception as exc:  # pragma: no cover - best effort
-            log(f"Icon setup failed: {exc}")
+            logger.warning("Icon setup failed: %s", exc)
             self._icon_photo = None
             self._temp_icon = None
 
@@ -69,7 +71,7 @@ class CoolBoxApp:
         # Theme manager
         self.theme = ThemeManager(config=self.config)
         self.theme.apply_theme(self.config.get("theme", {}))
-        log("Initialized theme manager")
+        logger.info("Initialized theme manager")
 
         # Initialize views dict
         self.views: Dict[str, ctk.CTkFrame] = {}
@@ -83,7 +85,7 @@ class CoolBoxApp:
         try:
             setup_ui(self)
         except Exception as exc:  # pragma: no cover - critical failure
-            log(f"UI setup failed: {exc}")
+            logger.error("UI setup failed: %s", exc)
             raise
 
         # Bind events
@@ -162,7 +164,7 @@ class CoolBoxApp:
         self.current_view = view_name
         self.state.current_view = view_name
 
-        log(f"Switched view to {view_name}")
+        logger.info("Switched view to %s", view_name)
 
         # Update sidebar selection
         self.sidebar.set_active(view_name)
@@ -200,7 +202,7 @@ class CoolBoxApp:
         try:
             from ..views.force_quit_dialog import ForceQuitDialog
         except Exception as exc:  # pragma: no cover - runtime import error
-            log(f"Failed to import ForceQuitDialog: {exc}")
+            logger.warning("Failed to import ForceQuitDialog: %s", exc)
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
             return
 
@@ -214,7 +216,7 @@ class CoolBoxApp:
                 "<Destroy>", lambda _e: setattr(self, "force_quit_window", None)
             )
         except Exception as exc:  # pragma: no cover - runtime init error
-            log(f"Failed to create ForceQuitDialog: {exc}")
+            logger.warning("Failed to create ForceQuitDialog: %s", exc)
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
             self.force_quit_window = None
 
@@ -309,7 +311,7 @@ class CoolBoxApp:
         self.config.set("theme", self.theme.get_theme())
         self.config.save()
 
-        log("Application closing")
+        logger.info("Application closing")
 
         if hasattr(self, "_temp_icon"):
             try:
@@ -323,11 +325,11 @@ class CoolBoxApp:
 
     def run(self):
         """Start the application"""
-        log("Starting main loop")
+        logger.info("Starting main loop")
         self.window.mainloop()
 
     def destroy(self):
         """Destroy the application window."""
         self.thread_manager.stop()
         self.window.destroy()
-        log("Window destroyed")
+        logger.info("Window destroyed")

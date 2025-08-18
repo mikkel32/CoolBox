@@ -3,21 +3,13 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import subprocess
 import sys
 from types import ModuleType
 from typing import Optional
 
-try:  # Avoid circular imports when utils.helpers requires ensure_deps
-    from .utils.system_utils import log
-except Exception:  # pragma: no cover - fallback logger
-    import logging
-
-    logging.basicConfig(level=logging.INFO)
-
-    def log(message: str) -> None:
-        """Fallback logger used during early imports."""
-        logging.info(message)
+logger = logging.getLogger(__name__)
 
 
 _DEF_VERSION = "5.2.2"
@@ -48,13 +40,13 @@ def require_package(name: str, version: Optional[str] = None) -> ModuleType:
         return importlib.import_module(name)
     except ImportError:
         pkg = f"{name}=={version}" if version else name
-        log(f"Package '{name}' missing, attempting install of {pkg}...")
+        logger.info("Package '%s' missing, attempting install of %s...", name, pkg)
         cmd = [sys.executable, "-m", "pip", "install", pkg]
         try:
             subprocess.check_call(cmd)
         except Exception as exc:
             if version:
-                log(f"Failed to install {pkg}, trying latest version...")
+                logger.warning("Failed to install %s, trying latest version...", pkg)
                 try:
                     subprocess.check_call([sys.executable, "-m", "pip", "install", name])
                 except Exception as exc2:  # pragma: no cover - install step may fail
