@@ -19,9 +19,12 @@ exit status without parsing exceptions.
 
 import subprocess
 import asyncio
-from typing import Sequence, Optional
+import logging
+from typing import Sequence, Optional, Tuple
 
 from .win_console import hidden_creation_flags
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "run_command",
@@ -41,7 +44,7 @@ def run_command(
     creationflags: int | None = None,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
-) -> Optional[str]:
+) -> Tuple[Optional[str], Exception | None]:
     """Execute *cmd* suppressing console windows.
 
     Parameters
@@ -54,7 +57,7 @@ def run_command(
         Maximum seconds to wait for the command. ``None`` disables the timeout.
     check:
         If ``True`` (default) a non-zero return code is treated as failure and
-        ``None`` is returned.
+        a :class:`subprocess.CalledProcessError` is returned.
     creationflags:
         Optional Windows creation flags for the new process. Defaults to flags
         that hide any console window.
@@ -73,21 +76,26 @@ def run_command(
         "cwd": cwd,
         "env": env,
     }
+    stdout = subprocess.PIPE if capture else subprocess.DEVNULL
     try:
-        if capture:
-            return subprocess.check_output(list(cmd), timeout=timeout, **kwargs)
-
-        subprocess.run(
+        proc = subprocess.run(
             list(cmd),
-            check=check,
-            stdout=subprocess.DEVNULL,
+            stdout=stdout,
+            check=False,
             timeout=timeout,
             **kwargs,
         )
-
-        return ""
-    except Exception:
-        return None
+        if check and proc.returncode != 0:
+            err = subprocess.CalledProcessError(proc.returncode, cmd, output=proc.stdout)
+            logger.exception("Command %s failed with code %s", cmd, proc.returncode)
+            return (proc.stdout if capture else ""), err
+        return (proc.stdout if capture else ""), None
+    except subprocess.TimeoutExpired as e:
+        logger.exception("Command %s timed out", cmd)
+        return None, e
+    except OSError as e:
+        logger.exception("Command %s failed", cmd)
+        return None, e
 
 
 async def run_command_async(
@@ -99,7 +107,7 @@ async def run_command_async(
     creationflags: int | None = None,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
-) -> Optional[str]:
+) -> Tuple[Optional[str], Exception | None]:
     """Asynchronously execute *cmd* hiding any console window.
 
     Parameters are identical to :func:`run_command`.
@@ -115,22 +123,30 @@ async def run_command_async(
         "env": env,
     }
 
-    if capture:
-        kwargs["stdout"] = asyncio.subprocess.PIPE
-    else:
-        kwargs["stdout"] = asyncio.subprocess.DEVNULL
+    kwargs["stdout"] = (
+        asyncio.subprocess.PIPE if capture else asyncio.subprocess.DEVNULL
+    )
 
     try:
         proc = await asyncio.create_subprocess_exec(*cmd, **kwargs)
+    except OSError as e:
+        logger.exception("Command %s failed to start", cmd)
+        return None, e
+
+    try:
         if timeout is not None:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
         else:
             out, _ = await proc.communicate()
-        if check and proc.returncode != 0:
-            return None
-        return out.decode() if capture else ""
-    except Exception:
-        return None
+    except asyncio.TimeoutError as e:
+        logger.exception("Command %s timed out", cmd)
+        return None, e
+
+    if check and proc.returncode != 0:
+        err = subprocess.CalledProcessError(proc.returncode, cmd, output=out)
+        logger.exception("Command %s failed with code %s", cmd, proc.returncode)
+        return (out.decode() if capture else ""), err
+    return (out.decode() if capture else ""), None
 
 
 def run_command_ex(
@@ -142,7 +158,7 @@ def run_command_ex(
     creationflags: int | None = None,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
-) -> tuple[Optional[str], int | None]:
+) -> Tuple[Optional[str], int | Exception | None]:
     """Execute ``cmd`` returning output and the exit status."""
 
     if creationflags is None:
@@ -156,10 +172,7 @@ def run_command_ex(
         "env": env,
     }
 
-    if capture:
-        kwargs["stdout"] = subprocess.PIPE
-    else:
-        kwargs["stdout"] = subprocess.DEVNULL
+    kwargs["stdout"] = subprocess.PIPE if capture else subprocess.DEVNULL
 
     try:
         proc = subprocess.run(
@@ -168,11 +181,16 @@ def run_command_ex(
             timeout=timeout,
             **kwargs,
         )
-        if check and proc.returncode != 0:
-            return None, proc.returncode
-        return (proc.stdout if capture else ""), proc.returncode
-    except Exception:
-        return None, None
+    except subprocess.TimeoutExpired as e:
+        logger.exception("Command %s timed out", cmd)
+        return None, e
+    except OSError as e:
+        logger.exception("Command %s failed", cmd)
+        return None, e
+
+    if check and proc.returncode != 0:
+        return None, proc.returncode
+    return (proc.stdout if capture else ""), proc.returncode
 
 
 async def run_command_async_ex(
@@ -184,7 +202,7 @@ async def run_command_async_ex(
     creationflags: int | None = None,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
-) -> tuple[Optional[str], int | None]:
+) -> Tuple[Optional[str], int | Exception | None]:
     """Asynchronously execute ``cmd`` returning output and the exit status."""
 
     if creationflags is None:
@@ -197,22 +215,28 @@ async def run_command_async_ex(
         "env": env,
     }
 
-    if capture:
-        kwargs["stdout"] = asyncio.subprocess.PIPE
-    else:
-        kwargs["stdout"] = asyncio.subprocess.DEVNULL
+    kwargs["stdout"] = (
+        asyncio.subprocess.PIPE if capture else asyncio.subprocess.DEVNULL
+    )
 
     try:
         proc = await asyncio.create_subprocess_exec(*cmd, **kwargs)
+    except OSError as e:
+        logger.exception("Command %s failed to start", cmd)
+        return None, e
+
+    try:
         if timeout is not None:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
         else:
             out, _ = await proc.communicate()
-        if check and proc.returncode != 0:
-            return None, proc.returncode
-        return (out.decode() if capture else ""), proc.returncode
-    except Exception:
-        return None, None
+    except asyncio.TimeoutError as e:
+        logger.exception("Command %s timed out", cmd)
+        return None, e
+
+    if check and proc.returncode != 0:
+        return None, proc.returncode
+    return (out.decode() if capture else ""), proc.returncode
 
 
 def run_command_background(
@@ -224,7 +248,7 @@ def run_command_background(
     start_new_session: bool = False,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
-) -> bool:
+) -> Tuple[bool, Exception | None]:
     """Launch ``cmd`` detached from the current process.
 
     Parameters
@@ -251,6 +275,7 @@ def run_command_background(
             cwd=cwd,
             env=env,
         )
-        return True
-    except Exception:
-        return False
+        return True, None
+    except OSError as e:
+        logger.exception("Failed to launch %s", cmd)
+        return False, e

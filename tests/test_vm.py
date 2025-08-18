@@ -105,7 +105,7 @@ def test_launch_vm_open_code(monkeypatch):
 
     def bg(args, **kwargs):
         calls.append("code")
-        return True
+        return True, None
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(vm, "run_command_background", bg)
@@ -127,7 +127,7 @@ def test_launch_vm_open_code_missing(monkeypatch, capsys):
         return "/usr/bin/vagrant" if cmd == "vagrant" else None
 
     monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_background", lambda *a, **k: None)
+    monkeypatch.setattr(vm, "run_command_background", lambda *a, **k: (False, None))
     monkeypatch.setattr(vm, "run_command_ex", lambda *a, **k: ("", 0))
     launch_vm_debug(open_code=True)
     out = capsys.readouterr().out

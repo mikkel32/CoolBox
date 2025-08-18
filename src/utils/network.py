@@ -23,7 +23,7 @@ from typing import (
 )
 import platform
 from .process_utils import (
-    run_command as _run,
+    run_command as _run_cmd,
     run_command_ex as _run_ex,
     run_command_async_ex as _run_async_ex,
 )
@@ -36,6 +36,11 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     psutil = ensure_psutil()
 from .cache import CacheManager
+
+
+def _run(cmd, **kwargs):
+    out, _err = _run_cmd(cmd, **kwargs)
+    return out
 
 # Default worker and timeout values can be tuned via environment variables so
 # large scans can be optimized without code changes.

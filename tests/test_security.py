@@ -225,7 +225,7 @@ def test_launch_security_center_admin(monkeypatch):
     def fake_bg(args, **kwargs):
         called["args"] = args
         called.update(kwargs)
-        return True
+        return True, None
 
     monkeypatch.setattr(security, "run_command_background", fake_bg)
     assert security.launch_security_center() is True
@@ -244,7 +244,7 @@ def test_launch_security_center_sudo(monkeypatch):
     def fake_bg(args, **kwargs):
         called["args"] = args
         called.update(kwargs)
-        return True
+        return True, None
 
     monkeypatch.setattr(security, "run_command_background", fake_bg)
     assert security.launch_security_center() is True
@@ -266,7 +266,7 @@ def test_launch_security_center_hidden(monkeypatch):
     def fake_bg(args, **kwargs):
         called["args"] = args
         called.update(kwargs)
-        return True
+        return True, None
 
     monkeypatch.setattr(security, "run_command_background", fake_bg)
 
@@ -322,7 +322,7 @@ def test_launch_security_center_hidden_unix(monkeypatch):
     def fake_bg(args, **kwargs):
         called["args"] = args
         called.update(kwargs)
-        return True
+        return True, None
 
     monkeypatch.setattr(security, "run_command_background", fake_bg)
 

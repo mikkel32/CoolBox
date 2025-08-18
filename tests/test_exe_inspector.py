@@ -18,7 +18,7 @@ security = types.ModuleType("src.utils.security")
 hash_utils.calc_hash = lambda p, algo="sha256": hashlib.sha256(
     Path(p).read_bytes()
 ).hexdigest()
-process_utils.run_command = lambda *a, **kw: ""
+process_utils.run_command = lambda *a, **kw: ("", None)
 process_utils.run_command_ex = lambda *a, **kw: ("", 0)
 security.ensure_admin = lambda *a, **kw: True
 security.is_admin = lambda: True
