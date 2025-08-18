@@ -179,3 +179,30 @@ def test_force_quit_window_size_persist(monkeypatch):
     cfg.save()
     cfg2 = Config()
     assert cfg2.get("force_quit_width") == 1111
+
+
+def test_load_corrupted_config(monkeypatch, tmp_path):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cfg_dir = tmp_path / ".coolbox"
+    cfg_dir.mkdir()
+    config_file = cfg_dir / "config.json"
+    config_file.write_text("{invalid json")
+    cfg = Config()
+    assert cfg.config == cfg.defaults
+    assert not cfg.load_ok
+    backup = config_file.with_suffix(config_file.suffix + ".bak")
+    assert backup.exists()
+
+
+def test_save_write_failure(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cfg = Config()
+
+    def mock_open(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("builtins.open", mock_open)
+    ok = cfg.save()
+    captured = capsys.readouterr()
+    assert not ok
+    assert "Error saving config" in captured.out
