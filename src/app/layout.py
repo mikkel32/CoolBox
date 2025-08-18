@@ -15,7 +15,9 @@ from ..views.home_view import HomeView
 from ..views.tools_view import ToolsView
 from ..views.settings_view import SettingsView
 from ..views.about_view import AboutView
-from ..utils.system_utils import log
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def setup_ui(app) -> None:
@@ -66,5 +68,5 @@ def setup_ui(app) -> None:
         app.update_fonts()
         app.update_theme()
     except Exception as exc:
-        log(f"Failed to set up UI: {exc}")
+        logger.error("Failed to set up UI: %s", exc)
         raise RuntimeError(f"Failed to set up UI: {exc}") from exc

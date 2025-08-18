@@ -1,5 +1,7 @@
 import os
 import shutil
+import logging
+import sys
 from pathlib import Path
 from typing import Iterable, List
 
@@ -15,6 +17,12 @@ except ImportError:  # pragma: no cover - fallback when run as a script
         run_command_ex,
         run_command_background,
     )
+
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    logger.addHandler(handler)
 
 
 def _pick_backend(prefer: str) -> Iterable[str]:
@@ -67,13 +75,17 @@ def launch_vm_debug(
             # Launch VS Code in the background so it's ready when the VM starts
             run_command_background(["code", str(root)], env=os.environ.copy())
         else:
-            print("warning: 'code' command not found; cannot open Visual Studio Code")
+            msg = "'code' command not found; cannot open Visual Studio Code"
+            logger.warning(msg)
+            sys.stdout.write(msg + "\n")
 
     backend = prefer or os.environ.get("PREFER_VM", "auto").lower()
     detected = available_backends()
     for name in _pick_backend(backend):
         if name in detected:
-            print(f"Launching CoolBox in {name} for debugging...")
+            msg = f"Launching CoolBox in {name} for debugging..."
+            logger.info(msg)
+            sys.stdout.write(msg + "\n")
             env = os.environ.copy()
             env["DEBUG_PORT"] = str(port)
             if skip_deps:
@@ -87,10 +99,14 @@ def launch_vm_debug(
             _out, code = run_command_ex(cmd, timeout=None, check=False, env=env)
             if code == 0:
                 return
-            print(f"{name} failed with code {code}; trying next backend")
+            msg = f"{name} failed with code {code}; trying next backend"
+            logger.warning(msg)
+            sys.stdout.write(msg + "\n")
             continue
 
-    print("No VM backend available; detected none. Launching locally under debugpy.")
+    msg = "No VM backend available; detected none. Launching locally under debugpy."
+    logger.info(msg)
+    sys.stdout.write(msg + "\n")
     env = os.environ.copy()
     env["DEBUG_PORT"] = str(port)
     if skip_deps:

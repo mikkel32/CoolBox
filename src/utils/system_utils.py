@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
+import logging
+
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
@@ -23,9 +25,7 @@ console = Console()
 plain_console = Console(no_color=True, force_terminal=False)
 
 
-def log(message: str) -> None:
-    """Log a message with rich formatting."""
-    console.log(message)
+logger = logging.getLogger(__name__)
 
 
 def get_system_info() -> str:
@@ -66,7 +66,7 @@ def run_with_spinner(
         # Plain fallback
         assert proc.stdout is not None
         for line in proc.stdout:
-            print(line.rstrip())
+            logger.info(line.rstrip())
             if capture_output:
                 captured.append(line)
             if timeout is not None and (time.time() - start) > timeout:
@@ -181,7 +181,6 @@ def get_system_metrics() -> Dict[str, Any]:
 
 
 __all__ = [
-    "log",
     "get_system_info",
     "run_with_spinner",
     "open_path",

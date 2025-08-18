@@ -3,7 +3,6 @@
 import os
 
 from .system_utils import (
-    log,
     open_path,
     slugify,
     strip_ansi,
@@ -138,7 +137,6 @@ from .gpu import benchmark_gpu_usage
 from . import file_manager
 
 __all__ = [
-    "log",
     "read_text",
     "write_text",
     "read_lines",

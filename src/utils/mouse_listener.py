@@ -23,9 +23,12 @@ from typing import Callable, Optional
 
 import logging
 
-from .system_utils import log
-
 logger = logging.getLogger(__name__)
+
+
+def log(message: str) -> None:
+    """Backward compatible log function."""
+    logger.info(message)
 
 _JOIN_TIMEOUT = 0.2  # seconds
 

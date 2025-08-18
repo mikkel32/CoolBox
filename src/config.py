@@ -2,11 +2,16 @@
 Configuration management for CoolBox
 """
 import json
+import logging
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from .utils.system_utils import log
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    logger.addHandler(handler)
 
 
 class Config:
@@ -156,21 +161,21 @@ class Config:
                 self.config = {**self.defaults, **loaded_config}
                 return True
             except json.JSONDecodeError as e:
-                log(f"Invalid config file, resetting to defaults: {e}")
+                logger.warning("Invalid config file, resetting to defaults: %s", e)
                 backup = self.config_file.with_suffix(self.config_file.suffix + ".bak")
                 try:
                     shutil.move(self.config_file, backup)
                 except OSError as backup_err:
-                    log(f"Failed to back up invalid config: {backup_err}")
+                    logger.warning("Failed to back up invalid config: %s", backup_err)
                 self.config = self.defaults.copy()
                 self.save()
                 return False
             except OSError as e:
-                log(f"Error reading config: {e}")
+                logger.error("Error reading config: %s", e)
                 self.config = self.defaults.copy()
                 return False
             except Exception as e:
-                log(f"Error loading config: {e}")
+                logger.error("Error loading config: %s", e)
                 self.config = self.defaults.copy()
                 return False
         else:
@@ -187,7 +192,9 @@ class Config:
                 json.dump(self.config, f, indent=4)
             return True
         except OSError as e:
-            log(f"Error saving config: {e}")
+            msg = f"Error saving config: {e}"
+            logger.error(msg)
+            sys.stdout.write(msg + "\n")
             return False
 
     def get(self, key: str, default: Any = None) -> Any:

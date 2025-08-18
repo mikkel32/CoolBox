@@ -38,7 +38,8 @@ from src.utils.scoring_engine import ScoringEngine, tuning
 from src.utils.hover_tracker import HoverTracker
 from ._fast_confidence import weighted_confidence as _weighted_confidence_np
 from src.utils import get_screen_refresh_rate
-from src.utils.system_utils import log
+import logging
+
 from src.config import Config
 
 try:  # pragma: no cover - optional dependency
@@ -58,6 +59,9 @@ QT_AVAILABLE = QtWidgets is not None
 QT_QUICK_AVAILABLE = QtQuick is not None
 
 CFG = Config()
+
+
+logger = logging.getLogger(__name__)
 
 
 def _load_int(env: str, key: str, default: int) -> int:
@@ -122,7 +126,7 @@ def _process_details(pid: int) -> tuple[str, ImageTk.PhotoImage | None]:
             with Image.open(exe) as img:
                 icon_img = ImageTk.PhotoImage(img.resize((16, 16)))
     except Exception:
-        pass
+        logger.debug("Failed to load process details for %s", pid, exc_info=True)
     _PROCESS_CACHE[pid] = (name, icon_img)
     return name, icon_img
 
@@ -154,7 +158,7 @@ def _auto_tune_interval(samples: int = 60) -> tuple[float, float, float]:
         CFG.set("kill_by_click_max_interval_calibrated", max_interval)
         CFG.save()
     except Exception:
-        pass
+        logger.debug("Failed to persist calibrated intervals", exc_info=True)
     return interval, min_interval, max_interval
 
 
@@ -184,7 +188,7 @@ def _load_calibrated(env: str, key: str, default: float) -> float:
             tuned = _auto_tune_interval()
             return float(tuned[_INTERVAL_INDEX[key]])
     except Exception:
-        pass
+        logger.debug("Failed to load calibrated interval for %s", key, exc_info=True)
     return default
 
 
@@ -994,8 +998,8 @@ class ClickOverlay(tk.Toplevel):
         except Exception:
             pass
         if not self._has_colorkey and not self._colorkey_warning_shown:
-            print(
-                "warning: transparency color key unavailable; using fallback alpha"
+            logger.warning(
+                "transparency color key unavailable; using fallback alpha"
             )
             self._colorkey_warning_shown = True
 
@@ -1142,8 +1146,10 @@ class ClickOverlay(tk.Toplevel):
             self._buffer["icon_pos"] = new
             regions.append(self.canvas.bbox(self.icon_item))
         end = time.perf_counter()
-        log(
-            f"ClickOverlay updated {len(regions)} regions in {(end - start) * 1000:.2f}ms"
+        logger.debug(
+            "ClickOverlay updated %s regions in %.2fms",
+            len(regions),
+            (end - start) * 1000,
         )
 
     def _queue_update(self, _e: object | None = None) -> None:
@@ -1269,7 +1275,7 @@ class ClickOverlay(tk.Toplevel):
         self.avg_frame_ms = sum(self._frame_times) / len(self._frame_times)
         self._frame_count += 1
         if self._frame_count % self._frame_times.maxlen == 0:
-            log(f"ClickOverlay avg frame {self.avg_frame_ms:.2f}ms")
+            logger.debug("ClickOverlay avg frame %.2fms", self.avg_frame_ms)
             if self.adaptive_interval:
                 self._retune_interval()
         self.update_state = UpdateState.IDLE
@@ -1400,7 +1406,7 @@ class ClickOverlay(tk.Toplevel):
                 result = fut.result()
             except Exception as exc:  # pragma: no cover - best effort logging
                 if not fut.cancelled():
-                    log(f"_query_window_async failed: {exc}")
+                    logger.warning("_query_window_async failed: %s", exc)
                     self.after(0, lambda: callback(WindowInfo(None)))
             else:
                 self.after(0, lambda: callback(result))

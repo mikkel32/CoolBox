@@ -13,7 +13,6 @@ from .color_utils import (
     darken_color,
 )
 from .system_utils import (
-    log,
     get_system_info,
     run_with_spinner,
     open_path,
@@ -33,7 +32,6 @@ __all__ = [
     "hex_brightness",
     "lighten_color",
     "darken_color",
-    "log",
     "get_system_info",
     "run_with_spinner",
     "open_path",

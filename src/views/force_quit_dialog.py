@@ -1015,8 +1015,7 @@ class ForceQuitDialog(BaseDialog):
             info.update({"name": proc.name(), "status": proc.status()})
         except Exception as exc:  # pragma: no cover - diagnostic path
             info["error"] = repr(exc)
-        print("force_kill failed", file=sys.stderr)
-        print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+        logger.error("force_kill failed: %s", json.dumps(info, indent=2, default=str))
         return False
 
     @classmethod
@@ -2409,8 +2408,10 @@ class ForceQuitDialog(BaseDialog):
                 "stalled_for": round(elapsed, 3),
                 "stack": traceback.format_stack(limit=5),
             }
-            print("Kill by Click timed out", file=sys.stderr)
-            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+            logger.warning(
+                "Kill by Click timed out: %s",
+                json.dumps(info, indent=2, default=str),
+            )
             try:
                 overlay.close()
             except Exception:
@@ -2485,8 +2486,10 @@ class ForceQuitDialog(BaseDialog):
                 "stalled_for": round(time.monotonic() - last, 3),
                 "stack": traceback.format_exception(type(result), result, result.__traceback__),
             }
-            print("Kill by Click raised an exception", file=sys.stderr)
-            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+            logger.error(
+                "Kill by Click raised an exception: %s",
+                json.dumps(info, indent=2, default=str),
+            )
             return
         pid, title, ctime, cmd, exe = result
         ctx.__exit__(None, None, None)
@@ -2523,8 +2526,10 @@ class ForceQuitDialog(BaseDialog):
                 "stalled_for": round(time.monotonic() - last, 3),
                 "stack": traceback.format_stack(limit=5),
             }
-            print("Kill by Click failed to return a process", file=sys.stderr)
-            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+            logger.warning(
+                "Kill by Click failed to return a process: %s",
+                json.dumps(info, indent=2, default=str),
+            )
             messagebox.showwarning(
                 "Force Quit", "No process was selected", parent=self
             )
@@ -2554,8 +2559,10 @@ class ForceQuitDialog(BaseDialog):
                 "stalled_for": round(time.monotonic() - last, 3),
                 "stack": traceback.format_stack(limit=5),
             }
-            print("Kill by Click refused to terminate self", file=sys.stderr)
-            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+            logger.warning(
+                "Kill by Click refused to terminate self: %s",
+                json.dumps(info, indent=2, default=str),
+            )
             messagebox.showwarning(
                 "Force Quit", "Cannot terminate this application", parent=self
             )
@@ -2589,8 +2596,10 @@ class ForceQuitDialog(BaseDialog):
                 "stalled_for": round(time.monotonic() - last, 3),
                 "stack": traceback.format_stack(limit=5),
             }
-            print("Kill by Click target vanished", file=sys.stderr)
-            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+            logger.warning(
+                "Kill by Click target vanished: %s",
+                json.dumps(info, indent=2, default=str),
+            )
             messagebox.showwarning(
                 "Force Quit", f"Process {pid} no longer exists", parent=self
             )
@@ -2646,8 +2655,10 @@ class ForceQuitDialog(BaseDialog):
                         "stalled_for": round(time.monotonic() - last, 3),
                         "stack": traceback.format_stack(limit=5),
                     }
-                    print("Kill by Click target changed", file=sys.stderr)
-                    print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+                    logger.warning(
+                        "Kill by Click target changed: %s",
+                        json.dumps(info, indent=2, default=str),
+                    )
                     messagebox.showwarning(
                         "Force Quit", f"Process {pid} changed", parent=self
                     )
@@ -2686,8 +2697,10 @@ class ForceQuitDialog(BaseDialog):
                 "stalled_for": round(time.monotonic() - last, 3),
                 "stack": traceback.format_stack(limit=5),
             }
-            print("Kill by Click could not terminate process", file=sys.stderr)
-            print(json.dumps(info, indent=2, default=str), file=sys.stderr)
+            logger.error(
+                "Kill by Click could not terminate process: %s",
+                json.dumps(info, indent=2, default=str),
+            )
             messagebox.showerror(
                 "Force Quit", f"Failed to terminate process {pid}", parent=self
             )

@@ -2,20 +2,22 @@ from __future__ import annotations
 
 """Robust cross-platform process termination helpers."""
 
+import logging
 import os
-import time
 import signal
+import time
 from contextlib import contextmanager
 from threading import Event, Thread
 from typing import Callable
+
 try:
     import psutil
 except ImportError:  # pragma: no cover - runtime dependency check
     from ..ensure_deps import ensure_psutil
 
     psutil = ensure_psutil()
+
 _psutil_process = psutil.Process
-from .system_utils import log, console
 from rich.progress import (
     Progress,
     SpinnerColumn,
@@ -23,6 +25,15 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
+from .system_utils import console
+
+
+logger = logging.getLogger(__name__)
+
+
+def log(message: str) -> None:
+    """Backward compatible log function."""
+    logger.info(message)
 
 
 def _kill_cmd(pid: int) -> bool:
