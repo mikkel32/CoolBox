@@ -132,15 +132,19 @@ class Config:
         }
 
         # Load configuration
-        self.config = self._load_config()
+        self.config = self.defaults.copy()
+        self.load_ok = self._load_config()
 
     def ensure_dirs(self) -> None:
         """Create configuration and cache directories if needed."""
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(exist_ok=True)
 
-    def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from file"""
+    def _load_config(self) -> bool:
+        """Load configuration from file.
+
+        Returns ``True`` if loading succeeded, ``False`` otherwise.
+        """
         self.ensure_dirs()
 
         # Load existing config or use defaults
@@ -148,21 +152,43 @@ class Config:
             try:
                 with open(self.config_file, "r") as f:
                     loaded_config = json.load(f)
-                    # Merge with defaults to ensure all keys exist
-                    return {**self.defaults, **loaded_config}
+                # Merge with defaults to ensure all keys exist
+                self.config = {**self.defaults, **loaded_config}
+                return True
+            except json.JSONDecodeError as e:
+                log(f"Invalid config file, resetting to defaults: {e}")
+                backup = self.config_file.with_suffix(self.config_file.suffix + ".bak")
+                try:
+                    shutil.move(self.config_file, backup)
+                except OSError as backup_err:
+                    log(f"Failed to back up invalid config: {backup_err}")
+                self.config = self.defaults.copy()
+                self.save()
+                return False
+            except OSError as e:
+                log(f"Error reading config: {e}")
+                self.config = self.defaults.copy()
+                return False
             except Exception as e:
                 log(f"Error loading config: {e}")
-                return self.defaults.copy()
+                self.config = self.defaults.copy()
+                return False
         else:
-            return self.defaults.copy()
+            self.config = self.defaults.copy()
+            return True
 
-    def save(self):
-        """Save configuration to file"""
+    def save(self) -> bool:
+        """Save configuration to file.
+
+        Returns ``True`` if saving succeeded, ``False`` otherwise.
+        """
         try:
             with open(self.config_file, "w") as f:
                 json.dump(self.config, f, indent=4)
-        except Exception as e:
+            return True
+        except OSError as e:
             log(f"Error saving config: {e}")
+            return False
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value"""
