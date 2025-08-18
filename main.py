@@ -114,6 +114,12 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
         spec = importlib.util.spec_from_file_location("coolbox_setup", setup_script)
         if spec and spec.loader:
             module = importlib.util.module_from_spec(spec)
+            # Ensure the module is registered so decorators like @dataclass can
+            # resolve the module during execution.  Without this, dataclasses
+            # looks up ``sys.modules[cls.__module__]`` and receives ``None``,
+            # resulting in ``AttributeError: 'NoneType' object has no attribute
+            # '__dict__'`` when ``setup.py`` defines dataclasses.
+            sys.modules[spec.name] = module
             spec.loader.exec_module(module)
             module.show_setup_banner()
             module.check_python_version()
