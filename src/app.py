@@ -7,29 +7,41 @@ from __future__ import annotations
 try:
     import customtkinter as ctk
 except ImportError:  # pragma: no cover - runtime dependency check
-    from ..ensure_deps import ensure_customtkinter
+    from .ensure_deps import ensure_customtkinter
 
     ctk = ensure_customtkinter()
 from typing import Dict, Optional, TYPE_CHECKING
 from pathlib import Path
+try:
+    from PIL import Image, ImageTk
+except ImportError:  # pragma: no cover - runtime dependency check
+    from .ensure_deps import ensure_pillow
+
+    pil = ensure_pillow()
+    Image = pil.Image  # type: ignore[attr-defined]
+    ImageTk = pil.ImageTk  # type: ignore[attr-defined]
 import sys
+import tempfile
+import ctypes
 
-from ..config import Config
-from ..components.toolbar import Toolbar
-from ..components.status_bar import StatusBar
-from ..components.menubar import MenuBar
-from ..models.app_state import AppState
-from ..utils.theme import ThemeManager
-from ..utils.helpers import log
-from ..utils.thread_manager import ThreadManager
-
-from .icon import set_app_icon
-from .layout import setup_ui
+from .config import Config
+from .components.sidebar import Sidebar
+from .components.toolbar import Toolbar
+from .components.status_bar import StatusBar
+from .components.menubar import MenuBar
+from .views.home_view import HomeView
+from .views.tools_view import ToolsView
+from .views.settings_view import SettingsView
+from .views.about_view import AboutView
+from .models.app_state import AppState
+from .utils.theme import ThemeManager
+from .utils.helpers import log
+from .utils.thread_manager import ThreadManager
 
 if TYPE_CHECKING:  # pragma: no cover - used for type hints only
-    from ..views.quick_settings import QuickSettingsDialog
-    from ..views.force_quit_dialog import ForceQuitDialog
-    from ..views.security_dialog import SecurityDialog
+    from .views.quick_settings import QuickSettingsDialog
+    from .views.force_quit_dialog import ForceQuitDialog
+    from .views.security_dialog import SecurityDialog
 
 
 class CoolBoxApp:
@@ -51,17 +63,10 @@ class CoolBoxApp:
         # Create main window
         self.window = ctk.CTk()
         self.window.title("CoolBox - Modern Desktop App")
-        self.window.geometry(
-            f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 900)}"
-        )
+        self.window.geometry(f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 900)}")
 
         # Set application icon
-        try:
-            self._icon_photo, self._temp_icon = set_app_icon(self.window)
-        except Exception as exc:  # pragma: no cover - best effort
-            log(f"Icon setup failed: {exc}")
-            self._icon_photo = None
-            self._temp_icon = None
+        self._set_app_icon()
 
         # Set minimum window size
         self.window.minsize(800, 700)
@@ -80,11 +85,7 @@ class CoolBoxApp:
         self.dialogs: list[object] = []
 
         # Setup UI
-        try:
-            setup_ui(self)
-        except Exception as exc:  # pragma: no cover - critical failure
-            log(f"UI setup failed: {exc}")
-            raise
+        self._setup_ui()
 
         # Bind events
         self._bind_events()
@@ -92,9 +93,89 @@ class CoolBoxApp:
         # Load initial view
         self.switch_view("home")
 
+    def _set_app_icon(self) -> None:
+        """Set the window and dock icon to the CoolBox logo."""
+        icon_path = Path(__file__).resolve().parent.parent / "assets" / "images" / "Coolbox_logo.png"
+        try:
+            image = Image.open(icon_path)
+            self._icon_photo = ImageTk.PhotoImage(image)
+            self.window.iconphoto(True, self._icon_photo)
+
+            if sys.platform.startswith("win"):
+                try:
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".ico")
+                    image.save(tmp, format="ICO")
+                    tmp.close()
+                    self.window.iconbitmap(tmp.name)
+                    try:
+                        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CoolBox")
+                    except Exception:  # pragma: no cover - best effort
+                        pass
+                    self._temp_icon = tmp.name
+                except Exception as exc:  # pragma: no cover - optional feature
+                    log(f"Failed to set taskbar icon: {exc}")
+        except Exception as exc:  # pragma: no cover - best effort
+            log(f"Failed to set window icon: {exc}")
+
+        if sys.platform == "darwin":
+            try:
+                from AppKit import NSApplication, NSImage
+
+                ns_image = NSImage.alloc().initByReferencingFile_(str(icon_path))
+                NSApplication.sharedApplication().setApplicationIconImage_(ns_image)
+            except Exception as exc:  # pragma: no cover - optional feature
+                log(f"Failed to set dock icon: {exc}")
+
     def get_icon_photo(self):
         """Return the cached application icon if available."""
         return getattr(self, "_icon_photo", None)
+
+    def _setup_ui(self):
+        """Setup the main UI layout"""
+        # Create main container
+        self.main_container = ctk.CTkFrame(self.window, corner_radius=0)
+        self.main_container.pack(fill="both", expand=True)
+
+        # Create menu bar if enabled
+        self.menu_bar: MenuBar | None = None
+        if self.config.get("show_menu", True):
+            self.menu_bar = MenuBar(self.window, self)
+
+        # Create toolbar if enabled in config
+        self.toolbar: Toolbar | None = None
+        if self.config.get("show_toolbar", True):
+            self.toolbar = Toolbar(self.main_container, self)
+            self.toolbar.pack(fill="x", padx=0, pady=0)
+
+        # Create content area with sidebar
+        self.content_area = ctk.CTkFrame(self.main_container, corner_radius=0)
+        self.content_area.pack(fill="both", expand=True)
+
+        # Configure grid
+        self.content_area.grid_rowconfigure(0, weight=1)
+        self.content_area.grid_columnconfigure(1, weight=1)
+
+        # Create sidebar
+        self.sidebar = Sidebar(self.content_area, self)
+        self.sidebar.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+
+        # Create view container
+        self.view_container = ctk.CTkFrame(self.content_area, corner_radius=0)
+        self.view_container.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+
+        # Create status bar if enabled
+        self.status_bar: StatusBar | None = None
+        if self.config.get("show_statusbar", True):
+            self.status_bar = StatusBar(self.main_container, self)
+            self.status_bar.pack(fill="x", side="bottom")
+
+        # Initialize views
+        self._init_views()
+        self.refresh_recent_files()
+        if self.menu_bar is not None:
+            self.menu_bar.refresh_toggles()
+        self.update_fonts()
+        self.update_theme()
 
     def update_ui_visibility(self) -> None:
         """Show or hide optional UI elements based on config."""
@@ -130,6 +211,13 @@ class CoolBoxApp:
             self.toolbar.update_recent_files()
         if self.menu_bar is not None:
             self.menu_bar.update_recent_files()
+
+    def _init_views(self):
+        """Initialize all application views"""
+        self.views["home"] = HomeView(self.view_container, self)
+        self.views["tools"] = ToolsView(self.view_container, self)
+        self.views["settings"] = SettingsView(self.view_container, self)
+        self.views["about"] = AboutView(self.view_container, self)
 
     def _bind_events(self):
         """Bind window events"""
@@ -182,7 +270,7 @@ class CoolBoxApp:
 
     def open_quick_settings(self) -> None:
         """Launch the Quick Settings dialog or focus the existing one."""
-        from ..views.quick_settings import QuickSettingsDialog
+        from .views.quick_settings import QuickSettingsDialog
 
         if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():
             self.quick_settings_window.focus()
@@ -198,7 +286,7 @@ class CoolBoxApp:
         from tkinter import messagebox
 
         try:
-            from ..views.force_quit_dialog import ForceQuitDialog
+            from .views.force_quit_dialog import ForceQuitDialog
         except Exception as exc:  # pragma: no cover - runtime import error
             log(f"Failed to import ForceQuitDialog: {exc}")
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
@@ -220,7 +308,7 @@ class CoolBoxApp:
 
     def open_security_center(self) -> None:
         """Launch the Security Center dialog with elevation when needed."""
-        from ..views.security_dialog import SecurityDialog
+        from .views.security_dialog import SecurityDialog
         from .utils.security import is_admin, launch_security_center
         from tkinter import messagebox
 
