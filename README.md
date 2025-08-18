@@ -650,6 +650,14 @@ CoolBox/
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+### Global Error Handling
+
+CoolBox installs a Tk ``report_callback_exception`` handler that logs
+uncaught exceptions and displays a friendly error dialog. Background threads
+should forward exceptions to the main thread using
+``ThreadManager.post_exception`` so they are processed by this handler.
+This keeps error reporting consistent across the application.
+
 ## 📄 License
 
 This project is licensed under the MIT License.

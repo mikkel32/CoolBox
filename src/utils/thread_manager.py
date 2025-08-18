@@ -48,6 +48,19 @@ class ThreadManager:
         for t in (self.logger_thread, self.process_thread):
             t.join(timeout=1)
 
+    def post_exception(self, window, exc: BaseException) -> None:
+        """Report *exc* on the Tk main thread using ``window.after``.
+
+        The window's ``report_callback_exception`` hook is invoked so all
+        dialogs and logging are handled by the global error handler.
+        """
+        window.after(
+            0,
+            lambda: window.report_callback_exception(
+                type(exc), exc, exc.__traceback__
+            ),
+        )
+
     def run_tool(
         self,
         name: str,
@@ -59,15 +72,14 @@ class ThreadManager:
         """Execute *func* in a daemon thread and surface exceptions.
 
         Any raised exception is logged with a full traceback and reported via
-        ``status_bar`` and a standard error dialog.  Successful completion also
-        emits a log and optional status message.  All UI interactions are
+        ``status_bar`` and the application's global error handler.  Successful
+        completion also emits a log and optional status message.  All UI interactions are
         marshalled back to the Tk main thread via ``window.after`` so failures
         never crash the Home view.
         """
 
         import traceback
         import warnings
-        from tkinter import messagebox
 
         def runner() -> None:
             self.log_queue.put(f"INFO:Starting {name}")
@@ -85,9 +97,7 @@ class ThreadManager:
                         self.log_queue.put(f"WARNING:{warn.message}")
                     if status_bar is not None:
                         window.after(0, lambda: status_bar.set_message(msg, "error"))
-                    window.after(
-                        0, lambda: messagebox.showerror(f"{name} Error", str(exc))
-                    )
+                    self.post_exception(window, exc)
                 else:
                     for warn in captured:
                         self.log_queue.put(f"WARNING:{warn.message}")
@@ -126,7 +136,7 @@ class ThreadManager:
     def _process_loop(self) -> None:
         while not self.shutdown.is_set():
             try:
-                _task = self.cmd_queue.get(timeout=0.1)
+                _ = self.cmd_queue.get(timeout=0.1)
             except Empty:
                 pass
             else:
