@@ -4,7 +4,8 @@ import os
 import unittest
 import customtkinter as ctk
 from unittest.mock import patch
-from types import SimpleNamespace
+
+from src.utils import security
 
 from src.app import CoolBoxApp
 
@@ -144,24 +145,18 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_open_security_center_method(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
-            patch("src.views.security_dialog.is_defender_supported", lambda: True),
-            patch(
-                "src.views.security_dialog.read_current_statuses",
-                lambda: (
-                    SimpleNamespace(domain=True, private=True, public=True, error=None),
-                    SimpleNamespace(realtime=True, error=None),
-                ),
-            ),
             patch("src.utils.security.is_admin", lambda: True),
+            patch("src.utils.security.is_firewall_enabled", lambda: True),
+            patch(
+                "src.utils.security.get_defender_status",
+                lambda: security.DefenderStatus("RUNNING", True, True, True, True),
+            ),
         ]
         for p in patches:
             p.start()
         app.open_security_center()
-        dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
-        self.assertTrue(dialogs)
-        for d in dialogs:
-            d.destroy()
+        self.assertIsNotNone(app.security_center_window)
+        app.security_center_window.destroy()
         for p in patches:
             p.stop()
         app.destroy()
@@ -170,16 +165,12 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_security_center_singleton(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
-            patch("src.views.security_dialog.is_defender_supported", lambda: True),
-            patch(
-                "src.views.security_dialog.read_current_statuses",
-                lambda: (
-                    SimpleNamespace(domain=True, private=True, public=True, error=None),
-                    SimpleNamespace(realtime=True, error=None),
-                ),
-            ),
             patch("src.utils.security.is_admin", lambda: True),
+            patch("src.utils.security.is_firewall_enabled", lambda: True),
+            patch(
+                "src.utils.security.get_defender_status",
+                lambda: security.DefenderStatus("RUNNING", True, True, True, True),
+            ),
         ]
         for p in patches:
             p.start()

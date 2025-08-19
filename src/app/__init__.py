@@ -227,17 +227,9 @@ class CoolBoxApp:
             self.force_quit_window = None
 
     def open_security_center(self) -> None:
-        """Launch the Security Center dialog with elevation when needed."""
+        """Open the Security Center dialog."""
         from ..views.security_dialog import SecurityDialog
-        from ..utils.security import is_admin, launch_security_center
-        from tkinter import messagebox
-
-        if not is_admin():
-            if not launch_security_center(hide_console=True):
-                messagebox.showerror(
-                    "Security Center", "Failed to relaunch with admin rights"
-                )
-            return
+        import tkinter as tk
 
         if (
             self.security_center_window is not None
@@ -246,7 +238,9 @@ class CoolBoxApp:
             self.security_center_window.focus()
             return
 
-        self.security_center_window = SecurityDialog(self)
+        top = tk.Toplevel(self.window)
+        SecurityDialog(top)
+        self.security_center_window = top
         self.security_center_window.protocol(
             "WM_DELETE_WINDOW", self._on_security_center_closed
         )
