@@ -969,7 +969,20 @@ class ForceQuitDialog(BaseDialog):
             self._snapshot_changed = True
 
     def _update_kill_actions(self) -> None:
-        if self._actions_enabled or self._enum_progress < 1.0:
+        """Enable kill actions once process data is available.
+
+        Previously the dialog waited for the initial process enumeration to
+        fully complete (``_enum_progress`` reaching ``1.0``) before enabling the
+        various kill buttons.  On systems with a large number of processes this
+        could take a noticeable amount of time, leaving the actions appearing
+        unresponsive.  Instead we now enable the buttons as soon as *any*
+        process data has been loaded.  The old behaviour is still respected if
+        enumeration completes with an empty snapshot.
+        """
+
+        if self._actions_enabled:
+            return
+        if self._enum_progress < 1.0 and not self.process_snapshot:
             return
         self.kill_selected_btn.configure(state=tk.NORMAL)
         for btn in self._action_buttons:
