@@ -11,7 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from typing import Type
+from typing import Type, Callable
 
 from src.utils import security
 from .firewall_dialog import FirewallDialog
@@ -119,15 +119,24 @@ class SecurityDialog(ttk.Frame):
         self._open_dialog(DefenderDialog)
 
     def _open_dialog(self, dlg_cls: Type[tk.Toplevel]) -> None:
-        """Create dialog and slide it in beside the main window."""
+        """Create dialog and slide it in beside the main window.
+
+        When the dialog is closed, it smoothly slides out and the remaining
+        dialogs stay neatly locked beside the main window.
+        """
         dlg = dlg_cls(self.master)
         self._child_windows.append(dlg)
         self._slide_in(dlg)
 
         def _close() -> None:
-            self._child_windows.remove(dlg)
-            dlg.destroy()
-            self._reposition_children()
+            if dlg in self._child_windows:
+                self._child_windows.remove(dlg)
+
+            def after() -> None:
+                dlg.destroy()
+                self._reposition_children()
+
+            self._slide_out(dlg, after)
 
         dlg.protocol("WM_DELETE_WINDOW", _close)
 
@@ -219,6 +228,33 @@ class SecurityDialog(ttk.Frame):
             win.geometry(f"+{x}+{final_y}")
             if i < steps:
                 win.after(delay, step, i + 1)
+
+        step()
+
+    def _slide_out(self, win: tk.Toplevel, on_done: Callable[[], None]) -> None:
+        """Animate a window sliding out to the right before closing."""
+        try:
+            self.master.update_idletasks()
+            win.update_idletasks()
+            start_x = win.winfo_x()
+            start_y = win.winfo_y()
+            win_w = win.winfo_width()
+        except Exception:
+            on_done()
+            return
+
+        end_x = start_x + win_w
+        steps = 12
+        delay = 15
+        delta = (end_x - start_x) / steps
+
+        def step(i: int = 0) -> None:
+            x = int(start_x + delta * i)
+            win.geometry(f"+{x}+{start_y}")
+            if i < steps:
+                win.after(delay, step, i + 1)
+            else:
+                on_done()
 
         step()
 
