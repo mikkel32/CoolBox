@@ -122,12 +122,14 @@ from .scoring_engine import ScoringEngine, Tuning, tuning
 from .security import (
     is_firewall_enabled,
     set_firewall_enabled,
-    is_defender_realtime_on,
+    is_defender_enabled,
     set_defender_enabled,
-    set_defender_realtime,
     is_admin,
     ensure_admin,
+    launch_security_center,
     get_defender_status,
+    is_defender_supported,
+    read_current_states,
 )
 from .thread_manager import ThreadManager
 from .gpu import benchmark_gpu_usage
@@ -237,12 +239,14 @@ __all__ = [
     "run_command_background",
     "is_firewall_enabled",
     "set_firewall_enabled",
-    "is_defender_realtime_on",
+    "is_defender_enabled",
     "set_defender_enabled",
-    "set_defender_realtime",
     "is_admin",
     "ensure_admin",
+    "launch_security_center",
     "get_defender_status",
+    "is_defender_supported",
+    "read_current_states",
     "ScoringEngine",
     "Tuning",
     "tuning",

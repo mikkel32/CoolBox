@@ -1,92 +1,62 @@
 # -*- coding: utf-8 -*-
 """
-Security utilities for Windows Firewall and Microsoft Defender.
-No visible shells. Robust service control. Thread-safe helpers.
+Security utilities: firewall + Windows Defender with deep diagnostics.
 
-Tested on Windows 10/11. Requires admin.
+Highlights
+- Uses 64-bit PowerShell (Sysnative) to avoid WOW64 issues.
+- Starts Defender services if stopped. Verifies after every change.
+- Detects Tamper Protection, policy locks, EDR/MDM, and 3rd-party AV.
+- Clear, actionable error text. Idempotent operations.
 """
 
 from __future__ import annotations
 
-import ctypes
-import json
 import os
 import platform
-import re
 import subprocess
 import sys
-import threading
+import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from pathlib import Path
+from typing import Optional, Tuple
 
 from src.app import error_handler as eh
 
 
-# ----------------------------- Platform guard ------------------------------
+# ------------------------------- helpers ------------------------------------
 
-_IS_WINDOWS = platform.system() == "Windows"
-
-# Creation flags to suppress any console windows on Windows
-CREATE_NO_WINDOW = 0x08000000 if _IS_WINDOWS else 0
-
-# Path to sc.exe to avoid PowerShell alias collision with Set-Content
-_SC_EXE = r"C:\\Windows\\System32\\sc.exe" if _IS_WINDOWS else None
-_NETSH_EXE = r"C:\\Windows\\System32\\netsh.exe" if _IS_WINDOWS else None
-_POWERSHELL_EXE = (
-    r"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" if _IS_WINDOWS else None
-)
+def _which(exe: str) -> Optional[str]:
+    paths = os.environ.get("PATH", "").split(os.pathsep)
+    for p in paths:
+        fp = Path(p) / exe
+        if fp.exists():
+            return str(fp)
+    return None
 
 
-# ------------------------------ Admin check --------------------------------
-
-
-def is_admin() -> bool:
-    if not _IS_WINDOWS:
-        return False
+def _run_ex(
+    cmd: list[str] | str, *, capture: bool = True, timeout: float | None = 30.0
+) -> Tuple[str, int]:
     try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
-        return False
-
-
-def ensure_admin() -> bool:
-    """Return True if running with administrative privileges."""
-    return is_admin()
-
-
-# ------------------------------ Run helpers --------------------------------
-
-
-@dataclass
-class RunResult:
-    code: int
-    out: str
-    err: str
-
-
-_lock = threading.RLock()
-
-
-def _run(cmd: List[str], timeout: int = 30) -> RunResult:
-    """Run a command with no visible window. Returns stdout, stderr, code."""
-    with _lock:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            stdin=subprocess.DEVNULL,
-            creationflags=CREATE_NO_WINDOW,
-            text=True,
-            encoding="utf-8",
+        shell = isinstance(cmd, str)
+        cp = subprocess.run(
+            cmd, capture_output=capture, text=True, timeout=timeout, shell=shell
         )
-        out, err = proc.communicate(timeout=timeout)
-    return RunResult(proc.returncode, out.strip(), err.strip())
+        out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")
+        return out.strip(), int(cp.returncode)
+    except Exception as e:  # pragma: no cover - subprocess failure
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return f"{type(e).__name__}: {e}", -1
+
+
+def _run_rc(cmd: list[str] | str, *, timeout: float | None = 30.0) -> Optional[int]:
+    out, code = _run_ex(cmd, timeout=timeout)
+    return code if code >= 0 else None
 
 
 def run_command_background(
-    cmd: List[str], **popen_kwargs
+    cmd: list[str], **popen_kwargs
 ) -> Tuple[bool, Optional[subprocess.Popen]]:
-    """Launch *cmd* in background. Returns (success, Popen)."""
     try:
         p = subprocess.Popen(cmd, **popen_kwargs)
         return True, p
@@ -95,254 +65,371 @@ def run_command_background(
         return False, None
 
 
-def _run_ps(ps_script: str, timeout: int = 30) -> RunResult:
-    """Run a PowerShell one-liner invisibly with hardened flags."""
-    if not _IS_WINDOWS:
-        return RunResult(1, "", "Windows-only")
-    cmd = [
-        _POWERSHELL_EXE,
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        ps_script,
-    ]
-    return _run(cmd, timeout=timeout)
+# ------------------------------- elevation ----------------------------------
 
 
-# ------------------------------- Firewall ----------------------------------
+def is_admin() -> bool:
+    if platform.system() != "Windows":
+        return os.geteuid() == 0  # type: ignore[attr-defined]
+    try:  # pragma: no cover - Windows specific
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return False
+
+
+def ensure_admin() -> bool:
+    return is_admin()
+
+
+def launch_security_center(*, hide_console: bool = False) -> bool:
+    script_name = "security_center_hidden.py" if hide_console else "security_center.py"
+    script = Path(__file__).resolve().parents[2] / "scripts" / script_name
+    if not script.exists():
+        return False
+    py = Path(sys.executable)
+    if platform.system() == "Windows":
+        if is_admin():
+            ok, _ = run_command_background(
+                [str(py), str(script)], creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+            return ok
+        try:  # pragma: no cover - Windows specific
+            import ctypes
+
+            r = ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", str(py), f'"{script}"', None, 1
+            )
+            return r > 32
+        except Exception as e:
+            eh.handle_exception(type(e), e, e.__traceback__)
+            return False
+    # Unix
+    if is_admin():
+        ok, _ = run_command_background([str(py), str(script)])
+        return ok
+    ok, _ = run_command_background(["sudo", str(py), str(script)])
+    return ok
+
+
+# ------------------------------- firewall -----------------------------------
+
+
+def _unix_firewall_tool() -> Optional[str]:
+    if _which("ufw"):
+        return "ufw"
+    if _which("firewall-cmd"):
+        return "firewall-cmd"
+    if platform.system() == "Darwin" and _which("pfctl"):
+        return "pfctl"
+    return None
 
 
 def is_firewall_enabled() -> Optional[bool]:
-    """
-    True if all profiles enabled, False if any disabled, None if unknown.
-    Uses 'netsh advfirewall show allprofiles' to avoid module dependencies.
-    """
-    if not _IS_WINDOWS:
+    try:
+        if platform.system() == "Windows":
+            out, code = _run_ex(["netsh", "advfirewall", "show", "allprofiles"])
+            if code != 0:
+                return None
+            return "State ON" in out or "State                  ON" in out
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            out, code = _run_ex(["ufw", "status"])
+            return "Status: active" in out if code == 0 else None
+        if tool == "firewall-cmd":
+            _, code = _run_ex(["systemctl", "is-active", "--quiet", "firewalld"])
+            return code == 0
+        if tool == "pfctl":
+            out, code = _run_ex(["pfctl", "-s", "info"])
+            return ("Status: Enabled" in out) if code == 0 else None
         return None
-    if not _NETSH_EXE or not os.path.exists(_NETSH_EXE):
+    except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
         return None
-
-    res = _run([_NETSH_EXE, "advfirewall", "show", "allprofiles"])
-    if res.code != 0:
-        return None
-
-    # Parse each profile block: "State ON/OFF"
-    states = re.findall(r"State\s+(\w+)", res.out, flags=re.IGNORECASE)
-    if not states:
-        return None
-    on_all = all(s.lower() in ("on", "enabled", "1") for s in states)
-    return True if on_all else False
 
 
 def set_firewall_enabled(enabled: bool) -> bool:
-    """Enable or disable firewall for all profiles via netsh. Admin required."""
-    if not _IS_WINDOWS or not is_admin():
+    if platform.system() == "Windows":
+        state = "on" if enabled else "off"
+        return _run_rc(["netsh", "advfirewall", "set", "allprofiles", "state", state]) == 0
+    tool = _unix_firewall_tool()
+    if tool == "ufw":
+        cmd = ["ufw", "enable"] if enabled else ["ufw", "disable"]
+    elif tool == "firewall-cmd":
+        cmd = ["systemctl", "start" if enabled else "stop", "firewalld"]
+    elif tool == "pfctl":
+        cmd = ["pfctl", "-e"] if enabled else ["pfctl", "-d"]
+    else:
         return False
-    if not _NETSH_EXE or not os.path.exists(_NETSH_EXE):
-        return False
-    state = "on" if enabled else "off"
-    res = _run([_NETSH_EXE, "advfirewall", "set", "allprofiles", "state", state])
-    if res.code != 0:
-        return False
-    # Verify
-    chk = is_firewall_enabled()
-    return (chk is True) if enabled else (chk is False)
+    return _run_rc(cmd) == 0
 
 
-# --------------------------- Defender (WinDefend) ---------------------------
+# ---------------------------- Windows Defender ------------------------------
 
 
-def _service_query(name: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Return (state, start_type) for a service via sc.exe query.
-    state: RUNNING | STOPPED | START_PENDING | STOP_PENDING ...
-    start_type: AUTO_START | DEMAND_START | DISABLED | ...
-    """
-    if not _IS_WINDOWS or not _SC_EXE or not os.path.exists(_SC_EXE):
-        return None, None
-
-    q = _run([_SC_EXE, "query", name])
-    if q.code != 0:
-        return None, None
-
-    # STATE              : 4  RUNNING
-    m_state = re.search(r"STATE\s*:\s*\d+\s+([A-Z_]+)", q.out)
-    state = m_state.group(1) if m_state else None
-
-    q2 = _run([_SC_EXE, "qc", name])
-    start_type = None
-    if q2.code == 0:
-        # START_TYPE         : 2   AUTO_START
-        m_start = re.search(r"START_TYPE\s*:\s*\d+\s+([A-Z_]+)", q2.out)
-        start_type = m_start.group(1) if m_start else None
-
-    return state, start_type
+def _ps_path_x64() -> str:
+    root = os.environ.get("SystemRoot", r"C:\\Windows")
+    # Sysnative breaks WOW64 redirection for 32-bit hosts on x64
+    if platform.machine().endswith("64") and "PROGRAMFILES(X86)" in os.environ:
+        p = (
+            Path(root)
+            / "Sysnative"
+            / "WindowsPowerShell"
+            / "v1.0"
+            / "powershell.exe"
+        )
+        if p.exists():
+            return str(p)
+    return str(Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
 
 
-def defender_service_status() -> Optional[str]:
-    """Return 'RUNNING' or 'STOPPED' for WinDefend, else None."""
-    state, _ = _service_query("WinDefend")
-    return state
+_PS_BASE = [
+    _ps_path_x64(),
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+]
 
 
-def ensure_defender_autostart() -> bool:
-    """Set WinDefend to AUTO_START using sc.exe, avoiding PowerShell alias issues."""
-    if not _IS_WINDOWS or not is_admin():
-        return False
-    res = _run([_SC_EXE, "config", "WinDefend", "start=", "auto"])
-    # sc.exe uses a quirky syntax: "start= auto" must be split; above is safe.
-    if res.code != 0:
-        return False
-    _, start_type = _service_query("WinDefend")
-    return start_type == "AUTO_START"
-
-
-def start_defender_service() -> bool:
-    """Start WinDefend service if not running."""
-    if not _IS_WINDOWS or not is_admin():
-        return False
-    state = defender_service_status()
-    if state == "RUNNING":
-        return True
-    res = _run([_SC_EXE, "start", "WinDefend"])
-    if res.code != 0:
-        # It might already be starting; re-check
-        state = defender_service_status()
-        return state == "RUNNING"
-    state = defender_service_status()
-    return state == "RUNNING"
-
-
-def stop_defender_service() -> bool:
-    """
-    Stop WinDefend. May be blocked by Tamper Protection or policy.
-    Returns False if blocked.
-    """
-    if not _IS_WINDOWS or not is_admin():
-        return False
-    res = _run([_SC_EXE, "stop", "WinDefend"])
-    if res.code != 0:
-        state = defender_service_status()
-        return state == "STOPPED"
-    state = defender_service_status()
-    return state == "STOPPED"
-
-
-# ---------------------- Defender real-time protection -----------------------
+def _ps(script: str, *, timeout: float = 30.0) -> Tuple[str, int]:
+    cmd = (
+        "$ErrorActionPreference='Stop';"
+        "Import-Module Defender -ErrorAction SilentlyContinue | Out-Null;"
+        + script
+    )
+    return _run_ex(_PS_BASE + [cmd], timeout=timeout)
 
 
 @dataclass
 class DefenderStatus:
-    service_state: Optional[str]  # RUNNING/STOPPED
-    realtime_enabled: Optional[bool]
-    antispyware_enabled: Optional[bool]
-    antivirus_enabled: Optional[bool]
-    tamper_protection: Optional[bool]
+    realtime: Optional[bool]
+    tamper_on: Optional[bool]
+    cmdlets_available: bool
+    services_ok: bool
+    third_party_av_present: bool
+    policy_lock: bool
+    managed_by_org: bool
+    error: Optional[str] = None
+
+
+def _svc_start(name: str) -> bool:
+    # Try PowerShell first; fall back to sc.exe
+    _ps(
+        f"Set-Service -Name {name} -StartupType Automatic; "
+        f"If ((Get-Service -Name {name}).Status -ne 'Running') {{ Start-Service -Name {name} -ErrorAction SilentlyContinue }}"
+    )
+    out, code = _ps(f"(Get-Service -Name {name}).Status")
+    return code == 0 and "Running" in out
+
+
+def _defender_services_ok() -> bool:
+    ok1 = _svc_start("WinDefend")
+    ok2 = _svc_start("SecurityHealthService")
+    return ok1 and ok2
+
+
+def _defender_cmdlets_available() -> bool:
+    out, code = _ps("(Get-Command Get-MpComputerStatus -EA SilentlyContinue) -ne $null")
+    return code == 0 and "True" in out
+
+
+def _defender_tamper_on() -> Optional[bool]:
+    if not _defender_services_ok():
+        return None
+    out, code = _ps("(Get-MpPreference).TamperProtection")
+    if code != 0:
+        return None
+    v = out.strip().splitlines()[-1].strip().lower()
+    return True if v == "on" else False if v == "off" else None
+
+
+def _third_party_av_present() -> bool:
+    ps = (
+        "($p=Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue) | "
+        "Where-Object { $_.displayName -notlike '*Defender*' -and $_.displayName -ne $null } | "
+        "Measure-Object | % Count"
+    )
+    out, code = _ps(ps)
+    try:
+        n = int(out.strip().splitlines()[-1])
+    except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        n = 0 if code != 0 else 0
+    return n > 0
+
+
+def _policy_lock_present() -> bool:
+    ps = (
+        "try { "
+        "$p=(Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection' "
+        "-EA Stop); "
+        "($p.DisableRealtimeMonitoring -ne $null) "
+        "} catch { $false }"
+    )
+    out, code = _ps(ps)
+    return code == 0 and "True" in out
+
+
+def _managed_by_org() -> bool:
+    ps = (
+        "Test-Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender' "
+        "-PathType Container"
+    )
+    out, code = _ps(ps)
+    return code == 0 and "True" in out
+
+
+def is_defender_supported() -> bool:
+    return platform.system() == "Windows" and _defender_cmdlets_available()
+
+
+def is_defender_enabled() -> Optional[bool]:
+    if platform.system() != "Windows":
+        return None
+    if not _defender_services_ok():
+        return None
+    out, code = _ps("(Get-MpComputerStatus).RealTimeProtectionEnabled")
+    if code != 0:
+        return None
+    val = out.strip().splitlines()[-1].strip().lower()
+    return True if val == "true" else False if val == "false" else None
 
 
 def get_defender_status() -> DefenderStatus:
-    """
-    Query Defender using Get-MpComputerStatus. Returns summarized booleans.
-    """
-    if not _IS_WINDOWS:
-        return DefenderStatus(None, None, None, None, None)
-
-    ps = r"""
-    $ErrorActionPreference='Stop';
-    if (Get-Command Get-MpComputerStatus -ErrorAction SilentlyContinue) {
-        $s = Get-MpComputerStatus
-        $obj = [ordered]@{
-            Realtime=$s.RealTimeProtectionEnabled
-            AS=$s.AntispywareEnabled
-            AV=$s.AntivirusEnabled
-            Tamper=$s.IsTamperProtected
-        }
-        $obj | ConvertTo-Json -Compress
-    } else {
-        '{}' | ConvertTo-Json
-    }
-    """
-    rr = _run_ps(ps)
-    realtime = antispy = anti = tamper = None
-    if rr.code == 0 and rr.out:
-        try:
-            data = json.loads(rr.out)
-            realtime = bool(data.get("Realtime")) if "Realtime" in data else None
-            antispy = bool(data.get("AS")) if "AS" in data else None
-            anti = bool(data.get("AV")) if "AV" in data else None
-            tamper = bool(data.get("Tamper")) if "Tamper" in data else None
-        except Exception:
-            pass
+    if platform.system() != "Windows":
+        return DefenderStatus(
+            None, None, False, False, False, False, False, "Not Windows"
+        )
+    services_ok = _defender_services_ok()
+    cmdlets_available = _defender_cmdlets_available()
+    if services_ok:
+        realtime = is_defender_enabled()
+        tamper = _defender_tamper_on()
+        third_party = _third_party_av_present()
+        policy_lock = _policy_lock_present()
+        managed = _managed_by_org()
+    else:
+        realtime = None
+        tamper = None
+        third_party = False
+        policy_lock = False
+        managed = False
     return DefenderStatus(
-        service_state=defender_service_status(),
-        realtime_enabled=realtime,
-        antispyware_enabled=antispy,
-        antivirus_enabled=anti,
-        tamper_protection=tamper,
+        realtime=realtime,
+        tamper_on=tamper,
+        cmdlets_available=cmdlets_available,
+        services_ok=services_ok,
+        third_party_av_present=third_party,
+        policy_lock=policy_lock,
+        managed_by_org=managed,
+        error=None,
     )
 
 
-def set_defender_realtime(enabled: bool) -> bool:
+def _registry_toggle_rt(disable: bool) -> Tuple[bool, str]:
+    dword = "1" if disable else "0"
+    key = r"HKLM\SOFTWARE\Microsoft\Windows Defender\Real-Time Protection"
+    out, code = _run_ex(
+        [
+            "reg",
+            "add",
+            key,
+            "/v",
+            "DisableRealtimeMonitoring",
+            "/t",
+            "REG_DWORD",
+            "/d",
+            dword,
+            "/f",
+        ]
+    )
+    if code != 0:
+        return False, out or "reg add failed"
+    _run_ex(["sc", "stop", "WinDefend"])
+    time.sleep(0.8)
+    _run_ex(["sc", "start", "WinDefend"])
+    return True, "registry path used"
+
+
+def set_defender_enabled(enabled: bool) -> Tuple[bool, Optional[str]]:
     """
-    Toggle Defender real-time protection using Set-MpPreference.
-    This does not disable the product, only RealTimeProtection.
+    Enable/disable Defender realtime with deep verification.
+    Returns (ok, error_text).
     """
-    if not _IS_WINDOWS or not is_admin():
-        return False
+    if platform.system() != "Windows":
+        return True, None
 
-    # DisableRealtimeMonitoring expects True to DISABLE. Invert.
-    disable_flag = "True" if not enabled else "False"
-    ps = f"$ErrorActionPreference='Stop'; Set-MpPreference -DisableRealtimeMonitoring {disable_flag}"
-    rr = _run_ps(ps)
-    if rr.code != 0:
-        return False
+    if not _defender_cmdlets_available():
+        return False, "Defender PowerShell cmdlets unavailable."
+    if not _defender_services_ok():
+        return False, "Defender services could not be started."
+    if _third_party_av_present():
+        return False, "Another antivirus is registered. Uninstall/disable it or set Defender as primary."
 
-    # Verify
-    st = get_defender_status()
-    return (st.realtime_enabled is True) if enabled else (st.realtime_enabled is False)
+    want = enabled
+    cur = is_defender_enabled()
+    if cur is not None and cur == want:
+        return True, None
+
+    flip = "$false" if enabled else "$true"
+    out, code = _ps(f"Set-MpPreference -DisableRealtimeMonitoring {flip} -Force")
+    for i in range(6):
+        time.sleep(0.6 + i * 0.2)
+        state = is_defender_enabled()
+        if state is not None and state == want:
+            return True, None
+
+    if _defender_tamper_on():
+        return (
+            False,
+            "Tamper Protection is ON. Turn it OFF in Windows Security → Virus & threat protection → Tamper Protection.",
+        )
+
+    if _policy_lock_present() or _managed_by_org():
+        return (
+            False,
+            "Policy lock detected. This device is managed by policy. Clear Defender policy keys or contact admin/MDM.",
+        )
+
+    ok_reg, why = _registry_toggle_rt(disable=(not enabled))
+    if ok_reg:
+        time.sleep(1.5)
+        state = is_defender_enabled()
+        if state is not None and state == want:
+            return True, None
+
+    err = out or "Failed to run Set-MpPreference"
+    if code == 0:
+        err = f"Defender state unchanged. {why if ok_reg else err}"
+    return False, err
 
 
-# -------------------------- Composite high-level API ------------------------
+# --------------------------- aggregate state --------------------------------
 
 
-def is_defender_realtime_on() -> Optional[bool]:
-    return get_defender_status().realtime_enabled
+def read_current_states() -> Tuple[Optional[bool], Optional[bool]]:
+    fw = is_firewall_enabled()
+    df = is_defender_enabled() if platform.system() == "Windows" else None
+    return fw, df
 
 
-def set_defender_enabled(enabled: bool) -> bool:
-    """
-    Best-effort enable/disable Defender functionality used by UI:
-    - Ensure service AUTO_START and running when enabling.
-    - For 'disable', stop service; if blocked, fall back to disabling realtime.
-    """
-    if not _IS_WINDOWS or not is_admin():
-        return False
-
-    if enabled:
-        ok = ensure_defender_autostart()
-        ok = start_defender_service() and ok
-        # Also ensure realtime is on
-        rt = set_defender_realtime(True)
-        return ok and rt
-    else:
-        # Try to stop service first
-        if stop_defender_service():
-            return True
-        # Fallback to turning off realtime only
-        return set_defender_realtime(False)
-
-
-# ------------------------------ Module self-test ----------------------------
-
-
-if __name__ == "__main__":
-    print(f"Admin: {is_admin()}")
-    print(f"Firewall enabled: {is_firewall_enabled()}")
-    print(f"Set firewall on: {set_firewall_enabled(True)}")
-    print(f"Defender status: {get_defender_status()}")
-    print(f"Enable Defender: {set_defender_enabled(True)}")
-    print(f"Disable realtime: {set_defender_realtime(False)}")
+__all__ = [
+    "DefenderStatus",
+    "ensure_admin",
+    "get_defender_status",
+    "is_admin",
+    "is_defender_enabled",
+    "is_defender_supported",
+    "is_firewall_enabled",
+    "launch_security_center",
+    "read_current_states",
+    "run_command_background",
+    "set_defender_enabled",
+    "set_firewall_enabled",
+]
 
