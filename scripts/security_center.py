@@ -8,9 +8,12 @@ sys.path.insert(0, str(ROOT))
 
 from src.app import CoolBoxApp  # noqa: E402
 from src.views.security_dialog import SecurityDialog  # noqa: E402
+from src.utils.security import ensure_admin  # noqa: E402
 
 
 def main() -> None:
+    if not ensure_admin():
+        return
     app = CoolBoxApp()
     app.window.withdraw()
     SecurityDialog(app)
