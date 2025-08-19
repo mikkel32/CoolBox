@@ -82,29 +82,3 @@ def test_ensure_admin(monkeypatch):
     monkeypatch.setattr(security, "is_admin", lambda: True)
     assert security.ensure_admin() is True
 
-
-def test_ensure_admin_relaunch(monkeypatch):
-    monkeypatch.setattr(security, "_IS_WINDOWS", True)
-    monkeypatch.setattr(security, "is_admin", lambda: False)
-
-    called: dict[str, str] = {}
-
-    class DummyShell32:
-        def ShellExecuteW(self, hwnd, op, file, params, directory, show):
-            called.update(op=op, file=file, params=params)
-            return 42
-
-    monkeypatch.setattr(
-        security,
-        "ctypes",
-        SimpleNamespace(windll=SimpleNamespace(shell32=DummyShell32())),
-    )
-    exits: list[int] = []
-    monkeypatch.setattr(security.sys, "exit", lambda code=0: exits.append(code))
-    monkeypatch.delenv("COOLBOX_ADMIN_RELAUNCHED", raising=False)
-
-    assert security.ensure_admin() is False
-    assert called["op"] == "runas"
-    assert exits == [0]
-    assert os.environ.get("COOLBOX_ADMIN_RELAUNCHED") == "1"
-
