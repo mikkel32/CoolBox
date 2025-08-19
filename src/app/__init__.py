@@ -230,6 +230,15 @@ class CoolBoxApp:
         """Open the Security Center dialog."""
         from ..views.security_dialog import SecurityDialog
         import tkinter as tk
+        from src.utils import security
+
+        if not security.is_admin():
+            if security.relaunch_security_center():
+                return
+            messagebox.showwarning(
+                "Security Center", "Administrator rights required."
+            )
+            return
 
         if (
             self.security_center_window is not None

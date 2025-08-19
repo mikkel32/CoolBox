@@ -162,6 +162,20 @@ class TestCoolBoxApp(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_open_security_center_relaunches_when_not_admin(self) -> None:
+        app = CoolBoxApp()
+        flag = {"called": False}
+        with patch("src.utils.security.is_admin", lambda: False), \
+             patch(
+                 "src.utils.security.relaunch_security_center",
+                 lambda: flag.__setitem__("called", True) or True,
+             ):
+            app.open_security_center()
+        self.assertTrue(flag["called"])  # relaunch attempted
+        self.assertIsNone(app.security_center_window)
+        app.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_security_center_singleton(self) -> None:
         app = CoolBoxApp()
         patches = [

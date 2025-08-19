@@ -128,6 +128,7 @@ from .security import (
     is_admin,
     ensure_admin,
     get_defender_status,
+    relaunch_security_center,
 )
 from .thread_manager import ThreadManager
 from .gpu import benchmark_gpu_usage
@@ -243,6 +244,7 @@ __all__ = [
     "is_admin",
     "ensure_admin",
     "get_defender_status",
+    "relaunch_security_center",
     "ScoringEngine",
     "Tuning",
     "tuning",
