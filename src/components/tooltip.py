@@ -10,12 +10,13 @@ class Tooltip(ctk.CTkToplevel):
 
     def __init__(self, parent: ctk.CTkBaseClass, text: str) -> None:
         super().__init__(parent)
-        # Ensure the tooltip is registered for DPI scaling. CustomTkinter can
-        # lose track of transient windows, which then triggers KeyError inside
-        # its scaling tracker when DPI changes are checked. Manually registering
-        # the window keeps internal dictionaries in sync.
-        if self not in scaling_tracker.ScalingTracker.window_dpi_scaling_dict:
-            scaling_tracker.ScalingTracker.add_window(self._set_scaling, self)
+        # Always register the tooltip for DPI scaling. CustomTkinter can lose
+        # track of transient windows, which then triggers a ``KeyError`` inside
+        # its scaling tracker when DPI changes are checked. Adding the window
+        # here keeps the internal dictionaries in sync and calling
+        # ``add_window`` repeatedly is safe because the method de-duplicates
+        # registrations.
+        scaling_tracker.ScalingTracker.add_window(self._set_scaling, self)
 
         self.overrideredirect(True)
         self.withdraw()
@@ -33,6 +34,6 @@ class Tooltip(ctk.CTkToplevel):
 
     def destroy(self) -> None:  # type: ignore[override]
         """Destroy tooltip and deregister from scaling tracker."""
-        scaling_tracker.ScalingTracker.window_widgets_dict.pop(self, None)
+        scaling_tracker.ScalingTracker.remove_window(self._set_scaling, self)
         scaling_tracker.ScalingTracker.window_dpi_scaling_dict.pop(self, None)
         super().destroy()
