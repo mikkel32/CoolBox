@@ -77,6 +77,25 @@ def _show_error_dialog(message: str, details: str) -> None:
         return
 
     try:  # pragma: no cover - UI logic not exercised in tests
+        try:
+            import customtkinter as ctk
+            from src.components.modern_error_dialog import ModernErrorDialog
+
+            root = tk._default_root
+            created_root = False
+            if root is None:
+                root = ctk.CTk()
+                root.withdraw()
+                created_root = True
+
+            dialog = ModernErrorDialog(root, message, details, _get_log_file())
+            root.wait_window(dialog)
+            if created_root:
+                root.destroy()
+            return
+        except Exception:
+            pass
+
         root = tk._default_root
         created_root = False
         if root is None:
