@@ -25,12 +25,6 @@ class Tooltip(ctk.CTkToplevel):
 
     def show(self, x: int, y: int) -> None:
         """Display the tooltip at screen coordinates (x, y)."""
-        # Re-register the window every time it is shown.  In rare cases
-        # CustomTkinter can drop transient windows from its internal
-        # ``window_dpi_scaling_dict`` when they are hidden and shown again.
-        # ``add_window`` is idempotent so calling it repeatedly is safe and
-        # ensures the scaling tracker always has a matching entry.
-        scaling_tracker.ScalingTracker.add_window(self._set_scaling, self)
         self.geometry(f"+{x}+{y}")
         self.deiconify()
 
@@ -41,10 +35,5 @@ class Tooltip(ctk.CTkToplevel):
     def destroy(self) -> None:  # type: ignore[override]
         """Destroy tooltip and deregister from scaling tracker."""
         scaling_tracker.ScalingTracker.remove_window(self._set_scaling, self)
-        # ``remove_window`` only deletes the mapping from
-        # ``window_widgets_dict``.  Be defensive and explicitly remove any
-        # dangling entries from both internal dictionaries to avoid
-        # ``KeyError`` during DPI checks.
-        scaling_tracker.ScalingTracker.window_widgets_dict.pop(self, None)
         scaling_tracker.ScalingTracker.window_dpi_scaling_dict.pop(self, None)
         super().destroy()
