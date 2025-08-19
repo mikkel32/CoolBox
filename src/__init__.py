@@ -4,6 +4,17 @@ __version__ = "1.3.76"
 
 import os
 
+# NumPy 2.0 deprecates ``row_stack`` and emits a warning each time it is
+# used.  Matplotlib still calls this alias internally, so we replace it with
+# ``vstack`` to silence the warning without altering behaviour.
+try:  # pragma: no cover - optional dependency
+    import numpy as _np
+
+    if hasattr(_np, "row_stack"):
+        _np.row_stack = _np.vstack  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
     from .app import CoolBoxApp  # noqa: F401
     from .ensure_deps import ensure_customtkinter  # noqa: F401
