@@ -11,6 +11,8 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+from typing import Type
+
 from src.utils import security
 from .firewall_dialog import FirewallDialog
 from .defender_dialog import DefenderDialog
@@ -25,6 +27,11 @@ class SecurityDialog(ttk.Frame):
 
         self._fw_var = tk.BooleanVar(value=False)
         self._rt_var = tk.BooleanVar(value=False)
+
+        # Track dialogs opened from the "+" buttons so they can be
+        # positioned beside the main window.
+        self._child_windows: list[tk.Toplevel] = []
+        self.master.bind("<Configure>", self._reposition_children)
 
         # Header
         title = ttk.Label(self, text="Security Center", font=("Segoe UI", 16, "bold"))
@@ -106,10 +113,23 @@ class SecurityDialog(ttk.Frame):
     # --------------------------- Subdialogs --------------------------------
 
     def _open_firewall(self) -> None:
-        FirewallDialog(self.master)
+        self._open_dialog(FirewallDialog)
 
     def _open_defender(self) -> None:
-        DefenderDialog(self.master)
+        self._open_dialog(DefenderDialog)
+
+    def _open_dialog(self, dlg_cls: Type[tk.Toplevel]) -> None:
+        """Create dialog and slide it in beside the main window."""
+        dlg = dlg_cls(self.master)
+        self._child_windows.append(dlg)
+        self._slide_in(dlg)
+
+        def _close() -> None:
+            self._child_windows.remove(dlg)
+            dlg.destroy()
+            self._reposition_children()
+
+        dlg.protocol("WM_DELETE_WINDOW", _close)
 
     # ------------------------------- Refresh --------------------------------
 
@@ -166,6 +186,58 @@ class SecurityDialog(ttk.Frame):
         else:
             self._fw_switch.state(["disabled"])
             self._rt_switch.state(["disabled"])
+
+    # --------------------------- Window helpers -----------------------------
+
+    def _slide_in(self, win: tk.Toplevel) -> None:
+        """Animate a window sliding in from the right edge."""
+        self.master.update_idletasks()
+        win.update_idletasks()
+
+        root_x = self.master.winfo_rootx()
+        root_y = self.master.winfo_rooty()
+        root_w = self.master.winfo_width()
+
+        # Final position stacked to the right of existing dialogs
+        final_x = root_x + root_w
+        for w in self._child_windows[:-1]:
+            if w.winfo_exists():
+                final_x += w.winfo_width()
+
+        final_y = root_y
+        win_w = win.winfo_width()
+
+        start_x = final_x + win_w
+        win.geometry(f"+{start_x}+{final_y}")
+
+        steps = 12
+        delay = 15
+        delta = (start_x - final_x) / steps
+
+        def step(i: int = 0) -> None:
+            x = int(start_x - delta * i)
+            win.geometry(f"+{x}+{final_y}")
+            if i < steps:
+                win.after(delay, step, i + 1)
+
+        step()
+
+    def _reposition_children(self, event: tk.Event | None = None) -> None:
+        """Keep child dialogs locked beside the main window."""
+        if not self._child_windows:
+            return
+        self.master.update_idletasks()
+        root_x = self.master.winfo_rootx()
+        root_y = self.master.winfo_rooty()
+        root_w = self.master.winfo_width()
+        x = root_x + root_w
+        for win in list(self._child_windows):
+            if win.winfo_exists():
+                win.update_idletasks()
+                win.geometry(f"+{x}+{root_y}")
+                x += win.winfo_width()
+            else:
+                self._child_windows.remove(win)
 
 
 def run():
