@@ -46,8 +46,7 @@ silence_stdio()
 def main() -> None:
     app = CoolBoxApp()
     app.window.withdraw()
-    # SecurityDialog expects a Tkinter window, not the CoolBoxApp wrapper
-    SecurityDialog(app.window)
+    SecurityDialog(app)
     app.window.mainloop()
 
 
