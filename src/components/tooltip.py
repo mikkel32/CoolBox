@@ -35,5 +35,6 @@ class Tooltip(ctk.CTkToplevel):
     def destroy(self) -> None:  # type: ignore[override]
         """Destroy tooltip and deregister from scaling tracker."""
         scaling_tracker.ScalingTracker.remove_window(self._set_scaling, self)
+        scaling_tracker.ScalingTracker.window_widgets_dict.pop(self, None)
         scaling_tracker.ScalingTracker.window_dpi_scaling_dict.pop(self, None)
         super().destroy()
