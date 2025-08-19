@@ -16,6 +16,7 @@ from src.utils.win_console import (  # noqa: E402
 )
 from src.app import CoolBoxApp  # noqa: E402
 from src.views.security_dialog import SecurityDialog  # noqa: E402
+from src.utils.security import ensure_admin  # noqa: E402
 
 
 # Hide the terminal ASAP before creating any Tk windows.
@@ -39,6 +40,8 @@ silence_stdio()
 
 
 def main() -> None:
+    if not ensure_admin():
+        return
     app = CoolBoxApp()
     app.window.withdraw()
     SecurityDialog(app)
