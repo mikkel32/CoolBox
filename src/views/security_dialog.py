@@ -222,6 +222,7 @@ class SecurityDialog(BaseDialog):
 
     def _apply(self) -> None:
         if not ensure_admin():
+            self._refresh()
             return
 
         ok_fw = set_firewall_enabled(self.firewall_var.get())
@@ -245,6 +246,7 @@ class SecurityDialog(BaseDialog):
                 "Security Center",
                 f"Failed to apply: {', '.join(parts)}{detail}",
             )
+        self._refresh()
 
     def destroy(self) -> None:  # type: ignore[override]
         if self._scan_check is not None:
