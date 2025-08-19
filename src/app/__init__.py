@@ -25,7 +25,7 @@ from ..utils.thread_manager import ThreadManager
 
 from .icon import set_app_icon
 from .layout import setup_ui
-from .error_handler import handle_exception
+from .error_handler import install as install_error_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +58,8 @@ class CoolBoxApp:
             f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 1000)}"
         )
 
-        # Global error handler for uncaught Tk callbacks
-        self.window.report_callback_exception = handle_exception
+        # Global error handling and warning capture
+        install_error_handlers(self.window)
 
         # Set application icon
         try:

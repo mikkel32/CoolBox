@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import logging
 from queue import Empty, SimpleQueue
 from typing import Any, Dict
 
@@ -94,13 +95,27 @@ class ThreadManager:
                     for line in traceback.format_exc().splitlines():
                         self.log_queue.put(f"ERROR:{line}")
                     for warn in captured:
-                        self.log_queue.put(f"WARNING:{warn.message}")
+                        self.log_queue.put(
+                            "WARNING:{category}:{filename}:{lineno}:{message}".format(
+                                category=warn.category.__name__,
+                                filename=warn.filename,
+                                lineno=warn.lineno,
+                                message=warn.message,
+                            )
+                        )
                     if status_bar is not None:
                         window.after(0, lambda: status_bar.set_message(msg, "error"))
                     self.post_exception(window, exc)
                 else:
                     for warn in captured:
-                        self.log_queue.put(f"WARNING:{warn.message}")
+                        self.log_queue.put(
+                            "WARNING:{category}:{filename}:{lineno}:{message}".format(
+                                category=warn.category.__name__,
+                                filename=warn.filename,
+                                lineno=warn.lineno,
+                                message=warn.message,
+                            )
+                        )
                     self.log_queue.put(f"INFO:{name} completed")
                     if status_bar is not None:
                         if captured:
@@ -130,6 +145,9 @@ class ThreadManager:
                 pass
             else:
                 self.logs.append(msg)
+                level_name, text = msg.split(":", 1) if ":" in msg else ("INFO", msg)
+                level = getattr(logging, level_name.upper(), logging.INFO)
+                logging.log(level, text)
             with self.lock:
                 self.heartbeats["logger"] = time.time()
 
