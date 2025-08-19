@@ -14,6 +14,8 @@ from .click_overlay import ClickOverlay
 from .system_info_dialog import SystemInfoDialog
 from .recent_files_dialog import RecentFilesDialog
 from .security_dialog import SecurityDialog
+from .firewall_dialog import FirewallDialog
+from .defender_dialog import DefenderDialog
 from .exe_inspector_dialog import ExeInspectorDialog
 
 __all__ = [
@@ -30,6 +32,8 @@ __all__ = [
     "ClickOverlay",
     "SystemInfoDialog",
     "RecentFilesDialog",
+    "FirewallDialog",
+    "DefenderDialog",
     "SecurityDialog",
     "ExeInspectorDialog",
 ]
