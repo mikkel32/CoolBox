@@ -19,7 +19,7 @@ from src.views.security_dialog import SecurityDialog  # noqa: E402
 from src.utils import security  # noqa: E402
 
 if not security.is_admin():
-    security.relaunch_security_center(sys.argv[1:])
+    security.relaunch_security_center()
     sys.exit(0)
 
 
@@ -46,7 +46,7 @@ silence_stdio()
 def main() -> None:
     app = CoolBoxApp()
     app.window.withdraw()
-    SecurityDialog(app.window)
+    SecurityDialog(app)
     app.window.mainloop()
 
 

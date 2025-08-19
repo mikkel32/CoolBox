@@ -13,12 +13,12 @@ from src.utils import security  # noqa: E402
 
 def main() -> None:
     if not security.is_admin():
-        security.relaunch_security_center(sys.argv[1:])
-        sys.exit(0)
+        security.relaunch_security_center()
+        return
 
     app = CoolBoxApp()
     app.window.withdraw()
-    SecurityDialog(app.window)
+    SecurityDialog(app)
     app.window.mainloop()
 
 
