@@ -1323,6 +1323,7 @@ class ClickOverlay(tk.Toplevel):
         ignored based on dynamic thresholds from :meth:`_move_thresholds`.
         """
         self._last_ping = time.monotonic()
+        self._ensure_hooked()
         now = time.time()
         self._pending_move = (x, y, now)
         if self._move_scheduled:
@@ -1689,6 +1690,7 @@ class ClickOverlay(tk.Toplevel):
     def _click(self, x: int, y: int, pressed: bool) -> None:
         if pressed:
             self._last_ping = time.monotonic()
+            self._ensure_hooked()
             with self._state_lock:
                 self._cursor_x = x
                 self._cursor_y = y
@@ -1827,6 +1829,26 @@ class ClickOverlay(tk.Toplevel):
         else:
             self._ping_id = self.after(int(HOOK_PING_TIMEOUT * 1000), self._monitor_hooks)
 
+    def _ensure_hooked(self) -> None:
+        """Activate hook mode on first listener event.
+
+        Until a global hook event is received the overlay remains in polling
+        mode with regular event bindings. This prevents the overlay from
+        becoming unresponsive when hook initialization silently fails. Once a
+        move or click is observed we remove the fallback bindings, enable
+        click-through, and start monitoring the hook for stalls."""
+        if self._using_hooks:
+            return
+        try:
+            self.unbind("<Motion>")
+            self.unbind("<Button-1>")
+        except Exception:
+            pass
+        self._clickthrough = make_window_clickthrough(self)
+        self._using_hooks = True
+        self.state = OverlayState.HOOKED
+        self._start_hook_monitor()
+
     def choose(self) -> tuple[int | None, str | None]:
         """Show the overlay and return the PID and title of the clicked window."""
         self._closed.set(False)
@@ -1859,26 +1881,17 @@ class ClickOverlay(tk.Toplevel):
         try:
             if use_hooks:
                 started = listener.start(on_move=self._on_move, on_click=self._click)
-            if use_hooks and started:
-                self._clickthrough = make_window_clickthrough(self)
-                self._using_hooks = True
-                self.state = OverlayState.HOOKED
-                self._queue_update()
-                self._start_hook_monitor()
-                if self.timeout is not None:
-                    self._timeout_id = self.after(
-                        int(self.timeout * 1000), self.close
-                    )
-                self.wait_variable(self._closed)
-                return self.pid, self.title_text
+        except Exception:
+            started = False
 
-            self._using_hooks = False
-            self.state = OverlayState.POLLING
-            self.bind("<Motion>", self._queue_update)
-            self.bind("<Button-1>", self._click_event)
-            self._queue_update()
-            if self.timeout is not None:
-                self._timeout_id = self.after(int(self.timeout * 1000), self.close)
+        self._using_hooks = False
+        self.state = OverlayState.POLLING
+        self.bind("<Motion>", self._queue_update)
+        self.bind("<Button-1>", self._click_event)
+        self._queue_update()
+        if self.timeout is not None:
+            self._timeout_id = self.after(int(self.timeout * 1000), self.close)
+        try:
             self.wait_variable(self._closed)
             return self.pid, self.title_text
         finally:
