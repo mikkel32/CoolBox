@@ -18,7 +18,8 @@ def main() -> None:
 
     app = CoolBoxApp()
     app.window.withdraw()
-    SecurityDialog(app)
+    # Pass the underlying Tk window to SecurityDialog
+    SecurityDialog(app.window)
     app.window.mainloop()
 
 
