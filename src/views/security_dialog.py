@@ -9,10 +9,8 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk, messagebox
 
-from .defender_dialog import DefenderDialog
-from .firewall_dialog import FirewallDialog
 from src.utils import security
 
 
@@ -20,7 +18,7 @@ class SecurityDialog(ttk.Frame):
     def __init__(self, master: tk.Tk):
         super().__init__(master, padding=16)
         self.master.title("Security Center")
-        self.master.geometry("520x240")
+        self.master.geometry("480x240")
         self.master.resizable(False, False)
 
         self._fw_var = tk.BooleanVar(value=False)
@@ -28,11 +26,11 @@ class SecurityDialog(ttk.Frame):
 
         # Header
         title = ttk.Label(self, text="Security Center", font=("Segoe UI", 16, "bold"))
-        title.grid(row=0, column=0, columnspan=4, sticky="w")
+        title.grid(row=0, column=0, columnspan=3, sticky="w")
 
         # Admin state
         self._admin_lbl = ttk.Label(self, text="Admin: checking...")
-        self._admin_lbl.grid(row=0, column=3, sticky="e")
+        self._admin_lbl.grid(row=0, column=2, sticky="e")
 
         # Firewall row
         ttk.Label(self, text="Windows Firewall").grid(row=1, column=0, sticky="w", pady=(16, 4))
@@ -42,9 +40,6 @@ class SecurityDialog(ttk.Frame):
         self._fw_switch.grid(row=1, column=1, sticky="w", pady=(16, 4))
         self._fw_status = ttk.Label(self, text="Status: ...")
         self._fw_status.grid(row=1, column=2, sticky="e", pady=(16, 4))
-        ttk.Button(self, text="+", width=3, command=self._open_firewall).grid(
-            row=1, column=3, sticky="e", pady=(16, 4), padx=(8, 0)
-        )
 
         # Defender row
         ttk.Label(self, text="Microsoft Defender Realtime").grid(
@@ -56,19 +51,15 @@ class SecurityDialog(ttk.Frame):
         self._rt_switch.grid(row=2, column=1, sticky="w", pady=4)
         self._rt_status = ttk.Label(self, text="Status: ...")
         self._rt_status.grid(row=2, column=2, sticky="e", pady=4)
-        ttk.Button(self, text="+", width=3, command=self._open_defender).grid(
-            row=2, column=3, sticky="e", pady=4, padx=(8, 0)
-        )
 
         # Refresh button
         self._refresh_btn = ttk.Button(self, text="Refresh", command=self.refresh_async)
-        self._refresh_btn.grid(row=3, column=3, sticky="e", pady=(12, 0))
+        self._refresh_btn.grid(row=3, column=2, sticky="e", pady=(12, 0))
 
         self.grid(sticky="nsew")
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=0)
         self.columnconfigure(2, weight=1)
-        self.columnconfigure(3, weight=0)
 
         # Initial load
         self.refresh_async()
@@ -108,14 +99,6 @@ class SecurityDialog(ttk.Frame):
                 "Ensure you are running as Administrator and that policy does not block it.",
             )
         self.refresh_async()
-
-    # ------------------------------ Dialogs ---------------------------------
-
-    def _open_firewall(self) -> None:
-        FirewallDialog(self.master)
-
-    def _open_defender(self) -> None:
-        DefenderDialog(self.master)
 
     # ------------------------------- Refresh --------------------------------
 
