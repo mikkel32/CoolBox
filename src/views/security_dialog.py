@@ -8,6 +8,7 @@ from __future__ import annotations
 import platform
 import tkinter as tk
 from tkinter import ttk, messagebox
+from typing import TYPE_CHECKING
 
 from src.utils.security import (
     ensure_admin,
@@ -18,10 +19,35 @@ from src.utils.security import (
     set_defender_enabled,
 )
 
+if TYPE_CHECKING:  # pragma: no cover - only for type checkers
+    from src.app import CoolBoxApp
+
 
 class SecurityDialog(tk.Toplevel):
-    def __init__(self, master: tk.Misc | None = None) -> None:
-        super().__init__(master)
+    def __init__(self, master: tk.Misc | "CoolBoxApp" | None = None) -> None:
+        """Create the dialog.
+
+        *master* may be either a Tk widget or a :class:`CoolBoxApp` instance.
+        The latter case occurs when the dialog is launched from the main
+        application, which provides the root window on its ``window`` attribute.
+        """
+
+        app = master if hasattr(master, "window") else None
+        tk_master = master.window if app is not None else master
+
+        super().__init__(tk_master)
+
+        self.app: "CoolBoxApp | None" = app  # type: ignore[assignment]
+        if self.app is not None and hasattr(self.app, "register_dialog"):
+            self.app.register_dialog(self)
+        if self.app is not None and hasattr(self.app, "get_icon_photo"):
+            try:
+                icon = self.app.get_icon_photo()
+                if icon is not None:
+                    self.iconphoto(False, icon)
+            except Exception:
+                pass
+        self.bind("<Escape>", lambda _e: self.destroy())
         self.title("Security Center")
         self.resizable(False, False)
 
@@ -93,7 +119,6 @@ class SecurityDialog(tk.Toplevel):
         messagebox.showinfo(
             "Security Center — Defender diagnostics", "\n".join(lines)
         )
-
     def _apply(self) -> None:
         if not ensure_admin():
             messagebox.showwarning("Security Center", "Administrator rights required.")
@@ -119,4 +144,7 @@ class SecurityDialog(tk.Toplevel):
         messagebox.showwarning(
             "Security Center", f"Failed to apply: {', '.join(parts)}{detail}"
         )
-
+    def destroy(self) -> None:  # type: ignore[override]
+        if self.app is not None and hasattr(self.app, "unregister_dialog"):
+            self.app.unregister_dialog(self)
+        super().destroy()
