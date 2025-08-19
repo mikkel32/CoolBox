@@ -227,16 +227,23 @@ class SecurityDialog(BaseDialog):
         ok_fw = set_firewall_enabled(self.firewall_var.get())
 
         if platform.system() == "Windows":
-            ok_def = set_defender_enabled(self.defender_var.get())
+            ok_def, err_def = set_defender_enabled(self.defender_var.get())
         else:
-            ok_def = True
+            ok_def, err_def = True, None
             self.defender_sw.configure(state="disabled")
 
         if ok_fw and ok_def:
             messagebox.showinfo("Security Center", "Settings applied successfully")
         else:
+            parts = []
+            if not ok_fw:
+                parts.append("Firewall")
+            if not ok_def:
+                parts.append("Defender")
+            detail = f"\n{err_def}" if err_def else ""
             messagebox.showwarning(
-                "Security Center", "Failed to apply some settings"
+                "Security Center",
+                f"Failed to apply: {', '.join(parts)}{detail}",
             )
 
     def destroy(self) -> None:  # type: ignore[override]

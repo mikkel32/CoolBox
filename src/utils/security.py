@@ -7,6 +7,7 @@ import platform
 import shutil
 import subprocess
 import os
+import time
 from functools import lru_cache
 import re
 from typing import Optional
@@ -21,7 +22,7 @@ except ImportError:  # pragma: no cover - runtime dependency check
 
     psutil = ensure_psutil()
 from .win_console import hidden_creation_flags
-from .process_utils import run_command, run_command_background
+from .process_utils import run_command, run_command_background, run_command_ex
 from .kill_utils import kill_process, kill_process_tree
 
 
@@ -155,29 +156,59 @@ def is_defender_enabled() -> Optional[bool]:
     return None
 
 
-def set_defender_enabled(enabled: bool) -> bool:
+def is_tamper_protected() -> Optional[bool]:
+    """Return ``True`` if tamper protection is enabled."""
+    if platform.system() != "Windows":
+        return None
+    out = _run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-MpComputerStatus).IsTamperProtected",
+        ],
+        capture=True,
+    )
+    if out is None:
+        return None
+    val = out.strip().lower()
+    if val in {"true", "1"}:
+        return True
+    if val in {"false", "0"}:
+        return False
+    return None
+
+
+def set_defender_enabled(enabled: bool) -> tuple[bool, Optional[str]]:
     """Enable or disable Windows Defender real-time protection.
 
-    The command is executed through ``powershell`` and the result is
-    verified by querying the current status afterwards. The function
-    returns ``True`` only if the final state matches the requested one.
+    Returns a tuple ``(ok, error)`` where ``ok`` indicates success and
+    ``error`` provides a human friendly reason when the operation fails.
     """
     if platform.system() != "Windows":
-        return False
+        return False, "Unsupported system"
     value = "$false" if enabled else "$true"
     cmd = [
         "powershell",
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        f"Set-MpPreference -DisableRealtimeMonitoring {value}",
+        f"Set-MpPreference -DisableRealtimeMonitoring {value} -Force",
     ]
-    if _run(cmd) is None:
-        return False
-    status = is_defender_enabled()
-    if status is None:
-        return False
-    return status == enabled
+    out, code = run_command_ex(cmd, capture=True, check=False, timeout=20.0)
+    if not isinstance(code, int) or code != 0:
+        return False, (out or "Failed to run Set-MpPreference").strip()
+
+    for _ in range(5):
+        status = is_defender_enabled()
+        if status == enabled:
+            return True, None
+        time.sleep(0.5)
+
+    if is_tamper_protected():
+        return False, "Tamper Protection is enabled"
+    return False, "Windows Defender state did not update"
 
 
 # ---------------------------------------------------------------------------
