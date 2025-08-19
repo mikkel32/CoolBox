@@ -1,4 +1,7 @@
+import os
 import platform
+
+os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
 
 from src.utils import firewall, defender
 

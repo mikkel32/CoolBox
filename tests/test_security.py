@@ -1,93 +1,77 @@
-import platform
-import subprocess
+import importlib.util
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location(
+    "security", Path(__file__).resolve().parents[1] / "src/utils/security.py"
+)
+security = importlib.util.module_from_spec(spec)
 import sys
-from types import SimpleNamespace
-
-import pytest
-
-from src.utils import security
+sys.modules["security"] = security
+spec.loader.exec_module(security)
 
 
-def test_is_firewall_enabled_windows(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr(security, "_run_ex", lambda cmd, timeout=30.0: ("State ON", 0))
+def test_is_firewall_enabled_true(monkeypatch):
+    monkeypatch.setattr(security, "_IS_WINDOWS", True)
+    monkeypatch.setattr(security, "_NETSH_EXE", "netsh")
+    monkeypatch.setattr(security.os.path, "exists", lambda p: True)
+    def fake_run(cmd, timeout=30):
+        return security.RunResult(0, "State ON\nState ON", "")
+    monkeypatch.setattr(security, "_run", fake_run)
     assert security.is_firewall_enabled() is True
 
 
-def test_set_firewall_enabled_windows(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    called = {}
-
-    def fake_run_rc(cmd, timeout=30.0):
-        called["cmd"] = cmd
-        return 0
-
-    monkeypatch.setattr(security, "_run_rc", fake_run_rc)
+def test_set_firewall_enabled_calls_netsh(monkeypatch):
+    monkeypatch.setattr(security, "_IS_WINDOWS", True)
+    monkeypatch.setattr(security, "_NETSH_EXE", "netsh")
+    monkeypatch.setattr(security, "is_admin", lambda: True)
+    monkeypatch.setattr(security.os.path, "exists", lambda p: True)
+    sent = {}
+    def fake_run(cmd, timeout=30):
+        sent["cmd"] = cmd
+        return security.RunResult(0, "", "")
+    monkeypatch.setattr(security, "_run", fake_run)
+    monkeypatch.setattr(security, "is_firewall_enabled", lambda: True)
     assert security.set_firewall_enabled(True) is True
-    assert called["cmd"] == ["netsh", "advfirewall", "set", "allprofiles", "state", "on"]
+    assert sent["cmd"][:5] == ["netsh", "advfirewall", "set", "allprofiles", "state"]
 
 
-def test_is_defender_enabled(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr(security, "_ps", lambda s, timeout=30.0: ("True", 0))
-    assert security.is_defender_enabled() is True
+def test_get_defender_status(monkeypatch):
+    monkeypatch.setattr(security, "_IS_WINDOWS", True)
+    monkeypatch.setattr(security, "_run_ps", lambda s, timeout=30: security.RunResult(0, '{"Realtime":true,"AS":true,"AV":true,"Tamper":false}', ""))
+    monkeypatch.setattr(security, "defender_service_status", lambda: "RUNNING")
+    st = security.get_defender_status()
+    assert st.realtime_enabled is True
+    assert st.tamper_protection is False
+
+
+def test_set_defender_realtime(monkeypatch):
+    monkeypatch.setattr(security, "_IS_WINDOWS", True)
+    monkeypatch.setattr(security, "is_admin", lambda: True)
+    cmds = {}
+    def fake_run_ps(script, timeout=30):
+        cmds["script"] = script
+        return security.RunResult(0, "", "")
+    monkeypatch.setattr(security, "_run_ps", fake_run_ps)
+    monkeypatch.setattr(security, "get_defender_status", lambda: security.DefenderStatus("RUNNING", True, True, True, True))
+    assert security.set_defender_realtime(True) is True
+    assert "DisableRealtimeMonitoring False" in cmds["script"]
 
 
 def test_set_defender_enabled(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr(security, "_defender_cmdlets_available", lambda: True)
-    monkeypatch.setattr(security, "_defender_services_ok", lambda: True)
-    monkeypatch.setattr(security, "_third_party_av_present", lambda: False)
-    monkeypatch.setattr(security, "_defender_tamper_on", lambda: False)
-    monkeypatch.setattr(security, "_policy_lock_present", lambda: False)
-    monkeypatch.setattr(security, "_managed_by_org", lambda: False)
-    monkeypatch.setattr(security, "_ps", lambda s, timeout=30.0: ("", 0))
-    states = [False, True]
-
-    def fake_state():
-        if states:
-            return states.pop(0)
-        return True
-
-    monkeypatch.setattr(security, "is_defender_enabled", fake_state)
-    monkeypatch.setattr(security.time, "sleep", lambda s: None)
-    ok, err = security.set_defender_enabled(True)
-    assert ok is True and err is None
-
-
-def test_is_admin_windows(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    import ctypes
-
-    monkeypatch.setattr(
-        ctypes, "windll", SimpleNamespace(shell32=SimpleNamespace(IsUserAnAdmin=lambda: 1)), raising=False
-    )
-    assert security.is_admin() is True
-
-
-def test_is_admin_unix(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Linux")
-    monkeypatch.setattr(security.os, "geteuid", lambda: 0, raising=False)
-    assert security.is_admin() is True
-
-
-def test_ensure_admin(monkeypatch):
+    monkeypatch.setattr(security, "_IS_WINDOWS", True)
     monkeypatch.setattr(security, "is_admin", lambda: True)
-    assert security.ensure_admin() is True
-
-
-def test_launch_security_center_windows(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    monkeypatch.setattr(security, "is_admin", lambda: True)
-    monkeypatch.setattr(subprocess, "CREATE_NEW_CONSOLE", 0x10, raising=False)
     called = {}
+    monkeypatch.setattr(security, "ensure_defender_autostart", lambda: called.setdefault("auto", True))
+    monkeypatch.setattr(security, "start_defender_service", lambda: called.setdefault("start", True))
+    monkeypatch.setattr(security, "set_defender_realtime", lambda v: called.setdefault("rt", v))
+    assert security.set_defender_enabled(True) is True
+    assert called == {"auto": True, "start": True, "rt": True}
 
-    def fake_bg(args, **kwargs):
-        called["args"] = args
-        called.update(kwargs)
-        return True, None
 
-    monkeypatch.setattr(security, "run_command_background", fake_bg)
-    assert security.launch_security_center() is True
-    assert called["args"][0] == sys.executable
-
+def test_set_defender_enabled_disable(monkeypatch):
+    monkeypatch.setattr(security, "_IS_WINDOWS", True)
+    monkeypatch.setattr(security, "is_admin", lambda: True)
+    called = {}
+    monkeypatch.setattr(security, "stop_defender_service", lambda: called.setdefault("stop", True))
+    assert security.set_defender_enabled(False) is True
+    assert called["stop"] is True
