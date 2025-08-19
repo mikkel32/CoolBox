@@ -6,11 +6,20 @@ Security Center dialog that launches advanced Firewall and Defender controls.
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from src.utils.firewall import is_firewall_enabled, is_firewall_supported
-from src.utils.defender import is_defender_enabled, is_defender_supported
+from src.utils.firewall import (
+    is_firewall_supported,
+    get_firewall_status,
+    FirewallStatus,
+)
+from src.utils.defender import (
+    is_defender_supported,
+    get_defender_status,
+    DefenderStatus,
+)
+from src.app import error_handler as eh
 from .firewall_dialog import FirewallDialog
 from .defender_dialog import DefenderDialog
 
@@ -20,10 +29,25 @@ if TYPE_CHECKING:  # pragma: no cover
 
 # expose for tests
 
-def read_current_states() -> Tuple[Optional[bool], Optional[bool]]:
-    fw = is_firewall_enabled() if is_firewall_supported() else None
-    df = is_defender_enabled() if is_defender_supported() else None
+def read_current_statuses() -> Tuple[FirewallStatus, DefenderStatus]:
+    fw = get_firewall_status() if is_firewall_supported() else FirewallStatus(
+        None, None, None, False, False, False, False, None, "Unsupported"
+    )
+    df = get_defender_status() if is_defender_supported() else DefenderStatus(
+        None, None, False, False, False, False, None, "Unsupported"
+    )
     return fw, df
+
+
+def read_current_states() -> Tuple[Optional[bool], Optional[bool]]:
+    fw, df = read_current_statuses()
+    profiles = (fw.domain, fw.private, fw.public)
+    fw_state: Optional[bool]
+    if any(v is None for v in profiles):
+        fw_state = None
+    else:
+        fw_state = bool(all(profiles))
+    return fw_state, df.realtime
 
 
 class SecurityDialog(tk.Toplevel):
@@ -45,6 +69,17 @@ class SecurityDialog(tk.Toplevel):
         self.bind("<Escape>", lambda _e: self.destroy())
         self.title("Security Center")
         self.resizable(False, False)
+
+        style = ttk.Style(self)
+        try:
+            # Use native theme on Windows when available
+            if tk.TkVersion >= 8.6 and self.tk.call("tk", "windowingsystem") == "win32":
+                style.theme_use("vista")
+        except Exception:
+            pass
+        style.configure("Good.TLabel", foreground="#0a7d0a")
+        style.configure("Bad.TLabel", foreground="#a61e1e")
+        style.configure("Warn.TLabel", foreground="#ad5a00")
 
         frm = ttk.Frame(self, padding=12)
         frm.grid(row=0, column=0, sticky="nsew")
@@ -75,28 +110,59 @@ class SecurityDialog(tk.Toplevel):
 
     # ----------------------------- helpers -----------------------------------
 
-    def _fmt(self, val: Optional[bool]) -> str:
+    def _set_lbl(
+        self, lbl: ttk.Label, name: str, val: Optional[bool], supported: bool
+    ) -> None:
+        if not supported:
+            lbl.configure(text=f"{name}: Unsupported", style="Warn.TLabel")
+            return
         if val is True:
-            return "On"
-        if val is False:
-            return "Off"
-        return "Unknown"
+            lbl.configure(text=f"{name}: On", style="Good.TLabel")
+        elif val is False:
+            lbl.configure(text=f"{name}: Off", style="Bad.TLabel")
+        else:
+            lbl.configure(text=f"{name}: Unknown", style="Warn.TLabel")
 
     # ------------------------------ actions ----------------------------------
 
     def refresh(self) -> None:
-        fw, df = read_current_states()
-        self.lbl_fw.configure(text=f"Firewall: {self._fmt(fw)}")
-        if is_defender_supported():
-            self.lbl_df.configure(text=f"Defender: {self._fmt(df)}")
-        else:
-            self.lbl_df.configure(text="Defender: Unsupported")
+        try:
+            fw_status, df_status = read_current_statuses()
+        except Exception as e:  # pragma: no cover - safety net
+            eh.handle_exception(type(e), e, e.__traceback__)
+            messagebox.showerror("Security Center", f"Failed to read state: {e}")
+            fw_status = FirewallStatus(None, None, None, False, False, False, False, None, str(e))
+            df_status = DefenderStatus(None, None, False, False, False, False, None, str(e))
+
+        profiles = (fw_status.domain, fw_status.private, fw_status.public)
+        fw_state = None if any(v is None for v in profiles) else bool(all(profiles))
+        self._set_lbl(self.lbl_fw, "Firewall", fw_state, is_firewall_supported())
+        self._set_lbl(self.lbl_df, "Defender", df_status.realtime, is_defender_supported())
+
+        if fw_status.error:
+            messagebox.showwarning("Security Center", f"Firewall: {fw_status.error}")
+        if df_status.error:
+            messagebox.showwarning("Security Center", f"Defender: {df_status.error}")
 
     def _open_firewall(self) -> None:
-        FirewallDialog(self).grab_set()
+        if not is_firewall_supported():
+            messagebox.showwarning("Security Center", "Firewall control unsupported.")
+            return
+        try:
+            FirewallDialog(self).grab_set()
+        except Exception as e:  # pragma: no cover - UI failure
+            eh.handle_exception(type(e), e, e.__traceback__)
+            messagebox.showerror("Security Center", f"Failed to open Firewall: {e}")
 
     def _open_defender(self) -> None:
-        DefenderDialog(self).grab_set()
+        if not is_defender_supported():
+            messagebox.showwarning("Security Center", "Defender control unsupported.")
+            return
+        try:
+            DefenderDialog(self).grab_set()
+        except Exception as e:  # pragma: no cover - UI failure
+            eh.handle_exception(type(e), e, e.__traceback__)
+            messagebox.showerror("Security Center", f"Failed to open Defender: {e}")
 
     def destroy(self) -> None:  # type: ignore[override]
         if self.app is not None and hasattr(self.app, "unregister_dialog"):
