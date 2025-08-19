@@ -26,6 +26,7 @@ from .color_utils import (
 from .rainbow import RainbowBorder, NeonPulseBorder
 from .vm import launch_vm_debug
 from .file_manager import (
+    FileManagerError,
     read_text,
     write_text,
     read_lines,
@@ -137,6 +138,7 @@ from .gpu import benchmark_gpu_usage
 from . import file_manager
 
 __all__ = [
+    "FileManagerError",
     "read_text",
     "write_text",
     "read_lines",
