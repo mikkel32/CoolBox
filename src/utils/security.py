@@ -50,37 +50,8 @@ def is_admin() -> bool:
 
 
 def ensure_admin() -> bool:
-    """Ensure the current process has administrative privileges.
-
-    If already running as admin, returns ``True``. On Windows, when not
-    elevated, this spawns a new copy of the current Python executable with
-    the same arguments using the ``runas`` verb and then exits the original
-    process. Environment variable ``COOLBOX_ADMIN_RELAUNCHED`` prevents
-    infinite respawn loops. Returns ``False`` when a relaunch was attempted
-    or not possible.
-    """
-
-    if is_admin():
-        return True
-
-    if not _IS_WINDOWS:
-        return False
-
-    if os.environ.get("COOLBOX_ADMIN_RELAUNCHED") == "1":
-        return False
-
-    try:
-        import shlex
-
-        os.environ["COOLBOX_ADMIN_RELAUNCHED"] = "1"
-        params = " ".join(shlex.quote(a) for a in sys.argv)
-        ctypes.windll.shell32.ShellExecuteW(
-            None, "runas", sys.executable, params, None, 1
-        )
-    except Exception:
-        return False
-    sys.exit(0)
-    return False
+    """Return True if running with administrative privileges."""
+    return is_admin()
 
 
 # ------------------------------ Run helpers --------------------------------
