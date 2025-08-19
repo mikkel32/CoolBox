@@ -143,10 +143,9 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_open_security_center_method(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.list_open_ports", lambda: {}),
             patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
-            patch("src.views.security_dialog.is_defender_enabled", lambda: True),
-            patch("src.views.security_dialog.SecurityDialog._schedule_refresh", lambda self: None),
+            patch("src.views.security_dialog.is_defender_supported", lambda: True),
+            patch("src.views.security_dialog.read_current_states", lambda: (True, True)),
             patch("src.utils.security.is_admin", lambda: True),
         ]
         for p in patches:
@@ -164,10 +163,9 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_security_center_singleton(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.list_open_ports", lambda: {}),
             patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
-            patch("src.views.security_dialog.is_defender_enabled", lambda: True),
-            patch("src.views.security_dialog.SecurityDialog._schedule_refresh", lambda self: None),
+            patch("src.views.security_dialog.is_defender_supported", lambda: True),
+            patch("src.views.security_dialog.read_current_states", lambda: (True, True)),
             patch("src.utils.security.is_admin", lambda: True),
         ]
         for p in patches:
