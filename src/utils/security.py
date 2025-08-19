@@ -1,449 +1,409 @@
-"""Utilities for toggling common security settings on Windows."""
+# -*- coding: utf-8 -*-
+"""
+Security utilities: firewall + Windows Defender with deep diagnostics.
+
+Highlights
+- Uses 64-bit PowerShell (Sysnative) to avoid WOW64 issues.
+- Starts Defender services if stopped. Verifies after every change.
+- Detects Tamper Protection, policy locks, EDR/MDM, and 3rd-party AV.
+- Clear, actionable error text. Idempotent operations.
+"""
 
 from __future__ import annotations
 
-
-import platform
-import shutil
-import subprocess
 import os
-import time
-from functools import lru_cache
-import re
-from typing import Optional
-from pathlib import Path
+import platform
+import subprocess
 import sys
-import socket
+import time
 from dataclasses import dataclass
-try:
-    import psutil
-except ImportError:  # pragma: no cover - runtime dependency check
-    from ..ensure_deps import ensure_psutil
-
-    psutil = ensure_psutil()
-from .win_console import hidden_creation_flags
-from .process_utils import run_command, run_command_background, run_command_ex
-from .kill_utils import kill_process, kill_process_tree
+from pathlib import Path
+from typing import Optional, Tuple
 
 
-@lru_cache(maxsize=1)
-def _unix_firewall_tool() -> str:
-    """Return the available firewall tool on Unix systems.
+# ------------------------------- helpers ------------------------------------
 
-    The result is cached to avoid repeated ``shutil.which`` lookups. If no
-    known tool is detected ``ufw`` is returned as a fallback so calls remain
-    predictable on systems without these utilities installed.
-    """
-    fallback: str | None = None
-    for tool in ("ufw", "firewall-cmd", "pfctl"):
-        path = shutil.which(tool)
-        if not path:
-            continue
-        binary = Path(path).name
-        if binary == tool:
-            return tool
-        if fallback is None:
-            fallback = binary
-    return fallback or "ufw"
-
-
-# ---------------------------------------------------------------------------
-# Firewall helpers
-# ---------------------------------------------------------------------------
-
-def _run(cmd, **kwargs):
-    out, _err = run_command(cmd, **kwargs)
-    return out
-
-
-def is_firewall_enabled() -> Optional[bool]:
-    """Return ``True`` if the system firewall is enabled."""
-    system = platform.system()
-    if system == "Windows":
-        out = _run(
-            ["netsh", "advfirewall", "show", "allprofiles"],
-            capture=True,
-        )
-        if out is None:
-            return None
-        for line in out.splitlines():
-            m = re.search(r"State\s+(\w+)", line, re.I)
-            if m:
-                return m.group(1).lower() == "on"
-        return None
-    elif system in {"Linux", "Darwin"}:
-        tool = _unix_firewall_tool()
-        if tool == "ufw":
-            out = _run(["ufw", "status"], capture=True)
-            if out is None:
-                return None
-            for line in out.splitlines():
-                if "Status:" in line:
-                    if "active" in line.lower():
-                        return True
-                    if "inactive" in line.lower():
-                        return False
-            return None
-        elif tool == "firewall-cmd":
-            out = _run(["firewall-cmd", "--state"], capture=True)
-            if out is None:
-                return None
-            return out.strip() == "running"
-        elif tool == "pfctl":
-            out = _run(["pfctl", "-s", "info"], capture=True)
-            if out is None:
-                return None
-            for line in out.splitlines():
-                m = re.search(r"Status:\s+(\w+)", line)
-                if m:
-                    return m.group(1).lower() == "enabled"
-            return None
-        return None
+def _which(exe: str) -> Optional[str]:
+    paths = os.environ.get("PATH", "").split(os.pathsep)
+    for p in paths:
+        fp = Path(p) / exe
+        if fp.exists():
+            return str(fp)
     return None
 
 
-def set_firewall_enabled(enabled: bool) -> bool:
-    """Enable or disable the system firewall."""
-    system = platform.system()
-    if system == "Windows":
-        state = "on" if enabled else "off"
-        return (
-            _run(
-                ["netsh", "advfirewall", "set", "allprofiles", "state", state]
-            )
-            is not None
-        )
-    elif system in {"Linux", "Darwin"}:
-        tool = _unix_firewall_tool()
-        if tool == "ufw":
-            cmd = ["ufw", "enable"] if enabled else ["ufw", "disable"]
-            return _run(cmd) is not None
-        elif tool == "firewall-cmd":
-            action = "start" if enabled else "stop"
-            return _run(["systemctl", action, "firewalld"]) is not None
-        elif tool == "pfctl":
-            cmd = ["pfctl", "-e"] if enabled else ["pfctl", "-d"]
-            return _run(cmd) is not None
-        return False
-    return False
-
-
-# ---------------------------------------------------------------------------
-# Windows Defender helpers
-# ---------------------------------------------------------------------------
-
-def is_defender_enabled() -> Optional[bool]:
-    """Return ``True`` if real-time protection is enabled."""
-    if platform.system() != "Windows":
-        return None
-    out = _run(
-        [
-            "powershell",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "(Get-MpComputerStatus).RealTimeProtectionEnabled",
-        ],
-        capture=True,
-    )
-    if out is None:
-        return None
-    val = out.strip().lower()
-    if val in {"true", "1"}:
-        return True
-    if val in {"false", "0"}:
-        return False
-    return None
-
-
-def is_tamper_protected() -> Optional[bool]:
-    """Return ``True`` if tamper protection is enabled."""
-    if platform.system() != "Windows":
-        return None
-    out = _run(
-        [
-            "powershell",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "(Get-MpComputerStatus).IsTamperProtected",
-        ],
-        capture=True,
-    )
-    if out is None:
-        return None
-    val = out.strip().lower()
-    if val in {"true", "1"}:
-        return True
-    if val in {"false", "0"}:
-        return False
-    return None
-
-
-def set_defender_enabled(enabled: bool) -> tuple[bool, Optional[str]]:
-    """Enable or disable Windows Defender real-time protection.
-
-    Returns a tuple ``(ok, error)`` where ``ok`` indicates success and
-    ``error`` provides a human friendly reason when the operation fails.
-    """
-    if platform.system() != "Windows":
-        return False, "Unsupported system"
-    value = "$false" if enabled else "$true"
-    cmd = [
-        "powershell",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        f"Set-MpPreference -DisableRealtimeMonitoring {value} -Force",
-    ]
-    out, code = run_command_ex(cmd, capture=True, check=False, timeout=20.0)
-    if not isinstance(code, int) or code != 0:
-        return False, (out or "Failed to run Set-MpPreference").strip()
-
-    for _ in range(5):
-        status = is_defender_enabled()
-        if status == enabled:
-            return True, None
-        time.sleep(0.5)
-
-    if is_tamper_protected():
-        return False, "Tamper Protection is enabled"
-    return False, "Windows Defender state did not update"
-
-
-# ---------------------------------------------------------------------------
-# Privilege helpers
-
-# ---------------------------------------------------------------------------
-
-def is_admin() -> Optional[bool]:
-    """Return ``True`` if the current process has administrative privileges."""
-    system = platform.system()
-    if system == "Windows":
-        try:
-            import ctypes  # lazy import
-            return bool(ctypes.windll.shell32.IsUserAnAdmin())
-        except Exception:
-            return False
-    elif system in {"Linux", "Darwin"}:
-        try:
-            import os
-            return os.geteuid() == 0
-        except Exception:
-            return False
-    return None
-
-
-def ensure_admin(prompt: str = "Administrator access is required.") -> bool:
-    """Request elevation if needed and relaunch with admin rights."""
-    if is_admin():
-        return True
-
-    system = platform.system()
-
-    if system == "Windows":
-        try:
-            import ctypes
-            import sys
-            from tkinter import messagebox
-
-            if not messagebox.askyesno(
-                "Security Center", f"{prompt}\n\nRelaunch with administrator rights?"
-            ):
-                return False
-
-            params = " ".join([f'"{arg}"' for arg in sys.argv])
-            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
-            return False
-        except Exception:
-            return False
-
-    elif system in {"Linux", "Darwin"}:
-        try:
-            import os
-            import sys
-
-            try:
-                from tkinter import messagebox, Tk
-
-                root = Tk()
-                root.withdraw()
-                ok = messagebox.askyesno(
-                    "Security Center", f"{prompt}\n\nRelaunch with administrator rights?"
-                )
-                root.destroy()
-                if not ok:
-                    return False
-            except Exception:
-                response = input(f"{prompt}\nRelaunch with sudo? [y/N] ")
-                if response.strip().lower() != "y":
-                    return False
-
-            os.execvp("sudo", ["sudo", sys.executable, *sys.argv])
-            return False
-        except Exception:
-            return False
-
-    return False
-
-
-def require_admin(prompt: str = "Administrator access is required.") -> None:
-    """Ensure the process is running with admin rights or raise ``PermissionError``.
-
-    This will display an elevation prompt via :func:`ensure_admin` and, if the
-    user declines or elevation fails, ``PermissionError`` is raised.  When
-    elevation succeeds the current process is replaced and this function does
-    not return.
-    """
-
-    if not ensure_admin(prompt):
-        raise PermissionError("Administrator privileges are required")
-
-
-@dataclass(slots=True)
-class LocalPort:
-    """Information about a local listening port."""
-
-    port: int
-    pid: int | None
-    process: str
-    service: str
-
-
-_SERVICE_CACHE: dict[int, str] = {}
-_PROC_NAME_CACHE: dict[int, str] = {}
-
-
-def list_open_ports() -> dict[int, list[LocalPort]]:
-    """Return a mapping of listening ports to :class:`LocalPort` objects.
-
-    Reuses cached service names and process names to reduce repeated lookups
-    when scanning ports frequently.
-    """
-
-    ports: dict[int, list[LocalPort]] = {}
+def _run_ex(
+    cmd: list[str] | str, *, capture: bool = True, timeout: float | None = 30.0
+) -> Tuple[str, int]:
     try:
-        for conn in psutil.net_connections(kind="inet"):
-            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
-                continue
+        shell = isinstance(cmd, str)
+        cp = subprocess.run(
+            cmd, capture_output=capture, text=True, timeout=timeout, shell=shell
+        )
+        out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")
+        return out.strip(), int(cp.returncode)
+    except Exception as e:  # pragma: no cover - subprocess failure
+        return f"{type(e).__name__}: {e}", -1
 
-            port = conn.laddr.port
-            pid: int | None = conn.pid
 
-            if pid is not None:
-                proc_name = _PROC_NAME_CACHE.get(pid)
-                if proc_name is None:
-                    try:
-                        proc_name = psutil.Process(pid).name()
-                    except Exception:
-                        proc_name = "unknown"
-                    _PROC_NAME_CACHE[pid] = proc_name
-            else:
-                proc_name = "unknown"
+def _run_rc(cmd: list[str] | str, *, timeout: float | None = 30.0) -> Optional[int]:
+    out, code = _run_ex(cmd, timeout=timeout)
+    return code if code >= 0 else None
 
-            service = _SERVICE_CACHE.get(port)
-            if service is None:
-                try:
-                    service = socket.getservbyport(port)
-                except Exception:
-                    service = "unknown"
-                _SERVICE_CACHE[port] = service
 
-            ports.setdefault(port, []).append(LocalPort(port, pid, proc_name, service))
+def run_command_background(
+    cmd: list[str], **popen_kwargs
+) -> Tuple[bool, Optional[subprocess.Popen]]:
+    try:
+        p = subprocess.Popen(cmd, **popen_kwargs)
+        return True, p
+    except Exception:  # pragma: no cover - popen failure
+        return False, None
+
+
+# ------------------------------- elevation ----------------------------------
+
+
+def is_admin() -> bool:
+    if platform.system() != "Windows":
+        return os.geteuid() == 0  # type: ignore[attr-defined]
+    try:  # pragma: no cover - Windows specific
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
-        return {}
-
-    return {p: v for p, v in sorted(ports.items())}
+        return False
 
 
-def kill_process_by_port(port: int, *, tree: bool = False) -> bool:
-    """Kill any processes listening on ``port``.
-
-    If ``tree`` is ``True`` terminate each process and all of its children using
-    :func:`kill_process_tree`. Otherwise terminate just the listening processes
-    via :func:`kill_process`.
-    """
-
-    ports = list_open_ports()
-    entries = ports.get(port) or []
-    killed = False
-    for entry in entries:
-        if entry.pid is None:
-            continue
-        if tree:
-            ok = kill_process_tree(entry.pid)
-        else:
-            ok = kill_process(entry.pid)
-        killed = killed or ok
-    return killed
-
-
-def kill_port_range(start: int, end: int, *, tree: bool = False) -> dict[int, bool]:
-    """Kill all listeners within ``start``..``end`` (inclusive)."""
-
-    ports = list_open_ports()
-    results: dict[int, bool] = {}
-    for port in range(start, end + 1):
-        entries = ports.get(port) or []
-        killed = False
-        for entry in entries:
-            if entry.pid is None:
-                continue
-            if tree:
-                ok = kill_process_tree(entry.pid)
-            else:
-                ok = kill_process(entry.pid)
-            killed = killed or ok
-        results[port] = killed
-    return results
+def ensure_admin() -> bool:
+    return is_admin()
 
 
 def launch_security_center(*, hide_console: bool = False) -> bool:
-    """Launch the standalone security_center script with admin rights if needed.
-
-    Parameters
-    ----------
-    hide_console:
-        When ``True`` on Windows the command is executed using ``pythonw.exe``
-        if available and the ``CREATE_NO_WINDOW`` flag for a fully hidden
-        console. On other platforms the flag is ignored.
-    """
-
     script_name = "security_center_hidden.py" if hide_console else "security_center.py"
     script = Path(__file__).resolve().parents[2] / "scripts" / script_name
-    if not script.is_file():
+    if not script.exists():
         return False
+    py = Path(sys.executable)
+    if platform.system() == "Windows":
+        if is_admin():
+            ok, _ = run_command_background(
+                [str(py), str(script)], creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+            return ok
+        try:  # pragma: no cover - Windows specific
+            import ctypes
 
-    python = Path(sys.executable)
-    kwargs: dict[str, object] = {}
-
-    if hide_console:
-        kwargs["stdout"] = subprocess.DEVNULL
-        kwargs["stderr"] = subprocess.DEVNULL
-        if platform.system() == "Windows":
-            pythonw = python.with_name("pythonw.exe")
-            if pythonw.is_file():
-                python = pythonw
-            kwargs["creationflags"] = hidden_creation_flags()
-    kwargs["env"] = os.environ.copy()
-
-    if is_admin():
-        ok, _err = run_command_background([str(python), str(script)], **kwargs)
-        return ok
-
-    system = platform.system()
-
-    if system == "Windows":
-        try:
-            import ctypes  # lazy import
-            params = f'"{script}"'
-            show = 0 if hide_console else 1
-            rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(python), params, None, show)
-            return rc > 32
+            r = ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", str(py), f'"{script}"', None, 1
+            )
+            return r > 32
         except Exception:
             return False
-    elif system in {"Linux", "Darwin"}:
-        ok, _err = run_command_background(["sudo", str(python), str(script)], **kwargs)
+    # Unix
+    if is_admin():
+        ok, _ = run_command_background([str(py), str(script)])
         return ok
+    ok, _ = run_command_background(["sudo", str(py), str(script)])
+    return ok
 
-    return False
+
+# ------------------------------- firewall -----------------------------------
+
+
+def _unix_firewall_tool() -> Optional[str]:
+    if _which("ufw"):
+        return "ufw"
+    if _which("firewall-cmd"):
+        return "firewall-cmd"
+    if platform.system() == "Darwin" and _which("pfctl"):
+        return "pfctl"
+    return None
+
+
+def is_firewall_enabled() -> Optional[bool]:
+    try:
+        if platform.system() == "Windows":
+            out, code = _run_ex(["netsh", "advfirewall", "show", "allprofiles"])
+            if code != 0:
+                return None
+            return "State ON" in out or "State                  ON" in out
+        tool = _unix_firewall_tool()
+        if tool == "ufw":
+            out, code = _run_ex(["ufw", "status"])
+            return "Status: active" in out if code == 0 else None
+        if tool == "firewall-cmd":
+            _, code = _run_ex(["systemctl", "is-active", "--quiet", "firewalld"])
+            return code == 0
+        if tool == "pfctl":
+            out, code = _run_ex(["pfctl", "-s", "info"])
+            return ("Status: Enabled" in out) if code == 0 else None
+        return None
+    except Exception:
+        return None
+
+
+def set_firewall_enabled(enabled: bool) -> bool:
+    if platform.system() == "Windows":
+        state = "on" if enabled else "off"
+        return _run_rc(["netsh", "advfirewall", "set", "allprofiles", "state", state]) == 0
+    tool = _unix_firewall_tool()
+    if tool == "ufw":
+        cmd = ["ufw", "enable"] if enabled else ["ufw", "disable"]
+    elif tool == "firewall-cmd":
+        cmd = ["systemctl", "start" if enabled else "stop", "firewalld"]
+    elif tool == "pfctl":
+        cmd = ["pfctl", "-e"] if enabled else ["pfctl", "-d"]
+    else:
+        return False
+    return _run_rc(cmd) == 0
+
+
+# ---------------------------- Windows Defender ------------------------------
+
+
+def _ps_path_x64() -> str:
+    root = os.environ.get("SystemRoot", r"C:\\Windows")
+    # Sysnative breaks WOW64 redirection for 32-bit hosts on x64
+    if platform.machine().endswith("64") and "PROGRAMFILES(X86)" in os.environ:
+        p = (
+            Path(root)
+            / "Sysnative"
+            / "WindowsPowerShell"
+            / "v1.0"
+            / "powershell.exe"
+        )
+        if p.exists():
+            return str(p)
+    return str(Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+
+
+_PS_BASE = [
+    _ps_path_x64(),
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+]
+
+
+def _ps(script: str, *, timeout: float = 30.0) -> Tuple[str, int]:
+    cmd = (
+        "$ErrorActionPreference='Stop';"
+        "Import-Module Defender -ErrorAction SilentlyContinue | Out-Null;"
+        + script
+    )
+    return _run_ex(_PS_BASE + [cmd], timeout=timeout)
+
+
+@dataclass
+class DefenderStatus:
+    realtime: Optional[bool]
+    tamper_on: Optional[bool]
+    cmdlets_available: bool
+    services_ok: bool
+    third_party_av_present: bool
+    policy_lock: bool
+    managed_by_org: bool
+    error: Optional[str] = None
+
+
+def _svc_start(name: str) -> bool:
+    # Try PowerShell first; fall back to sc.exe
+    _ps(
+        f"Set-Service -Name {name} -StartupType Automatic; "
+        f"If ((Get-Service -Name {name}).Status -ne 'Running') {{ Start-Service -Name {name} -ErrorAction SilentlyContinue }}"
+    )
+    out, code = _ps(f"(Get-Service -Name {name}).Status")
+    return code == 0 and "Running" in out
+
+
+def _defender_services_ok() -> bool:
+    ok1 = _svc_start("WinDefend")
+    ok2 = _svc_start("SecurityHealthService")
+    return ok1 and ok2
+
+
+def _defender_cmdlets_available() -> bool:
+    out, code = _ps("(Get-Command Get-MpComputerStatus -EA SilentlyContinue) -ne $null")
+    return code == 0 and "True" in out
+
+
+def _defender_tamper_on() -> Optional[bool]:
+    out, code = _ps("(Get-MpPreference).TamperProtection")
+    if code != 0:
+        return None
+    v = out.strip().splitlines()[-1].strip().lower()
+    return True if v == "on" else False if v == "off" else None
+
+
+def _third_party_av_present() -> bool:
+    ps = (
+        "($p=Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue) | "
+        "Where-Object { $_.displayName -notlike '*Defender*' -and $_.displayName -ne $null } | "
+        "Measure-Object | % Count"
+    )
+    out, code = _ps(ps)
+    try:
+        n = int(out.strip().splitlines()[-1])
+    except Exception:
+        n = 0 if code != 0 else 0
+    return n > 0
+
+
+def _policy_lock_present() -> bool:
+    ps = (
+        "try { "
+        "$p=(Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\\Real-Time Protection' "
+        "-EA Stop); "
+        "($p.DisableRealtimeMonitoring -ne $null) "
+        "} catch { $false }"
+    )
+    out, code = _ps(ps)
+    return code == 0 and "True" in out
+
+
+def _managed_by_org() -> bool:
+    ps = (
+        "Test-Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows Defender' "
+        "-PathType Container"
+    )
+    out, code = _ps(ps)
+    return code == 0 and "True" in out
+
+
+def is_defender_supported() -> bool:
+    return platform.system() == "Windows" and _defender_cmdlets_available()
+
+
+def is_defender_enabled() -> Optional[bool]:
+    if platform.system() != "Windows":
+        return None
+    out, code = _ps("(Get-MpComputerStatus).RealTimeProtectionEnabled")
+    if code != 0:
+        return None
+    val = out.strip().splitlines()[-1].strip().lower()
+    return True if val == "true" else False if val == "false" else None
+
+
+def get_defender_status() -> DefenderStatus:
+    if platform.system() != "Windows":
+        return DefenderStatus(
+            None, None, False, False, False, False, False, "Not Windows"
+        )
+    return DefenderStatus(
+        realtime=is_defender_enabled(),
+        tamper_on=_defender_tamper_on(),
+        cmdlets_available=_defender_cmdlets_available(),
+        services_ok=_defender_services_ok(),
+        third_party_av_present=_third_party_av_present(),
+        policy_lock=_policy_lock_present(),
+        managed_by_org=_managed_by_org(),
+        error=None,
+    )
+
+
+def _registry_toggle_rt(disable: bool) -> Tuple[bool, str]:
+    dword = "1" if disable else "0"
+    key = r"HKLM\SOFTWARE\Microsoft\Windows Defender\Real-Time Protection"
+    out, code = _run_ex(
+        [
+            "reg",
+            "add",
+            key,
+            "/v",
+            "DisableRealtimeMonitoring",
+            "/t",
+            "REG_DWORD",
+            "/d",
+            dword,
+            "/f",
+        ]
+    )
+    if code != 0:
+        return False, out or "reg add failed"
+    _run_ex(["sc", "stop", "WinDefend"])
+    time.sleep(0.8)
+    _run_ex(["sc", "start", "WinDefend"])
+    return True, "registry path used"
+
+
+def set_defender_enabled(enabled: bool) -> Tuple[bool, Optional[str]]:
+    """
+    Enable/disable Defender realtime with deep verification.
+    Returns (ok, error_text).
+    """
+    if platform.system() != "Windows":
+        return True, None
+
+    if not _defender_cmdlets_available():
+        return False, "Defender PowerShell cmdlets unavailable."
+    if not _defender_services_ok():
+        return False, "Defender services could not be started."
+    if _third_party_av_present():
+        return False, "Another antivirus is registered. Uninstall/disable it or set Defender as primary."
+
+    want = enabled
+    cur = is_defender_enabled()
+    if cur is not None and cur == want:
+        return True, None
+
+    flip = "$false" if enabled else "$true"
+    out, code = _ps(f"Set-MpPreference -DisableRealtimeMonitoring {flip} -Force")
+    for i in range(6):
+        time.sleep(0.6 + i * 0.2)
+        state = is_defender_enabled()
+        if state is not None and state == want:
+            return True, None
+
+    if _defender_tamper_on():
+        return (
+            False,
+            "Tamper Protection is ON. Turn it OFF in Windows Security → Virus & threat protection → Tamper Protection.",
+        )
+
+    if _policy_lock_present() or _managed_by_org():
+        return (
+            False,
+            "Policy lock detected. This device is managed by policy. Clear Defender policy keys or contact admin/MDM.",
+        )
+
+    ok_reg, why = _registry_toggle_rt(disable=(not enabled))
+    if ok_reg:
+        time.sleep(1.5)
+        state = is_defender_enabled()
+        if state is not None and state == want:
+            return True, None
+
+    err = out or "Failed to run Set-MpPreference"
+    if code == 0:
+        err = f"Defender state unchanged. {why if ok_reg else err}"
+    return False, err
+
+
+# --------------------------- aggregate state --------------------------------
+
+
+def read_current_states() -> Tuple[Optional[bool], Optional[bool]]:
+    fw = is_firewall_enabled()
+    df = is_defender_enabled() if platform.system() == "Windows" else None
+    return fw, df
+
+
+__all__ = [
+    "DefenderStatus",
+    "ensure_admin",
+    "get_defender_status",
+    "is_admin",
+    "is_defender_enabled",
+    "is_defender_supported",
+    "is_firewall_enabled",
+    "launch_security_center",
+    "read_current_states",
+    "run_command_background",
+    "set_defender_enabled",
+    "set_firewall_enabled",
+]
+

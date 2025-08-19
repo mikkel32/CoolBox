@@ -40,7 +40,7 @@ import psutil  # noqa: E402
 
 from src.utils.hash_utils import calc_hash  # noqa: E402
 from src.utils.process_utils import run_command as _run_cmd, run_command_ex  # noqa: E402
-from src.utils.security import ensure_admin, is_admin, list_open_ports  # noqa: E402
+from src.utils.security import ensure_admin, is_admin  # noqa: E402
 
 
 def run_command(cmd: Sequence[str], **kwargs) -> str:
@@ -644,12 +644,21 @@ def _processes_for(path: Path) -> List[psutil.Process]:
 
 
 def _ports_for(pids: List[int]) -> Dict[int, List[str]]:
-    ports = list_open_ports()
+    """Return listening ports used by given process IDs."""
     result: Dict[int, List[str]] = {}
-    for port, items in ports.items():
-        for entry in items:
-            if entry.pid in pids:
-                result.setdefault(port, []).append(entry.process)
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            if conn.status != psutil.CONN_LISTEN or not conn.laddr:
+                continue
+            if conn.pid in pids:
+                port = conn.laddr.port
+                try:
+                    name = psutil.Process(conn.pid).name()
+                except Exception:
+                    name = "unknown"
+                result.setdefault(port, []).append(name)
+    except Exception:
+        return {}
     return result
 
 

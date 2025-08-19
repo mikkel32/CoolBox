@@ -22,7 +22,6 @@ process_utils.run_command = lambda *a, **kw: ("", None)
 process_utils.run_command_ex = lambda *a, **kw: ("", 0)
 security.ensure_admin = lambda *a, **kw: True
 security.is_admin = lambda: True
-security.list_open_ports = lambda: {}
 utils.hash_utils = hash_utils
 utils.process_utils = process_utils
 utils.security = security
