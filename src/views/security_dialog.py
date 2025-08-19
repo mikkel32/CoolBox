@@ -11,7 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from typing import Type, Callable
+from typing import Callable, Type
 
 from src.utils import security
 from .firewall_dialog import FirewallDialog
@@ -29,47 +29,56 @@ class SecurityDialog(ttk.Frame):
         self._rt_var = tk.BooleanVar(value=False)
 
         # Track dialogs opened from the "+" buttons so they can be
-        # positioned beside the main window.
+        # positioned beside (or below) the main window.
         self._child_windows: list[tk.Toplevel] = []
+        self._child_vertical = False  # stack beside by default
         self.master.bind("<Configure>", self._reposition_children)
+
+        # Shared styles for status labels
+        style = ttk.Style(self.master)
+        style.configure("Good.TLabel", foreground="#0a7d0a")
+        style.configure("Bad.TLabel", foreground="#a61e1e")
+        style.configure("Warn.TLabel", foreground="#ad5a00")
 
         # Header
         title = ttk.Label(self, text="Security Center", font=("Segoe UI", 16, "bold"))
-        title.grid(row=0, column=0, columnspan=4, sticky="w")
+        title.grid(row=0, column=0, sticky="w")
 
         # Admin state
         self._admin_lbl = ttk.Label(self, text="Admin: checking...")
-        self._admin_lbl.grid(row=0, column=3, sticky="e")
+        self._admin_lbl.grid(row=0, column=1, sticky="e")
 
-        # Firewall row
-        ttk.Label(self, text="Windows Firewall").grid(row=1, column=0, sticky="w", pady=(16, 4))
-        ttk.Button(self, text="+", width=2, command=self._open_firewall).grid(row=1, column=1, pady=(16, 4))
+        # Firewall section
+        fw_frame = ttk.LabelFrame(self, text="Windows Firewall")
+        fw_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(16, 4))
+        ttk.Button(fw_frame, text="+", width=2, command=self._open_firewall).grid(row=0, column=0, padx=(0, 4))
         self._fw_switch = ttk.Checkbutton(
-            self, text="Enabled", variable=self._fw_var, command=self._on_fw_toggle
+            fw_frame, text="Enabled", variable=self._fw_var, command=self._on_fw_toggle
         )
-        self._fw_switch.grid(row=1, column=2, sticky="w", pady=(16, 4))
-        self._fw_status = ttk.Label(self, text="Status: ...")
-        self._fw_status.grid(row=1, column=3, sticky="e", pady=(16, 4))
+        self._fw_switch.grid(row=0, column=1, sticky="w")
+        self._fw_status = ttk.Label(fw_frame, text="Status: ...")
+        self._fw_status.grid(row=0, column=2, sticky="e")
+        fw_frame.columnconfigure(1, weight=1)
 
-        # Defender row
-        ttk.Label(self, text="Microsoft Defender Realtime").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Button(self, text="+", width=2, command=self._open_defender).grid(row=2, column=1, pady=4)
+        # Defender section
+        rt_frame = ttk.LabelFrame(self, text="Microsoft Defender Realtime")
+        rt_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=4)
+        ttk.Button(rt_frame, text="+", width=2, command=self._open_defender).grid(row=0, column=0, padx=(0, 4))
         self._rt_switch = ttk.Checkbutton(
-            self, text="Enabled", variable=self._rt_var, command=self._on_rt_toggle
+            rt_frame, text="Enabled", variable=self._rt_var, command=self._on_rt_toggle
         )
-        self._rt_switch.grid(row=2, column=2, sticky="w", pady=4)
-        self._rt_status = ttk.Label(self, text="Status: ...")
-        self._rt_status.grid(row=2, column=3, sticky="e", pady=4)
+        self._rt_switch.grid(row=0, column=1, sticky="w")
+        self._rt_status = ttk.Label(rt_frame, text="Status: ...")
+        self._rt_status.grid(row=0, column=2, sticky="e")
+        rt_frame.columnconfigure(1, weight=1)
 
         # Refresh button
         self._refresh_btn = ttk.Button(self, text="Refresh", command=self.refresh_async)
-        self._refresh_btn.grid(row=3, column=3, sticky="e", pady=(12, 0))
+        self._refresh_btn.grid(row=3, column=1, sticky="e", pady=(12, 0))
 
         self.grid(sticky="nsew")
         self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=0)
-        self.columnconfigure(2, weight=0)
-        self.columnconfigure(3, weight=1)
+        self.columnconfigure(1, weight=1)
 
         # Initial load
         self.refresh_async()
@@ -125,7 +134,10 @@ class SecurityDialog(ttk.Frame):
         dialogs stay neatly locked beside the main window.
         """
         dlg = dlg_cls(self.master)
+        dlg.update_idletasks()
         self._child_windows.append(dlg)
+        # Reposition existing dialogs and decide stacking orientation
+        self._reposition_children(exclude=dlg)
         self._slide_in(dlg)
 
         def _close() -> None:
@@ -157,11 +169,12 @@ class SecurityDialog(ttk.Frame):
 
         if fw_enabled is None:
             self._fw_var.set(False)
-            self._fw_status.config(text="Status: unknown")
+            self._fw_status.config(text="Status: unknown", style="Warn.TLabel")
         else:
             self._fw_var.set(bool(fw_enabled))
             self._fw_status.config(
-                text=f"Status: {'Enabled' if fw_enabled else 'Disabled'}"
+                text=f"Status: {'Enabled' if fw_enabled else 'Disabled'}",
+                style="Good.TLabel" if fw_enabled else "Bad.TLabel",
             )
 
         rt = ds.realtime_enabled
@@ -175,7 +188,12 @@ class SecurityDialog(ttk.Frame):
         rt_txt.append(f"SVC: {svc}")
         if tamper is not None:
             rt_txt.append(f"TP: {'on' if tamper else 'off'}")
-        self._rt_status.config(text="Status: " + " | ".join(rt_txt))
+        self._rt_status.config(
+            text="Status: " + " | ".join(rt_txt),
+            style=(
+                "Good.TLabel" if rt else "Bad.TLabel" if rt is False else "Warn.TLabel"
+            ),
+        )
         self._rt_var.set(bool(rt) if rt is not None else False)
 
         self._enable_inputs(admin)
@@ -198,82 +216,155 @@ class SecurityDialog(ttk.Frame):
 
     # --------------------------- Window helpers -----------------------------
 
+    def _update_orientation(self) -> None:
+        """Decide whether child dialogs should stack vertically."""
+        self.master.update_idletasks()
+        root_w = self.master.winfo_width()
+        root_h = self.master.winfo_height()
+        screen_w = self.master.winfo_screenwidth()
+        screen_h = self.master.winfo_screenheight()
+
+        total_w = root_w
+        total_h = root_h
+        for win in self._child_windows:
+            if win.winfo_exists():
+                win.update_idletasks()
+                total_w += win.winfo_width()
+                total_h += win.winfo_height()
+
+        self._child_vertical = total_w > screen_w and total_h <= screen_h
+
     def _slide_in(self, win: tk.Toplevel) -> None:
-        """Animate a window sliding in from the right edge."""
+        """Animate a window sliding in beside or below the main window."""
         self.master.update_idletasks()
         win.update_idletasks()
 
         root_x = self.master.winfo_rootx()
         root_y = self.master.winfo_rooty()
         root_w = self.master.winfo_width()
+        root_h = self.master.winfo_height()
 
-        # Final position stacked to the right of existing dialogs
-        final_x = root_x + root_w
-        for w in self._child_windows[:-1]:
-            if w.winfo_exists():
-                final_x += w.winfo_width()
-
-        final_y = root_y
         win_w = win.winfo_width()
+        win_h = win.winfo_height()
 
-        start_x = final_x + win_w
-        win.geometry(f"+{start_x}+{final_y}")
+        if self._child_vertical:
+            final_x = root_x
+            final_y = root_y + root_h
+            for w in self._child_windows[:-1]:
+                if w.winfo_exists():
+                    final_y += w.winfo_height()
+            start_y = final_y + win_h
+            win.geometry(f"+{final_x}+{start_y}")
 
-        steps = 12
-        delay = 15
-        delta = (start_x - final_x) / steps
+            steps = 12
+            delay = 15
+            delta = (start_y - final_y) / steps
 
-        def step(i: int = 0) -> None:
-            x = int(start_x - delta * i)
-            win.geometry(f"+{x}+{final_y}")
-            if i < steps:
-                win.after(delay, step, i + 1)
+            def step(i: int = 0) -> None:
+                y = int(start_y - delta * i)
+                win.geometry(f"+{final_x}+{y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
 
-        step()
+            step()
+        else:
+            final_x = root_x + root_w
+            for w in self._child_windows[:-1]:
+                if w.winfo_exists():
+                    final_x += w.winfo_width()
+            final_y = root_y
+            start_x = final_x + win_w
+            win.geometry(f"+{start_x}+{final_y}")
+
+            steps = 12
+            delay = 15
+            delta = (start_x - final_x) / steps
+
+            def step(i: int = 0) -> None:
+                x = int(start_x - delta * i)
+                win.geometry(f"+{x}+{final_y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
+
+            step()
 
     def _slide_out(self, win: tk.Toplevel, on_done: Callable[[], None]) -> None:
-        """Animate a window sliding out to the right before closing."""
+        """Animate a window sliding out before closing."""
         try:
             self.master.update_idletasks()
             win.update_idletasks()
             start_x = win.winfo_x()
             start_y = win.winfo_y()
             win_w = win.winfo_width()
+            win_h = win.winfo_height()
         except Exception:
             on_done()
             return
 
-        end_x = start_x + win_w
         steps = 12
         delay = 15
-        delta = (end_x - start_x) / steps
+        if self._child_vertical:
+            end_y = start_y + win_h
+            delta = (end_y - start_y) / steps
 
-        def step(i: int = 0) -> None:
-            x = int(start_x + delta * i)
-            win.geometry(f"+{x}+{start_y}")
-            if i < steps:
-                win.after(delay, step, i + 1)
-            else:
-                on_done()
+            def step(i: int = 0) -> None:
+                y = int(start_y + delta * i)
+                win.geometry(f"+{start_x}+{y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
+                else:
+                    on_done()
 
-        step()
+            step()
+        else:
+            end_x = start_x + win_w
+            delta = (end_x - start_x) / steps
 
-    def _reposition_children(self, event: tk.Event | None = None) -> None:
-        """Keep child dialogs locked beside the main window."""
+            def step(i: int = 0) -> None:
+                x = int(start_x + delta * i)
+                win.geometry(f"+{x}+{start_y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
+                else:
+                    on_done()
+
+            step()
+
+    def _reposition_children(self, event: tk.Event | None = None, exclude: tk.Toplevel | None = None) -> None:
+        """Keep child dialogs locked beside or below the main window."""
         if not self._child_windows:
             return
+        self._update_orientation()
         self.master.update_idletasks()
         root_x = self.master.winfo_rootx()
         root_y = self.master.winfo_rooty()
         root_w = self.master.winfo_width()
-        x = root_x + root_w
-        for win in list(self._child_windows):
-            if win.winfo_exists():
-                win.update_idletasks()
-                win.geometry(f"+{x}+{root_y}")
-                x += win.winfo_width()
-            else:
-                self._child_windows.remove(win)
+        root_h = self.master.winfo_height()
+
+        if self._child_vertical:
+            x = root_x
+            y = root_y + root_h
+            for win in list(self._child_windows):
+                if win is exclude:
+                    continue
+                if win.winfo_exists():
+                    win.update_idletasks()
+                    win.geometry(f"+{x}+{y}")
+                    y += win.winfo_height()
+                else:
+                    self._child_windows.remove(win)
+        else:
+            x = root_x + root_w
+            y = root_y
+            for win in list(self._child_windows):
+                if win is exclude:
+                    continue
+                if win.winfo_exists():
+                    win.update_idletasks()
+                    win.geometry(f"+{x}+{y}")
+                    x += win.winfo_width()
+                else:
+                    self._child_windows.remove(win)
 
 
 def run():
