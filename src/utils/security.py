@@ -239,6 +239,8 @@ def _defender_cmdlets_available() -> bool:
 
 
 def _defender_tamper_on() -> Optional[bool]:
+    if not _defender_services_ok():
+        return None
     out, code = _ps("(Get-MpPreference).TamperProtection")
     if code != 0:
         return None
@@ -289,6 +291,8 @@ def is_defender_supported() -> bool:
 def is_defender_enabled() -> Optional[bool]:
     if platform.system() != "Windows":
         return None
+    if not _defender_services_ok():
+        return None
     out, code = _ps("(Get-MpComputerStatus).RealTimeProtectionEnabled")
     if code != 0:
         return None
@@ -301,14 +305,28 @@ def get_defender_status() -> DefenderStatus:
         return DefenderStatus(
             None, None, False, False, False, False, False, "Not Windows"
         )
+    services_ok = _defender_services_ok()
+    cmdlets_available = _defender_cmdlets_available()
+    if services_ok:
+        realtime = is_defender_enabled()
+        tamper = _defender_tamper_on()
+        third_party = _third_party_av_present()
+        policy_lock = _policy_lock_present()
+        managed = _managed_by_org()
+    else:
+        realtime = None
+        tamper = None
+        third_party = False
+        policy_lock = False
+        managed = False
     return DefenderStatus(
-        realtime=is_defender_enabled(),
-        tamper_on=_defender_tamper_on(),
-        cmdlets_available=_defender_cmdlets_available(),
-        services_ok=_defender_services_ok(),
-        third_party_av_present=_third_party_av_present(),
-        policy_lock=_policy_lock_present(),
-        managed_by_org=_managed_by_org(),
+        realtime=realtime,
+        tamper_on=tamper,
+        cmdlets_available=cmdlets_available,
+        services_ok=services_ok,
+        third_party_av_present=third_party,
+        policy_lock=policy_lock,
+        managed_by_org=managed,
         error=None,
     )
 
