@@ -82,28 +82,46 @@ def test_set_firewall_enabled_linux(monkeypatch):
 
 def test_is_defender_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
-
-    monkeypatch.setattr(
-        security,
-        "_run",
-        lambda cmd, capture=False, **kwargs: "False" if capture else "",
-    )
-    assert is_defender_enabled() is True
-
-
-def test_set_defender_enabled(monkeypatch):
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
     called = {}
 
     def fake_run(cmd, capture=False, **kwargs):
         called["cmd"] = cmd
-        return ""
+        return "True" if capture else ""
+
     monkeypatch.setattr(security, "_run", fake_run)
-    assert set_defender_enabled(False) is True
+    assert is_defender_enabled() is True
     assert called["cmd"] == [
         "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-MpComputerStatus).RealTimeProtectionEnabled",
+    ]
+
+
+def test_set_defender_enabled(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    called = []
+
+    def fake_run(cmd, capture=False, **kwargs):
+        called.append(cmd)
+        return "False" if capture else ""
+
+    monkeypatch.setattr(security, "_run", fake_run)
+    assert set_defender_enabled(False) is True
+    assert called[0] == [
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
         "-Command",
         "Set-MpPreference -DisableRealtimeMonitoring $true",
+    ]
+    assert called[1] == [
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-MpComputerStatus).RealTimeProtectionEnabled",
     ]
 
 

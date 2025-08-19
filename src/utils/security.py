@@ -138,8 +138,10 @@ def is_defender_enabled() -> Optional[bool]:
     out = _run(
         [
             "powershell",
+            "-NoProfile",
+            "-NonInteractive",
             "-Command",
-            "(Get-MpPreference).DisableRealtimeMonitoring",
+            "(Get-MpComputerStatus).RealTimeProtectionEnabled",
         ],
         capture=True,
     )
@@ -147,27 +149,35 @@ def is_defender_enabled() -> Optional[bool]:
         return None
     val = out.strip().lower()
     if val in {"true", "1"}:
-        return False
-    if val in {"false", "0"}:
         return True
+    if val in {"false", "0"}:
+        return False
     return None
 
 
 def set_defender_enabled(enabled: bool) -> bool:
-    """Enable or disable Windows Defender real-time protection."""
+    """Enable or disable Windows Defender real-time protection.
+
+    The command is executed through ``powershell`` and the result is
+    verified by querying the current status afterwards. The function
+    returns ``True`` only if the final state matches the requested one.
+    """
     if platform.system() != "Windows":
         return False
     value = "$false" if enabled else "$true"
-    return (
-        _run(
-            [
-                "powershell",
-                "-Command",
-                f"Set-MpPreference -DisableRealtimeMonitoring {value}",
-            ]
-        )
-        is not None
-    )
+    cmd = [
+        "powershell",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        f"Set-MpPreference -DisableRealtimeMonitoring {value}",
+    ]
+    if _run(cmd) is None:
+        return False
+    status = is_defender_enabled()
+    if status is None:
+        return False
+    return status == enabled
 
 
 # ---------------------------------------------------------------------------
