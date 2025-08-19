@@ -1171,13 +1171,6 @@ class ClickOverlay(tk.Toplevel):
             )
             thr_ms, thr_px = self._move_thresholds()
             if dt * 1000.0 < thr_ms and dist < thr_px:
-                # Even when skipping heavy work, keep cursor data fresh so the
-                # crosshair doesn't appear frozen when the pointer moves
-                self._last_move_time = now
-                self._last_move_pos = (_e.x_root, _e.y_root)
-                with self._state_lock:
-                    self._cursor_x = _e.x_root
-                    self._cursor_y = _e.y_root
                 return
             self._last_move_time = now
             self._last_move_pos = (_e.x_root, _e.y_root)
@@ -1197,11 +1190,6 @@ class ClickOverlay(tk.Toplevel):
             dist = math.hypot(mx - self._last_move_pos[0], my - self._last_move_pos[1])
             thr_ms, thr_px = self._move_thresholds()
             if dt * 1000.0 < thr_ms and dist < thr_px:
-                self._last_move_time = now
-                self._last_move_pos = (mx, my)
-                with self._state_lock:
-                    self._cursor_x = mx
-                    self._cursor_y = my
                 return
             self._last_move_time = now
             self._last_move_pos = (mx, my)
