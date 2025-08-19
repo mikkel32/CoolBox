@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+from src.app import error_handler as eh
+
 # ------------------------------- admin --------------------------------------
 
 
@@ -49,6 +51,13 @@ def _ps_path_x64() -> str:
 def _no_window_flags() -> int:
     # CREATE_NO_WINDOW exists on Windows python; guard for type checkers.
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def _admin_error(text: str) -> Optional[str]:
+    low = text.lower()
+    if "access is denied" in low or "requested operation requires elevation" in low:
+        return "AccessDenied: administrator privileges required"
+    return None
 
 
 _PS_BASE = [
@@ -84,29 +93,47 @@ def _ps(script: str, *, timeout: float = 30.0) -> Tuple[str, int]:
             shell=False,
         )
         out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")
+        err = _admin_error(out)
+        if err:
+            return err, int(cp.returncode) if cp.returncode else -1
+        if cp.returncode and not out.strip():
+            return f"PowerShell exited with code {cp.returncode}", int(cp.returncode)
         return out.strip(), int(cp.returncode)
+    except subprocess.TimeoutExpired as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return "TimeoutExpired: PowerShell timed out", -1
+    except FileNotFoundError as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return "FileNotFoundError: PowerShell not found", -1
     except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
         return f"{type(e).__name__}: {e}", -1
 
 # ------------------------------- services -----------------------------------
 
 
-def _svc_start(name: str) -> bool:
-    _ps(
-        "try { "
-        f"Set-Service -Name {name} -StartupType Automatic -EA SilentlyContinue; "
-        f"if ((Get-Service -Name {name}).Status -ne 'Running') {{ Start-Service -Name {name} -EA SilentlyContinue }} "
-        "} catch {}"
-    )
+def _svc_start(name: str) -> tuple[bool, Optional[str]]:
+    if ensure_admin():
+        _ps(
+            "try { "
+            f"Set-Service -Name {name} -StartupType Automatic -EA SilentlyContinue; "
+            f"if ((Get-Service -Name {name}).Status -ne 'Running') {{ Start-Service -Name {name} -EA SilentlyContinue }} "
+            "} catch {}"
+        )
     out, rc = _ps(f"(Get-Service -Name {name}).Status")
-    return rc == 0 and "Running" in out
+    if rc == 0 and "Running" in out:
+        return True, None
+    return False, f"{name} not running"
 
 
-def _defender_services_ok() -> bool:
-    # Core services needed for status and toggling
-    ok1 = _svc_start("WinDefend")
-    ok2 = _svc_start("SecurityHealthService")
-    return ok1 and ok2
+def _defender_services_ok() -> tuple[bool, Optional[str]]:
+    """Check and start core Defender services.
+    Returns (ok, err_text)."""
+    for svc in ("WinDefend", "SecurityHealthService"):
+        ok, err = _svc_start(svc)
+        if not ok:
+            return False, err
+    return True, None
 
 # ------------------------------- queries ------------------------------------
 
@@ -118,24 +145,38 @@ def is_defender_supported() -> bool:
     return rc == 0 and "True" in out
 
 
-def is_defender_enabled() -> Optional[bool]:
+def _is_defender_enabled_raw() -> Tuple[Optional[bool], Optional[str]]:
     if platform.system() != "Windows":
-        return None
+        return None, "Not Windows"
     out, rc = _ps("(Get-MpComputerStatus).RealTimeProtectionEnabled")
     if rc != 0:
-        return None
+        return None, out or "Get-MpComputerStatus failed"
     v = out.strip().splitlines()[-1].strip().lower()
-    return True if v == "true" else False if v == "false" else None
+    if v == "true":
+        return True, None
+    if v == "false":
+        return False, None
+    return None, f"Unexpected output: {v}"
+
+
+def is_defender_enabled() -> Optional[bool]:
+    v, _ = _is_defender_enabled_raw()
+    return v
+
+
+def _tamper_on_raw() -> Tuple[Optional[bool], Optional[str]]:
+    out, rc = _ps("(Get-MpPreference).TamperProtection")
+    if rc != 0:
+        return None, out or "Get-MpPreference failed"
+    val = out.strip().splitlines()[-1].strip().lower()
+    if val in {"on", "off"}:
+        return val == "on", None
+    return None, f"Unexpected output: {val}"
 
 
 def _tamper_on() -> Optional[bool]:
-    out, rc = _ps("(Get-MpPreference).TamperProtection")
-    if rc != 0:
-        return None
-    val = out.strip().splitlines()[-1].strip().lower()
-    if val in {"on", "off"}:
-        return val == "on"
-    return None
+    v, _ = _tamper_on_raw()
+    return v
 
 
 def _third_party_av_present() -> bool:
@@ -170,20 +211,26 @@ class DefenderStatus:
     services_ok: bool
     third_party_av_present: bool
     policy_lock: bool
+    services_error: Optional[str] = None
     error: Optional[str] = None
 
 
 def get_defender_status() -> DefenderStatus:
     if platform.system() != "Windows":
-        return DefenderStatus(None, None, False, False, False, False, "Not Windows")
+        return DefenderStatus(None, None, False, False, False, False, None, "Not Windows")
+    rt, err_rt = _is_defender_enabled_raw()
+    tp, err_tp = _tamper_on_raw()
+    svc_ok, svc_err = _defender_services_ok()
+    err = err_rt or err_tp or svc_err
     return DefenderStatus(
-        realtime=is_defender_enabled(),
-        tamper_on=_tamper_on(),
+        realtime=rt,
+        tamper_on=tp,
         cmdlets_available=is_defender_supported(),
-        services_ok=_defender_services_ok(),
+        services_ok=svc_ok,
         third_party_av_present=_third_party_av_present(),
         policy_lock=_policy_lock_present(),
-        error=None,
+        services_error=svc_err,
+        error=err,
     )
 
 # ------------------------------- toggling -----------------------------------
@@ -205,20 +252,32 @@ def _registry_toggle_rt(disable: bool) -> Tuple[bool, str]:
     return True, "registry toggle applied"
 
 
-def _run_ex(cmd: list[str]) -> Tuple[str, int]:
+def _run_ex(cmd: list[str], timeout: float = 25.0) -> Tuple[str, int]:
     try:
         cp = subprocess.run(
             cmd,
             text=True,
             capture_output=True,
-            timeout=25,
+            timeout=timeout,
             creationflags=_no_window_flags(),
             shell=False,
         )
         out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")
+        err = _admin_error(out)
+        if err:
+            return err, int(cp.returncode) if cp.returncode else -1
+        if cp.returncode and not out.strip():
+            return f"{' '.join(cmd)} exited with code {cp.returncode}", int(cp.returncode)
         return out.strip(), int(cp.returncode)
+    except subprocess.TimeoutExpired as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return f"TimeoutExpired: {' '.join(cmd)} timed out", -1
+    except FileNotFoundError as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return f"FileNotFoundError: {cmd[0]} not found", -1
     except Exception as e:
-        return f"{type(e).__name__}: {e}", -1
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return f"{type(e).__name__}: {e} (while running {' '.join(cmd)})", -1
 
 
 def set_defender_enabled(enabled: bool) -> tuple[bool, Optional[str]]:
@@ -229,10 +288,14 @@ def set_defender_enabled(enabled: bool) -> tuple[bool, Optional[str]]:
     if platform.system() != "Windows":
         return True, None
 
+    if not ensure_admin():
+        return False, "Administrator privileges required."
+
     if not is_defender_supported():
         return False, "Defender PowerShell cmdlets unavailable."
-    if not _defender_services_ok():
-        return False, "Defender services could not be started."
+    svc_ok, svc_err = _defender_services_ok()
+    if not svc_ok:
+        return False, f"Defender services could not be started ({svc_err})."
     if _third_party_av_present():
         return False, "Another antivirus is registered. Disable or remove it first."
 
@@ -243,6 +306,8 @@ def set_defender_enabled(enabled: bool) -> tuple[bool, Optional[str]]:
 
     flag = "$false" if enabled else "$true"
     out, rc = _ps(f"Set-MpPreference -DisableRealtimeMonitoring {flag} -Force")
+    if rc != 0 and out:
+        return False, out
 
     for i in range(7):
         time.sleep(0.5 + i * 0.25)
@@ -262,6 +327,8 @@ def set_defender_enabled(enabled: bool) -> tuple[bool, Optional[str]]:
         st = is_defender_enabled()
         if st is not None and st == want:
             return True, None
+    elif "AccessDenied" in why:
+        return False, why
 
     err = out or "Failed to run Set-MpPreference"
     if rc == 0:

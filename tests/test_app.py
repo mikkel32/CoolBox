@@ -4,6 +4,7 @@ import os
 import unittest
 import customtkinter as ctk
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from src.app import CoolBoxApp
 
@@ -145,7 +146,13 @@ class TestCoolBoxApp(unittest.TestCase):
         patches = [
             patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
             patch("src.views.security_dialog.is_defender_supported", lambda: True),
-            patch("src.views.security_dialog.read_current_states", lambda: (True, True)),
+            patch(
+                "src.views.security_dialog.read_current_statuses",
+                lambda: (
+                    SimpleNamespace(domain=True, private=True, public=True, error=None),
+                    SimpleNamespace(realtime=True, error=None),
+                ),
+            ),
             patch("src.utils.security.is_admin", lambda: True),
         ]
         for p in patches:
@@ -165,7 +172,13 @@ class TestCoolBoxApp(unittest.TestCase):
         patches = [
             patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
             patch("src.views.security_dialog.is_defender_supported", lambda: True),
-            patch("src.views.security_dialog.read_current_states", lambda: (True, True)),
+            patch(
+                "src.views.security_dialog.read_current_statuses",
+                lambda: (
+                    SimpleNamespace(domain=True, private=True, public=True, error=None),
+                    SimpleNamespace(realtime=True, error=None),
+                ),
+            ),
             patch("src.utils.security.is_admin", lambda: True),
         ]
         for p in patches:

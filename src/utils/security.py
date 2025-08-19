@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+from src.app import error_handler as eh
+
 
 # ------------------------------- helpers ------------------------------------
 
@@ -43,6 +45,7 @@ def _run_ex(
         out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")
         return out.strip(), int(cp.returncode)
     except Exception as e:  # pragma: no cover - subprocess failure
+        eh.handle_exception(type(e), e, e.__traceback__)
         return f"{type(e).__name__}: {e}", -1
 
 
@@ -57,7 +60,8 @@ def run_command_background(
     try:
         p = subprocess.Popen(cmd, **popen_kwargs)
         return True, p
-    except Exception:  # pragma: no cover - popen failure
+    except Exception as e:  # pragma: no cover - popen failure
+        eh.handle_exception(type(e), e, e.__traceback__)
         return False, None
 
 
@@ -71,7 +75,8 @@ def is_admin() -> bool:
         import ctypes
 
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
+    except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
         return False
 
 
@@ -98,7 +103,8 @@ def launch_security_center(*, hide_console: bool = False) -> bool:
                 None, "runas", str(py), f'"{script}"', None, 1
             )
             return r > 32
-        except Exception:
+        except Exception as e:
+            eh.handle_exception(type(e), e, e.__traceback__)
             return False
     # Unix
     if is_admin():
@@ -139,7 +145,8 @@ def is_firewall_enabled() -> Optional[bool]:
             out, code = _run_ex(["pfctl", "-s", "info"])
             return ("Status: Enabled" in out) if code == 0 else None
         return None
-    except Exception:
+    except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
         return None
 
 
@@ -248,7 +255,8 @@ def _third_party_av_present() -> bool:
     out, code = _ps(ps)
     try:
         n = int(out.strip().splitlines()[-1])
-    except Exception:
+    except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
         n = 0 if code != 0 else 0
     return n > 0
 

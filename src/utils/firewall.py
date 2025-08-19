@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
+from src.app import error_handler as eh
+
 # ------------------------------- admin --------------------------------------
 
 
@@ -40,20 +42,39 @@ def _no_window_flags() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-def _run_ex(cmd: list[str]) -> Tuple[str, int]:
+def _admin_error(text: str) -> Optional[str]:
+    low = text.lower()
+    if "access is denied" in low or "requested operation requires elevation" in low:
+        return "AccessDenied: administrator privileges required"
+    return None
+
+
+def _run_ex(cmd: list[str], timeout: float = 30.0) -> Tuple[str, int]:
     try:
         cp = subprocess.run(
             cmd,
             text=True,
             capture_output=True,
-            timeout=30,
+            timeout=timeout,
             creationflags=_no_window_flags(),
             shell=False,
         )
         out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")
+        err = _admin_error(out)
+        if err:
+            return err, int(cp.returncode) if cp.returncode else -1
+        if cp.returncode and not out.strip():
+            return f"{' '.join(cmd)} exited with code {cp.returncode}", int(cp.returncode)
         return out.strip(), int(cp.returncode)
+    except subprocess.TimeoutExpired as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return f"TimeoutExpired: {' '.join(cmd)} timed out", -1
+    except FileNotFoundError as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return f"FileNotFoundError: {cmd[0]} not found", -1
     except Exception as e:
-        return f"{type(e).__name__}: {e}", -1
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return f"{type(e).__name__}: {e} (while running {' '.join(cmd)})", -1
 
 
 def _ps_path_x64() -> str:
@@ -77,7 +98,7 @@ _PS_BASE = [
 ]
 
 
-def _ps(script: str) -> Tuple[str, int]:
+def _ps(script: str, timeout: float = 30.0) -> Tuple[str, int]:
     """Run PowerShell hidden with -ErrorAction Stop. Never raises."""
     if platform.system() != "Windows":
         return "Not Windows", -1
@@ -87,31 +108,48 @@ def _ps(script: str) -> Tuple[str, int]:
             _PS_BASE + [cmd],
             text=True,
             capture_output=True,
-            timeout=30,
+            timeout=timeout,
             creationflags=_no_window_flags(),
             shell=False,
         )
         out = (cp.stdout or "") + (("\n" + cp.stderr) if cp.stderr else "")
+        err = _admin_error(out)
+        if err:
+            return err, int(cp.returncode) if cp.returncode else -1
+        if cp.returncode and not out.strip():
+            return f"PowerShell exited with code {cp.returncode}", int(cp.returncode)
         return out.strip(), int(cp.returncode)
+    except subprocess.TimeoutExpired as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return "TimeoutExpired: PowerShell timed out", -1
+    except FileNotFoundError as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
+        return "FileNotFoundError: PowerShell not found", -1
     except Exception as e:
+        eh.handle_exception(type(e), e, e.__traceback__)
         return f"{type(e).__name__}: {e}", -1
 
 # ------------------------------ internals -----------------------------------
 
 
-def _services_ok() -> bool:
-    # BFE and MpsSvc must be running
+def _services_ok() -> tuple[bool, Optional[str]]:
+    """
+    Ensure core services (BFE, MpsSvc) are running.
+    Returns (ok, err_text).
+    """
+    admin = ensure_admin()
     for svc in ("BFE", "mpssvc"):
-        _ps(
-            "try { "
-            f"Set-Service -Name {svc} -StartupType Automatic -EA SilentlyContinue; "
-            f"if ((Get-Service -Name {svc}).Status -ne 'Running') {{ Start-Service -Name {svc} -EA SilentlyContinue }} "
-            "} catch {}"
-        )
+        if admin:
+            _ps(
+                "try { "
+                f"Set-Service -Name {svc} -StartupType Automatic -EA SilentlyContinue; "
+                f"if ((Get-Service -Name {svc}).Status -ne 'Running') {{ Start-Service -Name {svc} -EA SilentlyContinue }} "
+                "} catch {}"
+            )
         out, rc = _ps(f"(Get-Service -Name {svc}).Status")
         if rc != 0 or "Running" not in out:
-            return False
-    return True
+            return False, f"{svc} not running"
+    return True, None
 
 
 def _netsecurity_available() -> bool:
@@ -151,13 +189,13 @@ def _third_party_firewall_present() -> bool:
     return n > 0
 
 
-def _netsh_state_all() -> Tuple[Optional[bool], Optional[bool], Optional[bool]]:
+def _netsh_state_all() -> Tuple[Optional[bool], Optional[bool], Optional[bool], Optional[str]]:
     """
     Return per-profile states (domain, private, public). None if unknown.
     """
     out, rc = _run_ex(["netsh", "advfirewall", "show", "allprofiles"])
     if rc != 0:
-        return None, None, None
+        return None, None, None, out or "netsh failed"
     text = out.lower()
 
     def _find(section: str) -> Optional[bool]:
@@ -175,10 +213,10 @@ def _netsh_state_all() -> Tuple[Optional[bool], Optional[bool], Optional[bool]]:
     d = _find("domain profile")
     p = _find("private profile")
     u = _find("public profile")
-    return d, p, u
+    return d, p, u, None
 
 
-def _get_profile_states() -> Tuple[Optional[bool], Optional[bool], Optional[bool]]:
+def _get_profile_states() -> Tuple[Optional[bool], Optional[bool], Optional[bool], Optional[str]]:
     if _netsecurity_available():
         ps = "Get-NetFirewallProfile | Sort-Object Name | ForEach-Object { $_.Enabled }"
         out, rc = _ps(ps)
@@ -188,7 +226,8 @@ def _get_profile_states() -> Tuple[Optional[bool], Optional[bool], Optional[bool
             if len(vals) >= 3:
                 def _b(x: str) -> Optional[bool]:
                     return True if x == "true" else False if x == "false" else None
-                return _b(vals[0]), _b(vals[1]), _b(vals[2])
+                return _b(vals[0]), _b(vals[1]), _b(vals[2]), None
+        return None, None, None, out or "Get-NetFirewallProfile failed"
     return _netsh_state_all()
 
 # ----------------------------- public surface --------------------------------
@@ -203,6 +242,7 @@ class FirewallStatus:
     cmdlets_available: bool
     policy_lock: bool
     third_party_firewall: bool
+    services_error: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -213,7 +253,7 @@ def is_firewall_supported() -> bool:
 def is_firewall_enabled() -> Optional[bool]:
     if platform.system() != "Windows":
         return None
-    d, p, u = _get_profile_states()
+    d, p, u, _ = _get_profile_states()
     if any(v is None for v in (d, p, u)):
         return None
     return bool(d) and bool(p) and bool(u)
@@ -221,17 +261,19 @@ def is_firewall_enabled() -> Optional[bool]:
 
 def get_firewall_status() -> FirewallStatus:
     if platform.system() != "Windows":
-        return FirewallStatus(None, None, None, False, False, False, False, "Not Windows")
-    d, p, u = _get_profile_states()
+        return FirewallStatus(None, None, None, False, False, False, False, None, "Not Windows")
+    d, p, u, err = _get_profile_states()
+    svc_ok, svc_err = _services_ok()
     return FirewallStatus(
         domain=d,
         private=p,
         public=u,
-        services_ok=_services_ok(),
+        services_ok=svc_ok,
         cmdlets_available=_netsecurity_available(),
         policy_lock=_policy_lock_present(),
         third_party_firewall=_third_party_firewall_present(),
-        error=None,
+        services_error=svc_err,
+        error=err or svc_err,
     )
 
 
@@ -248,6 +290,8 @@ def _set_all_profiles(enabled: bool) -> Tuple[bool, str]:
         out, rc = _ps(ps)
         if rc == 0:
             return True, ""
+        if out and "AccessDenied" in out:
+            return False, out
         last_err = out or "Set-NetFirewallProfile failed"
     else:
         last_err = "NetSecurity module not present"
@@ -257,6 +301,8 @@ def _set_all_profiles(enabled: bool) -> Tuple[bool, str]:
     out, rc = _run_ex(["netsh", "advfirewall", "set", "allprofiles", "state", state])
     if rc == 0:
         return True, ""
+    if out and "AccessDenied" in out:
+        return False, out
     return False, (out or last_err)
 
 
@@ -267,8 +313,12 @@ def set_firewall_enabled(enabled: bool) -> Tuple[bool, Optional[str]]:
     if platform.system() != "Windows":
         return True, None
 
-    if not _services_ok():
-        return False, "Required services (BFE/MpsSvc) could not be started."
+    if not ensure_admin():
+        return False, "Administrator privileges required."
+
+    svc_ok, svc_err = _services_ok()
+    if not svc_ok:
+        return False, f"Required services could not be started ({svc_err})."
 
     if _third_party_firewall_present():
         return False, "Another firewall is registered. Disable/uninstall it first."
@@ -282,6 +332,8 @@ def set_firewall_enabled(enabled: bool) -> Tuple[bool, Optional[str]]:
         return True, None
 
     ok, err = _set_all_profiles(enabled)
+    if not ok and err and "AccessDenied" in err:
+        return False, err
     # Verify with retries. Profiles can lag a bit.
     for i in range(6):
         time.sleep(0.5 + 0.2 * i)
@@ -295,6 +347,7 @@ def set_firewall_enabled(enabled: bool) -> Tuple[bool, Optional[str]]:
     # If command reported success but state disagrees, diagnose.
     if _policy_lock_present():
         return False, "State unchanged due to policy lock (GPO/MDM)."
-    if not _services_ok():
-        return False, "State unchanged because BFE/MpsSvc not running."
+    svc_ok, svc_err = _services_ok()
+    if not svc_ok:
+        return False, f"State unchanged because {svc_err}."
     return False, "Firewall state unchanged for unknown reason."
