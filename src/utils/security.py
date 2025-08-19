@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Tuple, List
 
 from src.app import error_handler as eh
@@ -52,6 +53,33 @@ def is_admin() -> bool:
 def ensure_admin() -> bool:
     """Return True if running with administrative privileges."""
     return is_admin()
+
+
+def relaunch_security_center(args: Optional[List[str]] = None) -> bool:
+    """Relaunch Security Center with elevation if possible.
+
+    Returns ``True`` if a relaunch was attempted. On non-Windows platforms or
+    when already running as administrator, ``False`` is returned immediately.
+    """
+    if not _IS_WINDOWS or is_admin():
+        return False
+    try:
+        script = (
+            Path(__file__).resolve().parents[2]
+            / "scripts"
+            / "security_center_hidden.py"
+        )
+        if not script.exists():
+            return False
+        params = " ".join(
+            f'"{p}"' for p in [str(script), *(args or [])]
+        )
+        rc = ctypes.windll.shell32.ShellExecuteW(
+            None, "runas", sys.executable, params, None, 1
+        )
+        return rc > 32
+    except Exception:
+        return False
 
 
 # ------------------------------ Run helpers --------------------------------

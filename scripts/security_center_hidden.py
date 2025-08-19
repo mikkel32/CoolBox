@@ -16,6 +16,11 @@ from src.utils.win_console import (  # noqa: E402
 )
 from src.app import CoolBoxApp  # noqa: E402
 from src.views.security_dialog import SecurityDialog  # noqa: E402
+from src.utils import security  # noqa: E402
+
+if not security.is_admin():
+    security.relaunch_security_center()
+    sys.exit(0)
 
 
 # Hide the terminal ASAP before creating any Tk windows.
