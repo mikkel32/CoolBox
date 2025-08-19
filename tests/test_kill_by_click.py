@@ -176,6 +176,46 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
     dialog.deiconify.assert_called_once()
 
 
+def test_kill_by_click_cancel_before_start_skips_choose() -> None:
+    dialog = ForceQuitDialog.__new__(ForceQuitDialog)
+    dialog._overlay_thread = None
+    dialog.accent = "#f00"
+    dialog.paused = False
+    dialog._watcher = mock.Mock()
+    dialog._populate = mock.Mock()
+    dialog.withdraw = mock.Mock()
+    dialog.deiconify = mock.Mock()
+    dialog.after_idle = mock.Mock()
+    dialog.force_kill = mock.Mock()
+    dialog._highlight_pid = mock.Mock()
+
+    overlay = mock.Mock()
+    overlay.canvas = mock.Mock()
+    overlay.rect = object()
+    overlay.hline = object()
+    overlay.vline = object()
+    overlay.label = object()
+    overlay.reset = mock.Mock()
+    overlay.apply_defaults = mock.Mock()
+    overlay.close = mock.Mock()
+    dialog._overlay = overlay
+    dialog.app = SimpleNamespace(config={})
+
+    # Delay callback so cancel happens before choose executes
+    dialog.after = lambda delay, cb, *args: threading.Timer(0.1, cb, args).start()
+
+    with patch("src.views.force_quit_dialog.messagebox"):
+        dialog._configure_overlay()
+        dialog._kill_by_click()
+        dialog.cancel_kill_by_click()
+        time.sleep(0.2)
+
+    overlay.choose.assert_not_called()
+    overlay.close.assert_called_once()
+    overlay.reset.assert_called_once()
+
+
+
 def test_kill_by_click_cancel_allows_retry() -> None:
     dialog = ForceQuitDialog.__new__(ForceQuitDialog)
     dialog._overlay_thread = None
