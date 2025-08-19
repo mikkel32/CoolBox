@@ -22,7 +22,7 @@ def setup_logging(level: int = logging.INFO, log_file: str | None = None) -> Non
         consulted. When neither are provided no file logging is configured.
     """
     if log_file is None:
-        log_file = os.getenv("COOLBOX_LOG_FILE")
+        log_file = os.getenv("COOLBOX_LOG_FILE", "coolbox.log")
 
     handlers: list[logging.Handler] = [
         RichHandler(rich_tracebacks=True, markup=True)
@@ -34,6 +34,8 @@ def setup_logging(level: int = logging.INFO, log_file: str | None = None) -> Non
             logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         )
         handlers.append(file_handler)
+
+    logging.captureWarnings(True)
 
     logging.basicConfig(
         level=level,
