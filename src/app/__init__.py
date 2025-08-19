@@ -229,7 +229,7 @@ class CoolBoxApp:
     def open_security_center(self) -> None:
         """Launch the Security Center dialog with elevation when needed."""
         from ..views.security_dialog import SecurityDialog
-        from .utils.security import is_admin, launch_security_center
+        from ..utils.security import is_admin, launch_security_center
         from tkinter import messagebox
 
         if not is_admin():
