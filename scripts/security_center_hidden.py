@@ -17,9 +17,10 @@ from src.utils.win_console import (  # noqa: E402
 from src.app import CoolBoxApp  # noqa: E402
 from src.views.security_dialog import SecurityDialog  # noqa: E402
 from src.utils import security  # noqa: E402
+import tkinter as tk
 
 if not security.is_admin():
-    security.relaunch_security_center()
+    security.relaunch_security_center(sys.argv[1:])
     sys.exit(0)
 
 
@@ -46,7 +47,9 @@ silence_stdio()
 def main() -> None:
     app = CoolBoxApp()
     app.window.withdraw()
-    SecurityDialog(app)
+    top = tk.Toplevel(app.window)
+    SecurityDialog(top)
+    top.protocol("WM_DELETE_WINDOW", app.window.destroy)
     app.window.mainloop()
 
 
