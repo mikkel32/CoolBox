@@ -55,7 +55,7 @@ class CoolBoxApp:
         self.window = ctk.CTk()
         self.window.title("CoolBox - Modern Desktop App")
         self.window.geometry(
-            f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 900)}"
+            f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 1000)}"
         )
 
         # Global error handler for uncaught Tk callbacks
@@ -70,7 +70,10 @@ class CoolBoxApp:
             self._temp_icon = None
 
         # Set minimum window size
-        self.window.minsize(800, 700)
+        self.window.minsize(
+            self.config.get("window_min_width", 800),
+            self.config.get("window_min_height", 800),
+        )
 
         # Theme manager
         self.theme = ThemeManager(config=self.config)
