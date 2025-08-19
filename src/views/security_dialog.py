@@ -1,170 +1,192 @@
 # -*- coding: utf-8 -*-
 """
-Security Center dialog that launches advanced Firewall and Defender controls.
+Minimal, fast Tkinter UI for Security Center.
+Two toggles: Firewall and Defender Real-time. Status live. Non-blocking.
+No PowerShell popups; work is done via utils with hidden windows.
 """
 
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
-from typing import TYPE_CHECKING, Optional, Tuple
+from types import SimpleNamespace
 
-from src.utils.firewall import (
-    is_firewall_supported,
-    get_firewall_status,
-    FirewallStatus,
-)
-from src.utils.defender import (
-    is_defender_supported,
-    get_defender_status,
-    DefenderStatus,
-)
-from src.app import error_handler as eh
-from .firewall_dialog import FirewallDialog
-from .defender_dialog import DefenderDialog
-
-if TYPE_CHECKING:  # pragma: no cover
-    from src.app import CoolBoxApp
+from src.utils import security
 
 
-# expose for tests
+# expose for tests and patching ------------------------------------------------
 
-def read_current_statuses() -> Tuple[FirewallStatus, DefenderStatus]:
-    fw = get_firewall_status() if is_firewall_supported() else FirewallStatus(
-        None, None, None, False, False, False, False, None, "Unsupported"
+is_firewall_enabled = security.is_firewall_enabled
+is_defender_supported = getattr(security, "is_defender_supported", lambda: False)
+get_defender_status = security.get_defender_status
+set_firewall_enabled = security.set_firewall_enabled
+set_defender_enabled = security.set_defender_enabled
+set_defender_realtime = security.set_defender_realtime
+DefenderStatus = security.DefenderStatus
+
+
+def read_current_statuses():
+    fw_enabled = is_firewall_enabled()
+    fw = SimpleNamespace(
+        domain=fw_enabled,
+        private=fw_enabled,
+        public=fw_enabled,
+        error=None,
     )
-    df = get_defender_status() if is_defender_supported() else DefenderStatus(
-        None, None, False, False, False, False, None, "Unsupported"
-    )
+    df = get_defender_status()
     return fw, df
 
 
-def read_current_states() -> Tuple[Optional[bool], Optional[bool]]:
-    fw, df = read_current_statuses()
-    profiles = (fw.domain, fw.private, fw.public)
-    fw_state: Optional[bool]
-    if any(v is None for v in profiles):
-        fw_state = None
-    else:
-        fw_state = bool(all(profiles))
-    return fw_state, df.realtime
+class SecurityDialog(ttk.Frame):
+    def __init__(self, master: tk.Tk):
+        super().__init__(master, padding=16)
+        self.master.title("Security Center")
+        self.master.geometry("480x240")
+        self.master.resizable(False, False)
 
+        self._fw_var = tk.BooleanVar(value=False)
+        self._rt_var = tk.BooleanVar(value=False)
 
-class SecurityDialog(tk.Toplevel):
-    def __init__(self, master: tk.Misc | "CoolBoxApp" | None = None) -> None:
-        app = master if hasattr(master, "window") else None
-        tk_master = master.window if app is not None else master
-        super().__init__(tk_master)
+        title = ttk.Label(self, text="Security Center", font=("Segoe UI", 16, "bold"))
+        title.grid(row=0, column=0, columnspan=3, sticky="w")
 
-        self.app: "CoolBoxApp | None" = app  # type: ignore[assignment]
-        if self.app is not None and hasattr(self.app, "register_dialog"):
-            self.app.register_dialog(self)
-        if self.app is not None and hasattr(self.app, "get_icon_photo"):
-            try:
-                icon = self.app.get_icon_photo()
-                if icon is not None:
-                    self.iconphoto(False, icon)
-            except Exception:
-                pass
-        self.bind("<Escape>", lambda _e: self.destroy())
-        self.title("Security Center")
-        self.resizable(False, False)
+        self._admin_lbl = ttk.Label(self, text="Admin: checking...")
+        self._admin_lbl.grid(row=0, column=2, sticky="e")
 
-        style = ttk.Style(self)
-        try:
-            # Use native theme on Windows when available
-            if tk.TkVersion >= 8.6 and self.tk.call("tk", "windowingsystem") == "win32":
-                style.theme_use("vista")
-        except Exception:
-            pass
-        style.configure("Good.TLabel", foreground="#0a7d0a")
-        style.configure("Bad.TLabel", foreground="#a61e1e")
-        style.configure("Warn.TLabel", foreground="#ad5a00")
-
-        frm = ttk.Frame(self, padding=12)
-        frm.grid(row=0, column=0, sticky="nsew")
-
-        # firewall row
-        self.lbl_fw = ttk.Label(frm, text="Firewall: …")
-        self.lbl_fw.grid(row=0, column=0, sticky="w")
-        ttk.Button(frm, text="Firewall…", command=self._open_firewall).grid(
-            row=0, column=1, padx=(8, 0)
+        ttk.Label(self, text="Windows Firewall").grid(row=1, column=0, sticky="w", pady=(16, 4))
+        self._fw_switch = ttk.Checkbutton(
+            self, text="Enabled", variable=self._fw_var, command=self._on_fw_toggle
         )
+        self._fw_switch.grid(row=1, column=1, sticky="w", pady=(16, 4))
+        self._fw_status = ttk.Label(self, text="Status: ...")
+        self._fw_status.grid(row=1, column=2, sticky="e", pady=(16, 4))
 
-        # defender row
-        self.lbl_df = ttk.Label(frm, text="Defender: …")
-        self.lbl_df.grid(row=1, column=0, sticky="w", pady=(8, 0))
-        ttk.Button(frm, text="Defender…", command=self._open_defender).grid(
-            row=1, column=1, padx=(8, 0)
+        ttk.Label(self, text="Microsoft Defender Realtime").grid(row=2, column=0, sticky="w", pady=4)
+        self._rt_switch = ttk.Checkbutton(
+            self, text="Enabled", variable=self._rt_var, command=self._on_rt_toggle
         )
+        self._rt_switch.grid(row=2, column=1, sticky="w", pady=4)
+        self._rt_status = ttk.Label(self, text="Status: ...")
+        self._rt_status.grid(row=2, column=2, sticky="e", pady=4)
 
-        # buttons
-        btns = ttk.Frame(frm)
-        btns.grid(row=2, column=0, columnspan=2, sticky="e", pady=(12, 0))
-        ttk.Button(btns, text="Refresh", command=self.refresh).grid(
-            row=0, column=0, padx=(0, 8)
+        self._refresh_btn = ttk.Button(self, text="Refresh", command=self.refresh_async)
+        self._refresh_btn.grid(row=3, column=2, sticky="e", pady=(12, 0))
+
+        self.grid(sticky="nsew")
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=0)
+        self.columnconfigure(2, weight=1)
+
+        self.refresh_async()
+
+    # --------------------------- Event handlers ----------------------------
+
+    def _on_fw_toggle(self):
+        target = bool(self._fw_var.get())
+        self._disable_inputs()
+        threading.Thread(target=self._apply_firewall, args=(target,), daemon=True).start()
+
+    def _on_rt_toggle(self):
+        target = bool(self._rt_var.get())
+        self._disable_inputs()
+        threading.Thread(target=self._apply_realtime, args=(target,), daemon=True).start()
+
+    # ------------------------------ Workers --------------------------------
+
+    def _apply_firewall(self, enabled: bool):
+        ok = set_firewall_enabled(enabled)
+        self.after(0, lambda: self._post_apply("fw", ok))
+
+    def _apply_realtime(self, enabled: bool):
+        ok = (
+            set_defender_enabled(enabled)[0]
+            if enabled
+            else set_defender_realtime(False)
         )
-        ttk.Button(btns, text="Close", command=self.destroy).grid(row=0, column=1)
+        self.after(0, lambda: self._post_apply("rt", ok))
 
-        self.refresh()
+    def _post_apply(self, kind: str, ok: bool):
+        if not ok:
+            messagebox.showerror(
+                "Operation failed",
+                "The requested change could not be applied.\n"
+                "Ensure you are running as Administrator and that policy does not block it.",
+            )
+        self.refresh_async()
 
-    # ----------------------------- helpers -----------------------------------
+    # ------------------------------- Refresh --------------------------------
 
-    def _set_lbl(
-        self, lbl: ttk.Label, name: str, val: Optional[bool], supported: bool
-    ) -> None:
-        if not supported:
-            lbl.configure(text=f"{name}: Unsupported", style="Warn.TLabel")
-            return
-        if val is True:
-            lbl.configure(text=f"{name}: On", style="Good.TLabel")
-        elif val is False:
-            lbl.configure(text=f"{name}: Off", style="Bad.TLabel")
+    def refresh_async(self):
+        self._disable_inputs()
+        threading.Thread(target=self._refresh, daemon=True).start()
+
+    def _refresh(self):
+        admin = security.is_admin()
+        fw_status, ds = read_current_statuses()
+        profiles = (
+            getattr(fw_status, "domain", None),
+            getattr(fw_status, "private", None),
+            getattr(fw_status, "public", None),
+        )
+        if any(v is None for v in profiles):
+            fw = None
         else:
-            lbl.configure(text=f"{name}: Unknown", style="Warn.TLabel")
+            fw = bool(all(profiles))
+        self.after(0, lambda: self._set_states(admin, fw, ds))
 
-    # ------------------------------ actions ----------------------------------
+    def _set_states(self, admin: bool, fw_enabled: bool | None, ds):
+        self._admin_lbl.config(text=f"Admin: {'Yes' if admin else 'No'}")
 
-    def refresh(self) -> None:
-        try:
-            fw_status, df_status = read_current_statuses()
-        except Exception as e:  # pragma: no cover - safety net
-            eh.handle_exception(type(e), e, e.__traceback__)
-            messagebox.showerror("Security Center", f"Failed to read state: {e}")
-            fw_status = FirewallStatus(None, None, None, False, False, False, False, None, str(e))
-            df_status = DefenderStatus(None, None, False, False, False, False, None, str(e))
+        if fw_enabled is None:
+            self._fw_var.set(False)
+            self._fw_status.config(text="Status: unknown")
+        else:
+            self._fw_var.set(bool(fw_enabled))
+            self._fw_status.config(text=f"Status: {'Enabled' if fw_enabled else 'Disabled'}")
 
-        profiles = (fw_status.domain, fw_status.private, fw_status.public)
-        fw_state = None if any(v is None for v in profiles) else bool(all(profiles))
-        self._set_lbl(self.lbl_fw, "Firewall", fw_state, is_firewall_supported())
-        self._set_lbl(self.lbl_df, "Defender", df_status.realtime, is_defender_supported())
+        rt = getattr(ds, "realtime_enabled", getattr(ds, "realtime", None))
+        svc = getattr(ds, "service_state", None) or "UNKNOWN"
+        tamper = getattr(ds, "tamper_protection", getattr(ds, "tamper_on", None))
+        rt_txt = []
+        if rt is None:
+            rt_txt.append("RT: unknown")
+        else:
+            rt_txt.append("RT: on" if rt else "RT: off")
+        rt_txt.append(f"SVC: {svc}")
+        if tamper is not None:
+            rt_txt.append(f"TP: {'on' if tamper else 'off'}")
+        self._rt_status.config(text="Status: " + " | ".join(rt_txt))
+        self._rt_var.set(bool(rt) if rt is not None else False)
 
-        if fw_status.error:
-            messagebox.showwarning("Security Center", f"Firewall: {fw_status.error}")
-        if df_status.error:
-            messagebox.showwarning("Security Center", f"Defender: {df_status.error}")
+        self._enable_inputs(admin)
 
-    def _open_firewall(self) -> None:
-        if not is_firewall_supported():
-            messagebox.showwarning("Security Center", "Firewall control unsupported.")
-            return
-        try:
-            FirewallDialog(self).grab_set()
-        except Exception as e:  # pragma: no cover - UI failure
-            eh.handle_exception(type(e), e, e.__traceback__)
-            messagebox.showerror("Security Center", f"Failed to open Firewall: {e}")
+    # ------------------------------ UI state --------------------------------
 
-    def _open_defender(self) -> None:
-        if not is_defender_supported():
-            messagebox.showwarning("Security Center", "Defender control unsupported.")
-            return
-        try:
-            DefenderDialog(self).grab_set()
-        except Exception as e:  # pragma: no cover - UI failure
-            eh.handle_exception(type(e), e, e.__traceback__)
-            messagebox.showerror("Security Center", f"Failed to open Defender: {e}")
+    def _disable_inputs(self):
+        for w in (self._fw_switch, self._rt_switch, self._refresh_btn):
+            w.state(["disabled"])
 
-    def destroy(self) -> None:  # type: ignore[override]
-        if self.app is not None and hasattr(self.app, "unregister_dialog"):
-            self.app.unregister_dialog(self)
-        super().destroy()
+    def _enable_inputs(self, admin: bool):
+        self._refresh_btn.state(["!disabled"])
+        if admin:
+            self._fw_switch.state(["!disabled"])
+            self._rt_switch.state(["!disabled"])
+        else:
+            self._fw_switch.state(["disabled"])
+            self._rt_switch.state(["disabled"])
+
+
+def run():
+    root = tk.Tk()
+    try:
+        root.call("ttk::style", "theme", "use", "vista")
+    except Exception:
+        pass
+    SecurityDialog(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":  # pragma: no cover
+    run()
+
