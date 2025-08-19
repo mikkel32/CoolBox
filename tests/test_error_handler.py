@@ -43,3 +43,23 @@ def test_warning_and_unraisable_capture(tmp_path, monkeypatch):
     sys.unraisablehook(info)
     assert any("boom" in e for e in eh.RECENT_ERRORS)
 
+
+def test_handle_exception_uses_dialog(monkeypatch):
+    """``handle_exception`` should invoke the error dialog helper."""
+
+    called = {}
+
+    def fake_dialog(msg: str, details: str) -> None:
+        called["msg"] = msg
+        called["details"] = details
+
+    monkeypatch.setattr(eh, "_show_error_dialog", fake_dialog)
+
+    try:
+        raise RuntimeError("kaboom")
+    except RuntimeError as exc:
+        eh.handle_exception(RuntimeError, exc, None)
+
+    assert "kaboom" in called["msg"]
+    assert "RuntimeError" in called["details"]
+
