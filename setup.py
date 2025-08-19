@@ -204,6 +204,11 @@ if os.environ.get("COOLBOX_LOG_FILE"):
 else:
     logger.addHandler(logging.NullHandler())
 
+# Prevent messages from propagating to the root logger.
+# This avoids duplicate output when other parts of the application
+# configure root logging.
+logger.propagate = False
+
 # ---------- configuration ----------
 
 DEFAULT_RAINBOW = (
