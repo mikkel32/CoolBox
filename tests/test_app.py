@@ -4,7 +4,7 @@ import os
 import unittest
 import customtkinter as ctk
 from unittest.mock import patch
-import src.utils.security as security
+from types import SimpleNamespace
 
 from src.app import CoolBoxApp
 
@@ -144,12 +144,16 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_open_security_center_method(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.security.is_firewall_enabled", lambda: True),
+            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
+            patch("src.views.security_dialog.is_defender_supported", lambda: True),
             patch(
-                "src.views.security_dialog.security.get_defender_status",
-                lambda: security.DefenderStatus("RUNNING", True, True, True, True),
+                "src.views.security_dialog.read_current_statuses",
+                lambda: (
+                    SimpleNamespace(domain=True, private=True, public=True, error=None),
+                    SimpleNamespace(realtime=True, error=None),
+                ),
             ),
-            patch("src.views.security_dialog.security.is_admin", lambda: True),
+            patch("src.utils.security.is_admin", lambda: True),
         ]
         for p in patches:
             p.start()
@@ -166,12 +170,16 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_security_center_singleton(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.security.is_firewall_enabled", lambda: True),
+            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
+            patch("src.views.security_dialog.is_defender_supported", lambda: True),
             patch(
-                "src.views.security_dialog.security.get_defender_status",
-                lambda: security.DefenderStatus("RUNNING", True, True, True, True),
+                "src.views.security_dialog.read_current_statuses",
+                lambda: (
+                    SimpleNamespace(domain=True, private=True, public=True, error=None),
+                    SimpleNamespace(realtime=True, error=None),
+                ),
             ),
-            patch("src.views.security_dialog.security.is_admin", lambda: True),
+            patch("src.utils.security.is_admin", lambda: True),
         ]
         for p in patches:
             p.start()
