@@ -144,13 +144,15 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_open_security_center_method(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
-            patch("src.views.security_dialog.is_defender_supported", lambda: True),
+            patch("src.utils.security.is_firewall_enabled", lambda: True),
             patch(
-                "src.views.security_dialog.read_current_statuses",
-                lambda: (
-                    SimpleNamespace(domain=True, private=True, public=True, error=None),
-                    SimpleNamespace(realtime=True, error=None),
+                "src.utils.security.get_defender_status",
+                lambda: SimpleNamespace(
+                    realtime_enabled=True,
+                    service_state="RUNNING",
+                    antispyware_enabled=True,
+                    antivirus_enabled=True,
+                    tamper_protection=None,
                 ),
             ),
             patch("src.utils.security.is_admin", lambda: True),
@@ -170,13 +172,15 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_security_center_singleton(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.views.security_dialog.is_firewall_enabled", lambda: True),
-            patch("src.views.security_dialog.is_defender_supported", lambda: True),
+            patch("src.utils.security.is_firewall_enabled", lambda: True),
             patch(
-                "src.views.security_dialog.read_current_statuses",
-                lambda: (
-                    SimpleNamespace(domain=True, private=True, public=True, error=None),
-                    SimpleNamespace(realtime=True, error=None),
+                "src.utils.security.get_defender_status",
+                lambda: SimpleNamespace(
+                    realtime_enabled=True,
+                    service_state="RUNNING",
+                    antispyware_enabled=True,
+                    antivirus_enabled=True,
+                    tamper_protection=None,
                 ),
             ),
             patch("src.utils.security.is_admin", lambda: True),
