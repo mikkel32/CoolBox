@@ -33,18 +33,7 @@ import urllib.request
 
 if TYPE_CHECKING:  # pragma: no cover - for static type checkers
     from rich.console import Console as ConsoleType
-    from rich.table import Table
-    from rich.panel import Panel
-    from rich.progress import (
-        Progress,
-        BarColumn,
-        TimeElapsedColumn,
-        TaskProgressColumn,
-        MofNCompleteColumn,
-        ProgressColumn,
-    )
     from rich.text import Text as TextType
-    from rich import box
 else:  # pragma: no cover - runtime fallbacks for annotations
     ConsoleType: TypeAlias = object
     TextType: TypeAlias = str
@@ -52,66 +41,81 @@ else:  # pragma: no cover - runtime fallbacks for annotations
 # ---------- rich UI ----------
 RICH_AVAILABLE = False
 try:
-    from rich.console import Console
-    from rich.table import Table
-    from rich.panel import Panel
+    from rich.console import Console as _RichConsole
+    from rich.table import Table as _RichTable
+    from rich.panel import Panel as _RichPanel
     from rich.progress import (
-        Progress,
-        BarColumn,
-        TimeElapsedColumn,
-        TaskProgressColumn,
-        MofNCompleteColumn,
-        ProgressColumn,
+        Progress as _RichProgress,
+        BarColumn as _RichBarColumn,
+        TimeElapsedColumn as _RichTimeElapsedColumn,
+        TaskProgressColumn as _RichTaskProgressColumn,
+        MofNCompleteColumn as _RichMofNCompleteColumn,
+        ProgressColumn as _RichProgressColumn,
     )
-    from rich.text import Text
-    from rich import box
+    from rich.text import Text as _RichText
+    from rich import box as _rich_box
     from rich.traceback import install as _rich_tb_install
+
     _rich_tb_install(show_locals=False)
     RICH_AVAILABLE = True
 except ImportError:  # pragma: no cover
     try:
-        res = subprocess.run(
+        subprocess.run(
             [sys.executable, "-m", "pip", "install", "rich>=13"],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        from rich.console import Console
-        from rich.table import Table
-        from rich.panel import Panel
+        from rich.console import Console as _RichConsole
+        from rich.table import Table as _RichTable
+        from rich.panel import Panel as _RichPanel
         from rich.progress import (
-            Progress,
-            BarColumn,
-            TimeElapsedColumn,
-            TaskProgressColumn,
-            MofNCompleteColumn,
-            ProgressColumn,
+            Progress as _RichProgress,
+            BarColumn as _RichBarColumn,
+            TimeElapsedColumn as _RichTimeElapsedColumn,
+            TaskProgressColumn as _RichTaskProgressColumn,
+            MofNCompleteColumn as _RichMofNCompleteColumn,
+            ProgressColumn as _RichProgressColumn,
         )
-        from rich.text import Text
-        from rich import box
+        from rich.text import Text as _RichText
+        from rich import box as _rich_box
+
         RICH_AVAILABLE = True
     except Exception:
         RICH_AVAILABLE = False
 
-if not RICH_AVAILABLE:  # pragma: no cover - executed when rich unavailable
+if RICH_AVAILABLE:
+    Console = _RichConsole
+    Table = _RichTable
+    Panel = _RichPanel
+    Progress = _RichProgress
+    BarColumn = _RichBarColumn
+    TimeElapsedColumn = _RichTimeElapsedColumn
+    TaskProgressColumn = _RichTaskProgressColumn
+    MofNCompleteColumn = _RichMofNCompleteColumn
+    ProgressColumn = _RichProgressColumn
+    Text = _RichText
+    box = _rich_box
+else:  # pragma: no cover - executed when rich unavailable
+
     class _PlainConsole:
-        def print(self, *args, **kwargs):
+        def print(self, *args, **kwargs) -> None:
             print(*args, **kwargs)
 
-        def log(self, *args, **kwargs):
+        def log(self, *args, **kwargs) -> None:
             print(*args, **kwargs)
 
-        def flush(self):
+        def flush(self) -> None:
             sys.stdout.flush()
 
     class _PlainTable:
         def __init__(self, *_, **__):
             self._rows: list[str] = []
 
-        def add_column(self, *_, **__):
+        def add_column(self, *_, **__) -> None:
             pass
 
-        def add_row(self, *args, **__):
+        def add_row(self, *args, **__) -> None:
             self._rows.append(" ".join(str(a) for a in args))
 
         def __str__(self) -> str:  # pragma: no cover - simple fallback
@@ -138,19 +142,15 @@ if not RICH_AVAILABLE:  # pragma: no cover - executed when rich unavailable
             pass
 
     class _PlainText(str):
-        def append(self, ch: str, style: str | None = None) -> None:
+        def append(self, ch: str, style: str | None = None) -> None:  # pragma: no cover - simple fallback
             pass
 
-    Console: TypeAlias = _PlainConsole
-    Table: TypeAlias = _PlainTable
-    Panel: TypeAlias = _PlainPanel
-    Progress: TypeAlias = _PlainProgress
-    BarColumn: TypeAlias = object
-    TimeElapsedColumn: TypeAlias = object
-    TaskProgressColumn: TypeAlias = object
-    MofNCompleteColumn: TypeAlias = object
-    ProgressColumn: TypeAlias = object
-    Text: TypeAlias = _PlainText
+    Console = _PlainConsole
+    Table = _PlainTable
+    Panel = _PlainPanel
+    Progress = _PlainProgress
+    BarColumn = TimeElapsedColumn = TaskProgressColumn = MofNCompleteColumn = ProgressColumn = object
+    Text = _PlainText
 
     class _Box:
         SIMPLE_HEAVY = ROUNDED = MINIMAL_DOUBLE_HEAD = None
@@ -161,20 +161,17 @@ if not RICH_AVAILABLE:  # pragma: no cover - executed when rich unavailable
 try:
     from src.ensure_deps import ensure_numpy  # type: ignore
 except Exception as exc:  # pragma: no cover
-    print(
-        f"Warning: could not import ensure_numpy ({exc}).", file=sys.stderr
-    )
+    print(f"Warning: could not import ensure_numpy ({exc}).", file=sys.stderr)
 
     def ensure_numpy(version: str | None = None) -> ModuleType:  # type: ignore
         """Fallback numpy import that errors loudly if numpy is missing."""
         try:
             return __import__("numpy")
         except ImportError as np_exc:
-            msg = (
-                "numpy is required but was not found. Install it with 'pip install numpy'."
-            )
+            msg = "numpy is required but was not found. Install it with 'pip install numpy'."
             print(msg, file=sys.stderr)
             raise ImportError(msg) from np_exc
+
 
 try:
     from src.utils.system_utils import (  # type: ignore
@@ -195,6 +192,7 @@ except Exception as exc:  # pragma: no cover
             f"CWD:      {Path.cwd()}",
         ]
         return "\n".join(lines)
+
 
 # ---------- logging ----------
 logger = logging.getLogger("coolbox.setup")
@@ -262,19 +260,28 @@ if os.environ.get("COOLBOX_COLORS"):
 
 RAINBOW_COLORS: Sequence[str] = tuple(CONFIG.rainbow_colors)
 
+
 # ---------- neon border fallback ----------
 class _NoopBorder:
-    def __init__(self, *_, **__): ...
-    def __enter__(self): return self
-    def __exit__(self, *_): return False
+    def __init__(self, *_, **__):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
 
 try:
     from src.utils.rainbow import NeonPulseBorder as _BorderImpl  # type: ignore
 except Exception:
     _BorderImpl = _NoopBorder  # type: ignore
 
+
 def NeonPulseBorder(**kwargs):
     return _BorderImpl(**kwargs)
+
 
 # ---------- rainbow helpers ----------
 
@@ -302,9 +309,11 @@ def rainbow_text(msg: str, colors: Sequence[str] | None = None) -> TextType:
         t.append(ch, style=colors[i % len(colors)])
     return t
 
+
 # ---------- atomic console ----------
 class LockingConsole:
     """Thread-safe console wrapper compatible with Rich. Exposes .raw for internals."""
+
     def __init__(self, base: ConsoleType | None = None):
         self._lock = threading.RLock()
         self._console = base or Console(soft_wrap=False, highlight=False)
@@ -345,6 +354,7 @@ class LockingConsole:
     def __getattr__(self, name):
         return getattr(self._console, name)
 
+
 # ---------- env + constants ----------
 
 
@@ -362,9 +372,9 @@ _OFFLINE_AUTO: bool | None = None
 
 
 def set_offline(value: bool) -> None:
-    global _OFFLINE_FORCED, _OFFLINE_AUTO, BASE_ENV
+    global _OFFLINE_FORCED, _OFFLINE_AUTO
     _OFFLINE_FORCED = value
-    _OFFLINE_AUTO = True if value else False
+    _OFFLINE_AUTO = True if value else None
     if value:
         os.environ["COOLBOX_OFFLINE"] = "1"
         BASE_ENV["COOLBOX_OFFLINE"] = "1"
@@ -385,6 +395,7 @@ def is_offline() -> bool:
 def offline_auto_detected() -> bool:
     return (_OFFLINE_AUTO is True) and not _OFFLINE_FORCED
 
+
 BASE_ENV = {
     **os.environ,
     "PIP_DISABLE_PIP_VERSION_CHECK": "1",
@@ -401,6 +412,7 @@ MIN_PYTHON: Tuple[int, int] = (3, 10)
 if sys.version_info < MIN_PYTHON:
     raise RuntimeError(f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required")
 
+
 def locate_root(start: Path) -> Path:
     """Locate project root by walking parents for common markers."""
     p = Path(start).resolve()
@@ -410,17 +422,20 @@ def locate_root(start: Path) -> Path:
             return parent
     return p
 
+
 def get_root() -> Path:
     env = os.environ.get("COOLBOX_ROOT")
     if env:
         return Path(env).resolve()
     return locate_root(Path(__file__).resolve())
 
+
 def get_venv_dir() -> Path:
     env = os.environ.get("COOLBOX_VENV")
     if env:
         return Path(env).resolve()
     return get_root() / ".venv"
+
 
 ROOT_DIR = get_root()
 REQUIREMENTS_FILE = ROOT_DIR / "requirements.txt"
@@ -449,9 +464,8 @@ def show_setup_banner() -> None:
 def check_python_version() -> None:
     """Verify the current Python version meets requirements."""
     if sys.version_info < MIN_PYTHON:
-        raise RuntimeError(
-            f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required"
-        )
+        raise RuntimeError(f"Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required")
+
 
 # ---------- summary ----------
 class RunSummary:
@@ -481,6 +495,7 @@ class RunSummary:
             table.add_row("[red]Error[/]", e)
         console.print(Panel(table, title="Summary", box=box.ROUNDED))
 
+
 SUMMARY = RunSummary()
 
 
@@ -504,23 +519,25 @@ def send_telemetry(summary: RunSummary) -> None:
     except Exception:
         pass
 
+
 # ---------- helpers ----------
 def _venv_python() -> str:
     venv_dir = get_venv_dir()
     py = venv_dir / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
     return str(py)
 
+
 def ensure_venv() -> str:
     venv_dir = get_venv_dir()
     if not venv_dir.exists():
         log(f"Creating venv at {venv_dir}")
         import venv as _venv
+
         _venv.EnvBuilder(with_pip=True, clear=False, upgrade=False).create(str(venv_dir))
     return _venv_python()
 
-def _run(
-    cmd: Sequence[str], *, cwd: Path | None = None, env: dict | None = None, timeout: float | None = None
-) -> None:
+
+def _run(cmd: Sequence[str], *, cwd: Path | None = None, env: dict | None = None, timeout: float | None = None) -> None:
     """Run command in non-interactive mode. Inherit IO for live display."""
     final_env = dict(BASE_ENV)
     if env:
@@ -548,6 +565,7 @@ def _retry(
     if last is not None:
         raise last
 
+
 def _file_hash(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -555,8 +573,10 @@ def _file_hash(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+
 def _stamp_path() -> Path:
     return get_venv_dir() / ".req_hash"
+
 
 def _should_install(req: Path, upgrade: bool) -> bool:
     if upgrade:
@@ -571,8 +591,10 @@ def _should_install(req: Path, upgrade: bool) -> bool:
     except Exception:
         return True
 
+
 def _write_req_stamp(req: Path) -> None:
     _stamp_path().write_text(_file_hash(req), encoding="utf-8")
+
 
 def update_repo() -> None:
     if CONFIG.no_git or is_offline():
@@ -588,12 +610,14 @@ def update_repo() -> None:
     except Exception as e:
         SUMMARY.add_warning(f"git update failed: {e}")
 
+
 def build_extensions() -> None:
     try:
         py = ensure_venv()
         _run([py, "-m", "build", "--wheel", "--no-isolation"], cwd=ROOT_DIR)
     except Exception as e:
         SUMMARY.add_warning(f"native build skipped: {e}")
+
 
 def _progress(**overrides):
     """Progress configured for safety on all terminals."""
@@ -605,11 +629,12 @@ def _progress(**overrides):
         MofNCompleteColumn(),
         TimeElapsedColumn(),
         refresh_per_second=12,
-        console=console.raw,          # use real Console
+        console=console.raw,  # use real Console
         transient=True,
-        disable=CONFIG.no_anim,              # auto-disable when not TTY or CI
+        disable=CONFIG.no_anim,  # auto-disable when not TTY or CI
         **overrides,
     )
+
 
 def _pip(
     args: Sequence[str],
@@ -623,9 +648,7 @@ def _pip(
     base_cmd = [py, "-m", "pip"]
 
     if is_offline():
-        SUMMARY.add_warning(
-            "Offline mode: skipping " + " ".join(base_cmd + list(args))
-        )
+        SUMMARY.add_warning("Offline mode: skipping " + " ".join(base_cmd + list(args)))
         return
 
     if upgrade_pip:
@@ -644,8 +667,10 @@ def _pip(
     if last is not None:
         raise last
 
+
 def check_outdated(*, requirements: Path | None, upgrade: bool = False) -> None:
     import json
+
     py = ensure_venv()
     cmd = [py, "-m", "pip", "list", "--outdated", "--format=json"]
     try:
@@ -682,12 +707,14 @@ def check_outdated(*, requirements: Path | None, upgrade: bool = False) -> None:
             table.add_row(p.get("name", ""), p.get("version", ""), p.get("latest_version", ""), p.get("type", ""))
         console.print(table)
 
+
 def show_info() -> None:
     info = get_system_info()
     table = Table(title="CoolBox — System Info", box=box.MINIMAL_DOUBLE_HEAD)
     for k, v in info.items():
         table.add_row(k, str(v))
     console.print(table)
+
 
 def run_tests(extra: Sequence[str]) -> None:
     py = ensure_venv()
@@ -697,6 +724,7 @@ def run_tests(extra: Sequence[str]) -> None:
             _run([py, "-m", "pytest", "-q", *extra])
         except Exception as e:
             SUMMARY.add_error(f"pytest failed: {e}")
+
 
 def doctor() -> None:
     problems: list[str] = []
@@ -708,6 +736,7 @@ def doctor() -> None:
         problems.append("requirements.txt not found.")
     console.print(Panel.fit("\n".join(problems) or "No obvious problems.", title="Doctor", box=box.ROUNDED))
 
+
 def lock() -> None:
     py = ensure_venv()
     try:
@@ -715,6 +744,7 @@ def lock() -> None:
         _run([py, "-m", "piptools", "compile", str(REQUIREMENTS_FILE), "--upgrade"])
     except Exception as e:
         SUMMARY.add_error(f"Lock failed: {e}")
+
 
 def sync(lock_file: Path | None, *, upgrade: bool = False) -> None:
     py = ensure_venv()
@@ -737,6 +767,7 @@ def self_update() -> None:
     except Exception as e:  # pragma: no cover - network/install issues
         SUMMARY.add_error(f"Self-update failed: {e}")
 
+
 def clean_pyc() -> None:
     n = 0
     for p in ROOT_DIR.rglob("*"):
@@ -746,9 +777,7 @@ def clean_pyc() -> None:
     log(f"Removed {n} __pycache__ folders.")
 
 
-def _build_install_plan(
-    req_path: Path, dev: bool, upgrade: bool
-) -> list[tuple[str, list[str], bool]]:
+def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
     """Assemble pip commands needed for installation."""
     planned: list[tuple[str, list[str], bool]] = []
 
@@ -794,6 +823,7 @@ def _execute_install_plan(planned: Sequence[tuple[str, list[str], bool]]) -> Non
                 SUMMARY.add_error(f"{title} failed: {e}")
             prog.advance(t)
 
+
 def install(
     requirements: Path | None = None,
     *,
@@ -830,7 +860,7 @@ def install(
             theme="pride",
             thickness=2,
             use_alt_screen=CONFIG.alt_screen,
-            console=console.raw,    # pass real Console
+            console=console.raw,  # pass real Console
         )
         if border_enabled
         else nullcontext()
@@ -857,6 +887,7 @@ def install(
             SUMMARY.add_warning(f"Could not write requirement stamp: {e}")
 
     log("Done.")
+
 
 # ---------- CLI ----------
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -917,6 +948,7 @@ def _load_plugins(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
                 SUMMARY.add_warning(f"Plugin {ep.name} failed: {exc}")
     except Exception:
         pass
+
 
 def main(argv: Sequence[str] | None = None) -> None:
     args = _parse_args(argv or sys.argv[1:])
@@ -984,6 +1016,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if exit_code == 0 and SUMMARY.errors:
             exit_code = 1
         sys.exit(exit_code)
+
 
 if __name__ == "__main__":
     main()
