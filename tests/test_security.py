@@ -101,27 +101,26 @@ def test_is_defender_enabled(monkeypatch):
 
 def test_set_defender_enabled(monkeypatch):
     monkeypatch.setattr(platform, "system", lambda: "Windows")
-    called = []
+    called = {}
 
-    def fake_run(cmd, capture=False, **kwargs):
-        called.append(cmd)
-        return "False" if capture else ""
+    def fake_run_ex(cmd, capture=True, check=False, timeout=20.0):
+        called["cmd"] = cmd
+        return "", 0
 
-    monkeypatch.setattr(security, "_run", fake_run)
-    assert set_defender_enabled(False) is True
-    assert called[0] == [
+    monkeypatch.setattr(security, "run_command_ex", fake_run_ex)
+
+    # Simulate Defender state after command
+    monkeypatch.setattr(security, "is_defender_enabled", lambda: False)
+
+    ok, err = set_defender_enabled(False)
+    assert ok is True
+    assert err is None
+    assert called["cmd"] == [
         "powershell",
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "Set-MpPreference -DisableRealtimeMonitoring $true",
-    ]
-    assert called[1] == [
-        "powershell",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "(Get-MpComputerStatus).RealTimeProtectionEnabled",
+        "Set-MpPreference -DisableRealtimeMonitoring $true -Force",
     ]
 
 
