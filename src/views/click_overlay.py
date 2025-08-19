@@ -1772,33 +1772,6 @@ class ClickOverlay(tk.Toplevel):
         self._active_history.clear()
         self._move_scheduled = False
         self._pending_move = None
-        # Reset cursor tracking to current pointer position so the overlay
-        # starts fresh on the next activation. Without this the stored
-        # coordinates from a previous run could leave the crosshair lines stuck
-        # even though the actual cursor continues to move.
-        try:
-            cx = self.winfo_pointerx()
-            cy = self.winfo_pointery()
-        except Exception:
-            cx = cy = 0
-        with self._state_lock:
-            self._cursor_x = cx
-            self._cursor_y = cy
-        self._last_move_pos = (cx, cy)
-        self._kf_x = _Kalman1D(KF_PROCESS_NOISE, KF_MEASUREMENT_NOISE)
-        self._kf_y = _Kalman1D(KF_PROCESS_NOISE, KF_MEASUREMENT_NOISE)
-        self._kf_x.update(cx, 0.0)
-        self._kf_y.update(cy, 0.0)
-        self._buffer.update(
-            {
-                "cursor": (None, None),
-                "rect": (-5, -5, -5, -5),
-                "label_text": "",
-                "label_pos": (0, 0),
-                "icon_pos": (0, 0),
-                "pid": None,
-            }
-        )
         self._closed.set(False)
         self.update_state = UpdateState.IDLE
         self.state = OverlayState.INIT
