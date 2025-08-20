@@ -1220,15 +1220,29 @@ class ForceQuitDialog(BaseDialog):
 
     @classmethod
     def force_kill_by_cmdline(cls, regex: re.Pattern[str]) -> int:
-        """Kill processes whose command line matches regex."""
+        """Kill processes whose command line matches ``regex``."""
+
+        # ``psutil.process_iter`` may not immediately expose the command line of
+        # very recently spawned processes which can lead to flaky behaviour when
+        # this helper is invoked right after ``subprocess.Popen``.  The tests
+        # exercise this code in such a scenario and previously the function
+        # occasionally missed the target process, returning ``0``.  To make the
+        # behaviour deterministic we retry the scan a few times with a short
+        # delay until at least one matching PID is found.
+
         pids: list[int] = []
-        for proc in psutil.process_iter(["pid", "cmdline"]):
-            try:
-                cmd = " ".join(proc.info.get("cmdline") or [])
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-            if regex.search(cmd):
-                pids.append(proc.pid)
+        for _ in range(5):
+            pids.clear()
+            for proc in psutil.process_iter(["pid", "cmdline"]):
+                try:
+                    cmd = " ".join(proc.info.get("cmdline") or [])
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+                if regex.search(cmd):
+                    pids.append(proc.pid)
+            if pids:
+                break
+            time.sleep(0.05)
         return cls.force_kill_multiple(pids)
 
     @classmethod
