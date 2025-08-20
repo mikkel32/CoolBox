@@ -925,11 +925,6 @@ def _fallback_list_windows_at(
         recent = list(_RECENT_WINDOWS)
     hits = filter_windows_at(x, y, recent)
     if hits:
-        with _WINDOWS_LOCK:
-            order = {
-                w.handle: i for i, w in enumerate(_WINDOWS_CACHE.get("windows", []))
-            }
-        hits.sort(key=lambda w: order.get(w.handle, len(order)))
         return hits
     if windows is None:
         now = time.time()

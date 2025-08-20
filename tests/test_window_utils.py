@@ -198,19 +198,7 @@ class TestWindowUtils(unittest.TestCase):
             res = wu.list_windows_at(0, 0, 1)
         self.assertEqual(res, [fake])
         gwa.assert_called_once_with(0, 0)
-
-    def test_fallback_list_windows_at_orders_front_to_back(self):
-        from src.utils import window_utils as wu
-
-        w_front = wu.WindowInfo(1, (0, 0, 10, 10), "front", handle=1)
-        w_back = wu.WindowInfo(2, (0, 0, 10, 10), "back", handle=2)
-        wu._RECENT_WINDOWS.clear()
-        wu._RECENT_WINDOWS.extend([w_back, w_front])
-        with wu._WINDOWS_LOCK:
-            wu._WINDOWS_CACHE["windows"] = [w_front, w_back]
-        with mock.patch.object(wu, "_ensure_window_worker"):
-            hits = wu._fallback_list_windows_at(5, 5)
-        self.assertEqual(hits, [w_front, w_back])
+        fallback.assert_not_called()
 
     def test_fallback_async_cache(self):
         from src.utils import window_utils as wu
