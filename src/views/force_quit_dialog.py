@@ -1873,9 +1873,14 @@ class ForceQuitDialog(BaseDialog):
         """Highlight ``pid`` in the process list while the overlay is active."""
         if not hasattr(self, "tree"):
             return
-        if pid is None or not self.tree.exists(str(pid)):
+        if pid is None:
+            if time.monotonic() - getattr(self, "_last_hover_ts", 0) < 0.12:
+                return
             self.tree.selection_remove(self.tree.selection())
             self._set_hover_row(None)
+            return
+        self._last_hover_ts = time.monotonic()
+        if not self.tree.exists(str(pid)):
             return
         iid = str(pid)
         current = self.tree.selection()

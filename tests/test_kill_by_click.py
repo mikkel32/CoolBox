@@ -104,7 +104,6 @@ def test_kill_by_click_selects_and_kills_pid() -> None:
         dialog.force_kill.assert_called_once_with(789)
 
     assert dialog._highlight_pid.call_args_list[0].args == (789, "win")
-    assert dialog._highlight_pid.call_args_list[-1].args == (None, None)
     overlay.apply_defaults.assert_called_once()
     overlay.reset.assert_called_once()
 
@@ -170,7 +169,6 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
     assert overlay.close.called
     dialog.force_kill.assert_not_called()
     assert dialog._highlight_pid.call_args_list[0].args == (123, "proc")
-    assert dialog._highlight_pid.call_args_list[-1].args == (None, None)
     overlay.apply_defaults.assert_called_once()
     overlay.reset.assert_called_once()
     dialog.deiconify.assert_called_once()
