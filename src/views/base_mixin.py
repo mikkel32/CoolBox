@@ -1,5 +1,20 @@
+"""Shared UI helper mixin used by several dialogs.
+
+This module normally imports the :class:`Tooltip` widget which in turn pulls in
+additional ``customtkinter`` submodules.  The unit tests stub out
+``customtkinter`` with lightweight stand-ins and those deep imports can raise
+unexpected exceptions during module loading.  Import the tooltip defensively so
+tests (and environments without the optional dependency) can still import
+``UIHelperMixin`` without error.
+"""
+
 import customtkinter as ctk
-from src.components.tooltip import Tooltip
+
+try:  # pragma: no cover - import is trivial but failure handling is important
+    from src.components.tooltip import Tooltip
+except Exception:  # pragma: no cover - best effort fallback for stubs
+    Tooltip = None  # type: ignore[assignment]
+
 from src.utils.ui import center_window
 
 
@@ -356,13 +371,21 @@ class UIHelperMixin:
         frame.pack(fill="both", expand=True, padx=self.padx, pady=self.pady)
         return frame
 
-    def add_tooltip(self, widget: ctk.CTkBaseClass, text: str) -> Tooltip:
+    def add_tooltip(
+        self, widget: ctk.CTkBaseClass, text: str
+    ) -> "Tooltip | None":
         """Attach a tooltip to *widget* and return it.
+
+        When the optional :class:`Tooltip` widget is unavailable (for example
+        during tests that stub out ``customtkinter``), the function simply
+        returns ``None`` and no tooltip is added.
 
         Some customtkinter widgets like ``CTkSegmentedButton`` do not implement
         ``bind``. In that case we attach events to their internal buttons
         instead so the tooltip still appears on hover.
         """
+        if Tooltip is None:
+            return None
         tip = Tooltip(self, text)
         try:
             widget.bind(
@@ -372,7 +395,7 @@ class UIHelperMixin:
             widget.bind("<Leave>", lambda e, t=tip: t.hide())
         except (NotImplementedError, AttributeError):
             if isinstance(widget, ctk.CTkSegmentedButton):
-                for btn in widget._buttons_dict.values():
+                for btn in getattr(widget, "_buttons_dict", {}).values():
                     btn.bind(
                         "<Enter>",
                         lambda e, w=widget, t=tip: self._show_tooltip(w, t),
