@@ -751,6 +751,7 @@ class ClickOverlay(tk.Toplevel):
         self.pid: int | None = None
         self.title_text: str | None = None
         self._last_info: WindowInfo | None = None
+        self._last_sent_info: WindowInfo | None = None
         self._cached_info: WindowInfo | None = None
         self._screen_w = self.winfo_screenwidth()
         self._screen_h = self.winfo_screenheight()
@@ -1201,7 +1202,10 @@ class ClickOverlay(tk.Toplevel):
                 self._cursor_x = fx
                 self._cursor_y = fy
                 self._velocity = math.hypot(vx, vy)
-        _ = self._update_hover_tracker()
+        info = self._update_hover_tracker()
+        hover_changed = info != self._last_sent_info
+        self._last_sent_info = info
+        self._handle_hover(hover_changed, info)
         if self.update_state is UpdateState.IDLE:
             self.update_state = UpdateState.PENDING
             self.after_idle(self._process_update)
@@ -1569,7 +1573,6 @@ class ClickOverlay(tk.Toplevel):
         if "label_pos" in updates:
             self._buffer["label_pos"] = updates["label_pos"]
         self._buffer["pid"] = info.pid
-        self._handle_hover(hover_changed)
 
     def _draw_crosshair(
         self,
@@ -1627,13 +1630,16 @@ class ClickOverlay(tk.Toplevel):
         hover_changed = text_changed or info.pid != self._buffer["pid"]
         return rect, text, window_changed, hover_changed
 
-    def _handle_hover(self, hover_changed: bool) -> None:
+    def _handle_hover(self, hover_changed: bool, info: WindowInfo | None) -> None:
         """Invoke the hover callback when the target window changes."""
-        if hover_changed and self.on_hover is not None:
-            try:
-                self.on_hover(self.pid, self.title_text)
-            except Exception:
-                pass
+        if not hover_changed or self.on_hover is None:
+            return
+        pid = None if info is None else info.pid
+        title = None if info is None else getattr(info, "title", None)
+        try:
+            self.on_hover(pid, title)
+        except Exception:
+            pass
 
     def _stable_info(self) -> WindowInfo | None:
         """Return a best guess based solely on recent hover history."""
