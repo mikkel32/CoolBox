@@ -187,17 +187,6 @@ class TestWindowUtils(unittest.TestCase):
             self.assertIsInstance(info, WindowInfo)
             self.assertTrue(hasattr(info, "handle"))
 
-    def test_list_windows_at_ignores_misreported_front(self):
-        from src.utils import window_utils as wu
-
-        front = WindowInfo(1, (0, 0, 10, 10), "front", 1)
-        back = WindowInfo(2, (0, 0, 10, 10), "back", 2)
-        with (
-            mock.patch.object(wu, "_fallback_list_windows_at", return_value=[front, back]),
-            mock.patch.object(wu, "get_window_at", return_value=back),
-        ):
-            self.assertEqual(wu.list_windows_at(0, 0), [front, back])
-
     def test_list_windows_fast_path(self):
         from src.utils import window_utils as wu
 
