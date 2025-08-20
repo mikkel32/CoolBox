@@ -2340,6 +2340,44 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_hover_uses_current_window_info(self) -> None:
+        root = tk.Tk()
+        calls: list[tuple[int | None, str | None]] = []
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, on_hover=lambda pid, title: calls.append((pid, title)))
+
+        overlay._cursor_x = overlay._cursor_y = 1
+        info1 = WindowInfo(1, (0, 0, 5, 5), "one")
+        info2 = WindowInfo(2, (10, 10, 5, 5), "two")
+
+        with patch.object(overlay, "_update_hover_tracker", side_effect=[info1, info1]):
+            overlay._update_rect(info1)
+            overlay._update_rect(info2)
+
+        self.assertIn((2, "two"), calls)
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
+    def test_on_hover_ignores_self_process(self) -> None:
+        root = tk.Tk()
+        calls: list[tuple[int | None, str | None]] = []
+        with patch("src.views.click_overlay.is_supported", return_value=False):
+            overlay = ClickOverlay(root, on_hover=lambda pid, title: calls.append((pid, title)))
+
+        overlay._cursor_x = overlay._cursor_y = 1
+        self_info = WindowInfo(overlay._own_pid, (0, 0, 5, 5), "self")
+
+        with patch.object(overlay, "_update_hover_tracker", return_value=self_info):
+            overlay._update_rect(self_info)
+
+        self.assertEqual(calls, [(None, None)])
+
+        overlay.destroy()
+        root.destroy()
+
+    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_tracker_add_runs_off_thread(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
