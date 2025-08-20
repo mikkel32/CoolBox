@@ -1,5 +1,15 @@
 import customtkinter as ctk
-from src.components.tooltip import Tooltip
+
+# ``Tooltip`` pulls in substantial UI machinery which may not be available in
+# lightweight test environments.  Import it lazily and fall back to a stub so
+# modules depending on :class:`UIHelperMixin` can still be imported when the full
+# UI stack is absent.
+try:  # pragma: no cover - exercised in integration tests
+    from src.components.tooltip import Tooltip  # type: ignore
+except Exception:  # pragma: no cover - best effort for missing deps
+    class Tooltip:  # type: ignore
+        pass
+
 from src.utils.ui import center_window
 
 
