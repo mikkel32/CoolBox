@@ -18,7 +18,6 @@ class HoverTracker:
         self._current_streak: int = 0
         self._hover_start = time.monotonic()
         self._last_pid: int | None = None
-        self._last_emitted: WindowInfo | None = None
 
     # Public accessors -------------------------------------------------
     @property
@@ -88,20 +87,15 @@ class HoverTracker:
     def stable_info(self, velocity: float) -> WindowInfo | None:
         """Return a best-guess ``WindowInfo`` based on recent history."""
         if not self._pid_stability:
-            return self._last_emitted
+            return None
         pid, count = max(self._pid_stability.items(), key=lambda i: i[1])
         threshold = tuning.stability_threshold + int(velocity * tuning.vel_stab_scale)
-        chosen: WindowInfo | None = None
+        if count < threshold:
+            return None
         for info in reversed(self._info_history):
             if info.pid == pid:
-                chosen = info
-                break
-        if chosen is None:
-            chosen = WindowInfo(pid)
-        if count < threshold:
-            return self._last_emitted or None
-        self._last_emitted = chosen
-        return chosen
+                return info
+        return WindowInfo(pid)
 
     def reset(self) -> None:
         """Clear all runtime state."""
