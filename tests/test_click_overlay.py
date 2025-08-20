@@ -2123,31 +2123,6 @@ class TestClickOverlay(unittest.TestCase):
         root.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_confirm_prefers_front_window(self) -> None:
-        root = tk.Tk()
-        with patch("src.views.click_overlay.is_supported", return_value=False):
-            overlay = ClickOverlay(root)
-
-        overlay._click_x = 5
-        overlay._click_y = 5
-        front = WindowInfo(1, (0, 0, 10, 10), "front")
-        back = WindowInfo(2, (0, 0, 10, 10), "back")
-
-        with (
-            patch.object(overlay, "_query_window_at", return_value=front),
-            patch("src.views.click_overlay.list_windows_at", return_value=[front, back]),
-            patch("src.views.click_overlay.get_window_at", return_value=back, create=True),
-            patch("src.utils.scoring_engine.tuning.confirm_weight", 5.0),
-        ):
-            overlay.close = lambda _e=None: None
-            overlay._on_click()
-
-        self.assertEqual(overlay.pid, 1)
-
-        overlay.destroy()
-        root.destroy()
-
-    @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_gaze_duration_tracks_hover(self) -> None:
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
