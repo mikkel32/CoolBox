@@ -2848,5 +2848,68 @@ def test_update_rect_handles_missing_last_cursor() -> None:
     assert d._buffer["cursor"] == (5, 7)
 
 
+def test_update_rect_requeries_on_mismatch() -> None:
+    os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+    from src.views import click_overlay
+
+    class Dummy:
+        def __init__(self) -> None:
+            self._cursor_x = 50
+            self._cursor_y = 50
+            self._screen_w = 100
+            self._screen_h = 100
+            self.show_crosshair = False
+            self.show_label = False
+            self.hline = self.vline = self.rect = self.label = None
+            self._buffer = {
+                "cursor": (0, 0),
+                "rect": (0, 0, 10, 10),
+                "label_text": "",
+                "label_pos": (0, 0),
+                "pid": None,
+                "hline": (0, 0, 0, 0),
+                "vline": (0, 0, 0, 0),
+                "screen": (100, 100),
+            }
+            self._min_move_px = 0
+            self._last_info = None
+            self._active_window = click_overlay.WindowInfo(None)
+            self._query_future = None
+            self._own_pid = None
+            self.pid = None
+            self.title_text = ""
+            self._queried = False
+            self._update_rect = lambda info=None: None
+            self._last_sent_info = None
+            self.icon_item = None
+
+        def _draw_crosshair(self, updates, px, py, sw, sh, cursor_changed):
+            pass
+
+        def _update_label(self, info, updates):
+            return self._buffer["rect"], "", False, False
+
+        def _calc_label_pos(self, px, py, sw, sh):
+            return (0, 0)
+
+        def _apply_updates(self, updates):
+            pass
+
+        def _handle_hover(self, _hc, _info=None):
+            pass
+
+        def _update_hover_tracker(self, info):
+            return info
+
+        def _query_window_async(self, cb):
+            self._queried = True
+
+    d = Dummy()
+    info = click_overlay.WindowInfo(123, (0, 0, 10, 10), "win")
+    click_overlay.ClickOverlay._update_rect(d, info)
+    assert d._queried
+    assert d.pid is None
+
+
 if __name__ == "__main__":
     unittest.main()

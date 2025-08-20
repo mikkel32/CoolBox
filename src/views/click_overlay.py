@@ -1535,6 +1535,19 @@ class ClickOverlay(tk.Toplevel):
             if self._query_future is None:
                 self._query_window_async(self._update_rect)
             info = self._last_info or self._active_window or WindowInfo(None)
+        px = int(self._cursor_x)
+        py = int(self._cursor_y)
+        if (
+            info.pid not in (self._own_pid, None)
+            and info.rect
+            and not (
+                info.rect[0] <= px < info.rect[0] + info.rect[2]
+                and info.rect[1] <= py < info.rect[1] + info.rect[3]
+            )
+        ):
+            if self._query_future is None:
+                self._query_window_async(self._update_rect)
+            info = self._last_info or WindowInfo(None)
         self.pid = info.pid
         self.title_text = info.title
 
@@ -1543,8 +1556,6 @@ class ClickOverlay(tk.Toplevel):
         self._last_sent_info = stable
         self._handle_hover(stable_changed, stable)
 
-        px = int(self._cursor_x)
-        py = int(self._cursor_y)
         sw = self._screen_w
         sh = self._screen_h
         last = self._buffer.get("cursor")
