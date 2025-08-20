@@ -2290,9 +2290,7 @@ class TestClickOverlay(unittest.TestCase):
                 root, on_hover=lambda pid, title: calls.append((pid, title))
             )
 
-        overlay._cursor_x = 1
-        overlay._cursor_y = 1
-        overlay._update_rect(WindowInfo(5, (0, 0, 5, 5), "foo"))
+        overlay._handle_hover(True, WindowInfo(5, (0, 0, 5, 5), "foo"))
 
         self.assertIn((5, "foo"), calls)
 
@@ -2308,13 +2306,9 @@ class TestClickOverlay(unittest.TestCase):
                 root, on_hover=lambda pid, title: calls.append((pid, title))
             )
 
-        overlay._cursor_x = 1
-        overlay._cursor_y = 1
         info = WindowInfo(5, (0, 0, 5, 5), "foo")
-        overlay._update_rect(info)
-        overlay._cursor_x = 2
-        overlay._cursor_y = 2
-        overlay._update_rect(info)
+        overlay._handle_hover(True, info)
+        overlay._handle_hover(False, info)
 
         self.assertEqual(calls, [(5, "foo")])
 
@@ -2752,7 +2746,7 @@ def test_update_rect_skips_small_move_no_window_change() -> None:
         def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
             self._applied = True
 
-        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+        def _handle_hover(self, _hc: bool, _info: click_overlay.WindowInfo | None) -> None:  # pragma: no cover - dummy
             pass
 
     d = Dummy()
@@ -2810,7 +2804,7 @@ def test_update_rect_handles_missing_last_cursor() -> None:
         def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
             self._applied = True
 
-        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+        def _handle_hover(self, _hc: bool, _info: click_overlay.WindowInfo | None) -> None:  # pragma: no cover - dummy
             pass
 
     d = Dummy()
