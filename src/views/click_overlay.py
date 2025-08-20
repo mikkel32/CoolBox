@@ -23,7 +23,6 @@ import psutil
 from PIL import Image, ImageTk
 from src.utils.window_utils import (
     get_active_window,
-    get_window_at,
     get_window_under_cursor,
     list_windows_at,
     make_window_clickthrough,
@@ -1649,7 +1648,8 @@ class ClickOverlay(tk.Toplevel):
 
     def _confirm_window(self) -> WindowInfo:
         """Re-query the click location after the overlay closes."""
-        info = get_window_at(int(self._click_x), int(self._click_y))
+        wins = list_windows_at(int(self._click_x), int(self._click_y))
+        info = wins[0] if wins else WindowInfo(None)
         self.engine.tracker.add(info, self._initial_active_pid)
         return info
 

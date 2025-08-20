@@ -663,6 +663,10 @@ def get_window_at(x: int, y: int) -> WindowInfo:
     """Return information about the window at ``(x, y)`` in screen coordinates."""
 
     if sys.platform.startswith("win"):
+        wins = _fallback_list_windows_at(x, y)
+        if wins:
+            return wins[0]
+
         pt = wintypes.POINT(x, y)
         hwnd = ctypes.windll.user32.WindowFromPoint(pt)
         if not hwnd:
@@ -946,10 +950,10 @@ def list_windows_at(x: int, y: int, depth: int | None = None) -> List[WindowInfo
     """Return up to ``depth`` windows at ``(x, y)`` from front to back.
 
     When ``depth`` is ``1`` the function avoids the cached enumeration and
-    uses :func:`get_window_at` for a fast lookup.  When ``depth`` is ``None``
+    uses :func:`get_window_at` for a fast lookup. When ``depth`` is ``None``
     or greater than ``1`` the stacked windows are collected from the shared
-    cache.  On Windows the top window is always resolved with
-    ``WindowFromPoint`` to ensure accurate z-ordering.
+    cache. On Windows the stack is augmented with ``WindowFromPoint`` when the
+    cached enumeration appears stale.
     """
 
     if depth == 1:
@@ -959,8 +963,8 @@ def list_windows_at(x: int, y: int, depth: int | None = None) -> List[WindowInfo
     stack = _fallback_list_windows_at(x, y)
     if sys.platform.startswith("win"):
         top = get_window_at(x, y)
-        if top.handle is not None:
-            stack = [top] + [w for w in stack if w.handle != top.handle]
+        if top.handle is not None and not any(w.handle == top.handle for w in stack):
+            stack = [top] + stack
     if depth is not None:
         stack = stack[:depth]
     return stack
