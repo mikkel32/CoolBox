@@ -2739,6 +2739,8 @@ def test_update_rect_skips_small_move_no_window_change() -> None:
             }
             self._applied = False
             self._min_move_px = 2
+            self._last_sent_info = None
+            self._last_sent_info = None
 
         def _draw_crosshair(self, updates: dict[str, tuple[int, ...] | str], px: int, py: int, sw: int, sh: int, cursor_changed: bool) -> None:
             pass
@@ -2752,8 +2754,11 @@ def test_update_rect_skips_small_move_no_window_change() -> None:
         def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
             self._applied = True
 
-        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+        def _handle_hover(self, _hc: bool, _info=None) -> None:  # pragma: no cover - dummy
             pass
+
+        def _update_hover_tracker(self, info):
+            return info
 
     d = Dummy()
     d._cursor_x = 1
@@ -2787,6 +2792,7 @@ def test_update_rect_handles_missing_last_cursor() -> None:
             }
             self._applied = False
             self._min_move_px = 2
+            self._last_sent_info = None
 
         def _draw_crosshair(
             self,
@@ -2810,8 +2816,11 @@ def test_update_rect_handles_missing_last_cursor() -> None:
         def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
             self._applied = True
 
-        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+        def _handle_hover(self, _hc: bool, _info=None) -> None:  # pragma: no cover - dummy
             pass
+
+        def _update_hover_tracker(self, info):
+            return info
 
     d = Dummy()
     click_overlay.ClickOverlay._update_rect(
