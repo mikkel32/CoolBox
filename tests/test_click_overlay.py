@@ -2752,7 +2752,7 @@ def test_update_rect_skips_small_move_no_window_change() -> None:
         def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
             self._applied = True
 
-        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+        def _handle_hover(self, _hc: bool, _info=None) -> None:  # pragma: no cover - dummy
             pass
 
     d = Dummy()
@@ -2810,7 +2810,7 @@ def test_update_rect_handles_missing_last_cursor() -> None:
         def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
             self._applied = True
 
-        def _handle_hover(self, _hc: bool) -> None:  # pragma: no cover - dummy
+        def _handle_hover(self, _hc: bool, _info=None) -> None:  # pragma: no cover - dummy
             pass
 
     d = Dummy()
