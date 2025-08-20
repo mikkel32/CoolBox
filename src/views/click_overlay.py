@@ -1538,10 +1538,11 @@ class ClickOverlay(tk.Toplevel):
         self.pid = info.pid
         self.title_text = info.title
 
-        stable = self._update_hover_tracker(info)
-        stable_changed = stable != self._last_sent_info
-        self._last_sent_info = stable
-        self._handle_hover(stable_changed, stable)
+        # Update hover tracker for stability and history, but base hover callbacks
+        # on the immediate window under the cursor rather than any stabilized
+        # guess.  Relying on the stabilized value can cause the overlay to report
+        # stale processes when quickly moving between windows.
+        self._update_hover_tracker(info)
 
         px = int(self._cursor_x)
         py = int(self._cursor_y)
@@ -1556,6 +1557,11 @@ class ClickOverlay(tk.Toplevel):
         updates: dict[str, tuple[int, ...] | str] = {}
         self._draw_crosshair(updates, px, py, sw, sh, cursor_moved)
         rect, text, window_changed, hover_changed = self._update_label(info, updates)
+        # Notify listeners about the window currently hovered by the cursor.
+        self._handle_hover(hover_changed, info)
+        if hover_changed:
+            self._last_sent_info = info
+
         if dist < self._min_move_px and not window_changed:
             return
         if cursor_moved or window_changed or hover_changed:
@@ -1636,8 +1642,12 @@ class ClickOverlay(tk.Toplevel):
         """Invoke the hover callback when the target window changes."""
         if not hover_changed or self.on_hover is None:
             return
-        pid = None if info is None else info.pid
-        title = None if info is None else getattr(info, "title", None)
+        pid = getattr(info, "pid", None)
+        if pid is not None and pid == self._own_pid:
+            pid = None
+        title = getattr(info, "title", None)
+        if pid is None and title is not None:
+            title = None
         try:
             self.on_hover(pid, title)
         except Exception:
