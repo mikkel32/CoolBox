@@ -119,17 +119,57 @@ from .process_utils import (
     run_command_background,
 )
 from .scoring_engine import ScoringEngine, Tuning, tuning
-from .security import (
-    is_firewall_enabled,
-    set_firewall_enabled,
-    is_defender_realtime_on,
-    set_defender_enabled,
-    set_defender_realtime,
-    is_admin,
-    ensure_admin,
-    get_defender_status,
-    relaunch_security_center,
-)
+
+# Import heavyweight security helpers only when running the full application.
+#
+# The unit tests run in a ``COOLBOX_LIGHTWEIGHT`` mode that stubs out many UI
+# and platform specific dependencies.  Importing ``src.utils.security`` pulls in
+# ``src.app`` and ultimately ``customtkinter`` widgets which are unavailable
+# under this mode.  Previously this unconditional import caused test collection
+# to fail with ``TypeError: 'type' object is not iterable`` when the nested
+# ``customtkinter`` modules could not be resolved.  To keep the public API
+# intact while avoiding the heavy import during tests, the security functions
+# are replaced with lightweight no-op stubs when the environment variable is
+# set.
+if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
+    from .security import (
+        is_firewall_enabled,
+        set_firewall_enabled,
+        is_defender_realtime_on,
+        set_defender_enabled,
+        set_defender_realtime,
+        is_admin,
+        ensure_admin,
+        get_defender_status,
+        relaunch_security_center,
+    )
+else:  # pragma: no cover - exercised in lightweight test mode
+    def is_firewall_enabled(*_a: object, **_k: object) -> bool:
+        return False
+
+    def set_firewall_enabled(*_a: object, **_k: object) -> bool:
+        return False
+
+    def is_defender_realtime_on(*_a: object, **_k: object) -> bool:
+        return False
+
+    def set_defender_enabled(*_a: object, **_k: object) -> bool:
+        return False
+
+    def set_defender_realtime(*_a: object, **_k: object) -> bool:
+        return False
+
+    def is_admin(*_a: object, **_k: object) -> bool:
+        return False
+
+    def ensure_admin(*_a: object, **_k: object) -> bool:
+        return False
+
+    def get_defender_status(*_a: object, **_k: object) -> dict:
+        return {}
+
+    def relaunch_security_center(*_a: object, **_k: object) -> bool:
+        return False
 from .thread_manager import ThreadManager
 from .gpu import benchmark_gpu_usage
 

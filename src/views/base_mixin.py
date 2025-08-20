@@ -1,6 +1,13 @@
+import os
 import customtkinter as ctk
-from src.components.tooltip import Tooltip
 from src.utils.ui import center_window
+
+if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
+    from src.components.tooltip import Tooltip
+else:  # pragma: no cover - simplified for lightweight test mode
+    class Tooltip:  # type: ignore[override]
+        def __init__(self, *_a, **_k):
+            pass
 
 
 class UIHelperMixin:
