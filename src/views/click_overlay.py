@@ -1216,7 +1216,10 @@ class ClickOverlay(tk.Toplevel):
             self._track_async(info)
         elif info.pid is None:
             self._last_info = None
-        return self._hover.stable_info(self._velocity)
+        stable = self._hover.stable_info(self._velocity)
+        if stable is None and info.pid not in (self._own_pid, None):
+            stable = info
+        return stable
 
     def _next_delay(self) -> int:
         """Return the delay in milliseconds until the next update."""

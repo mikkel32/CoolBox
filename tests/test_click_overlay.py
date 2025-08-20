@@ -2848,5 +2848,24 @@ def test_update_rect_handles_missing_last_cursor() -> None:
     assert d._buffer["cursor"] == (5, 7)
 
 
+def test_update_hover_tracker_returns_info_when_unstable() -> None:
+    os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+    from src.views import click_overlay
+
+    overlay = click_overlay.ClickOverlay.__new__(click_overlay.ClickOverlay, None)
+    overlay._hover = click_overlay.HoverTracker()
+    overlay._own_pid = 999
+    overlay._last_info = None
+    overlay._track_async = Mock()
+    overlay._velocity = 0.0
+
+    info = click_overlay.WindowInfo(123, (0, 0, 10, 10), "win")
+
+    with patch.object(overlay._hover, "stable_info", return_value=None):
+        result = click_overlay.ClickOverlay._update_hover_tracker(overlay, info)
+
+    assert result == info
+
+
 if __name__ == "__main__":
     unittest.main()
