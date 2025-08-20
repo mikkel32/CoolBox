@@ -17,13 +17,7 @@ from src.utils.window_utils import (
     prime_window_cache,
 )
 from src.utils.kill_utils import kill_process, kill_process_tree
-# ``src.utils`` re-exports a large collection of helpers and importing it pulls
-# in heavy optional dependencies (security tooling, UI widgets, etc.).  The
-# ForceQuit dialog only needs ``get_screen_refresh_rate`` which lives in the
-# ``ui`` utilities module.  Import it directly to avoid the expensive package
-# initialisation which was causing test environments with stubbed modules to
-# fail during import.
-from src.utils.ui import get_screen_refresh_rate
+from src.utils import get_screen_refresh_rate
 
 import re
 import time
