@@ -29,13 +29,9 @@ class SecurityDialog(ttk.Frame):
         self._rt_var = tk.BooleanVar(value=False)
 
         # Track dialogs opened from the "+" buttons so they can be
-        # positioned smartly around the main window.
+        # positioned beside (or below) the main window.
         self._child_windows: list[tk.Toplevel] = []
-        # True when dialogs stack vertically (above/below the root).
-        self._child_vertical = False
-        # Direction for the child stack: "right", "left", "below" or "above".
-        # Defaults to stacking on the right side of the main window.
-        self._child_dir = "right"
+        self._child_vertical = False  # stack beside by default
         self.master.bind("<Configure>", self._reposition_children)
 
         # Shared styles for status labels
@@ -221,38 +217,25 @@ class SecurityDialog(ttk.Frame):
     # --------------------------- Window helpers -----------------------------
 
     def _update_orientation(self) -> None:
-        """Decide how child dialogs should stack around the main window."""
+        """Decide whether child dialogs should stack vertically."""
         self.master.update_idletasks()
-
-        root_x = self.master.winfo_rootx()
-        root_y = self.master.winfo_rooty()
         root_w = self.master.winfo_width()
         root_h = self.master.winfo_height()
         screen_w = self.master.winfo_screenwidth()
         screen_h = self.master.winfo_screenheight()
 
-        total_w = 0
-        total_h = 0
+        total_w = root_w
+        total_h = root_h
         for win in self._child_windows:
             if win.winfo_exists():
                 win.update_idletasks()
                 total_w += win.winfo_width()
                 total_h += win.winfo_height()
 
-        space_right = screen_w - (root_x + root_w)
-        space_left = root_x
-        space_below = screen_h - (root_y + root_h)
-        space_above = root_y
-
-        if max(space_right, space_left) >= total_w:
-            self._child_vertical = False
-            self._child_dir = "right" if space_right >= space_left else "left"
-        else:
-            self._child_vertical = True
-            self._child_dir = "below" if space_below >= space_above else "above"
+        self._child_vertical = total_w > screen_w and total_h <= screen_h
 
     def _slide_in(self, win: tk.Toplevel) -> None:
-        """Animate a window sliding in beside or above/below the main window."""
+        """Animate a window sliding in beside or below the main window."""
         self.master.update_idletasks()
         win.update_idletasks()
 
@@ -264,81 +247,46 @@ class SecurityDialog(ttk.Frame):
         win_w = win.winfo_width()
         win_h = win.winfo_height()
 
-        steps = 12
-        delay = 15
-
         if self._child_vertical:
             final_x = root_x
-            if self._child_dir == "below":
-                final_y = root_y + root_h
-                for w in self._child_windows[:-1]:
-                    if w.winfo_exists():
-                        final_y += w.winfo_height()
-                start_y = final_y + win_h
-                win.geometry(f"+{final_x}+{start_y}")
+            final_y = root_y + root_h
+            for w in self._child_windows[:-1]:
+                if w.winfo_exists():
+                    final_y += w.winfo_height()
+            start_y = final_y + win_h
+            win.geometry(f"+{final_x}+{start_y}")
 
-                delta = (start_y - final_y) / steps
+            steps = 12
+            delay = 15
+            delta = (start_y - final_y) / steps
 
-                def step(i: int = 0) -> None:
-                    y = int(start_y - delta * i)
-                    win.geometry(f"+{final_x}+{y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
+            def step(i: int = 0) -> None:
+                y = int(start_y - delta * i)
+                win.geometry(f"+{final_x}+{y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
 
-                step()
-            else:  # stack above
-                final_y = root_y - win_h
-                for w in self._child_windows[:-1]:
-                    if w.winfo_exists():
-                        final_y -= w.winfo_height()
-                start_y = final_y - win_h
-                win.geometry(f"+{final_x}+{start_y}")
-
-                delta = (final_y - start_y) / steps
-
-                def step(i: int = 0) -> None:
-                    y = int(start_y + delta * i)
-                    win.geometry(f"+{final_x}+{y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
-
-                step()
+            step()
         else:
+            final_x = root_x + root_w
+            for w in self._child_windows[:-1]:
+                if w.winfo_exists():
+                    final_x += w.winfo_width()
             final_y = root_y
-            if self._child_dir == "right":
-                final_x = root_x + root_w
-                for w in self._child_windows[:-1]:
-                    if w.winfo_exists():
-                        final_x += w.winfo_width()
-                start_x = final_x + win_w
-                win.geometry(f"+{start_x}+{final_y}")
+            start_x = final_x + win_w
+            win.geometry(f"+{start_x}+{final_y}")
 
-                delta = (start_x - final_x) / steps
+            steps = 12
+            delay = 15
+            delta = (start_x - final_x) / steps
 
-                def step(i: int = 0) -> None:
-                    x = int(start_x - delta * i)
-                    win.geometry(f"+{x}+{final_y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
+            def step(i: int = 0) -> None:
+                x = int(start_x - delta * i)
+                win.geometry(f"+{x}+{final_y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
 
-                step()
-            else:  # stack to the left
-                final_x = root_x - win_w
-                for w in self._child_windows[:-1]:
-                    if w.winfo_exists():
-                        final_x -= w.winfo_width()
-                start_x = final_x - win_w
-                win.geometry(f"+{start_x}+{final_y}")
-
-                delta = (final_x - start_x) / steps
-
-                def step(i: int = 0) -> None:
-                    x = int(start_x + delta * i)
-                    win.geometry(f"+{x}+{final_y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
-
-                step()
+            step()
 
     def _slide_out(self, win: tk.Toplevel, on_done: Callable[[], None]) -> None:
         """Animate a window sliding out before closing."""
@@ -356,62 +304,34 @@ class SecurityDialog(ttk.Frame):
         steps = 12
         delay = 15
         if self._child_vertical:
-            if self._child_dir == "below":
-                end_y = start_y + win_h
-                delta = (end_y - start_y) / steps
+            end_y = start_y + win_h
+            delta = (end_y - start_y) / steps
 
-                def step(i: int = 0) -> None:
-                    y = int(start_y + delta * i)
-                    win.geometry(f"+{start_x}+{y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
-                    else:
-                        on_done()
+            def step(i: int = 0) -> None:
+                y = int(start_y + delta * i)
+                win.geometry(f"+{start_x}+{y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
+                else:
+                    on_done()
 
-                step()
-            else:  # above
-                end_y = start_y - win_h
-                delta = (start_y - end_y) / steps
-
-                def step(i: int = 0) -> None:
-                    y = int(start_y - delta * i)
-                    win.geometry(f"+{start_x}+{y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
-                    else:
-                        on_done()
-
-                step()
+            step()
         else:
-            if self._child_dir == "right":
-                end_x = start_x + win_w
-                delta = (end_x - start_x) / steps
+            end_x = start_x + win_w
+            delta = (end_x - start_x) / steps
 
-                def step(i: int = 0) -> None:
-                    x = int(start_x + delta * i)
-                    win.geometry(f"+{x}+{start_y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
-                    else:
-                        on_done()
+            def step(i: int = 0) -> None:
+                x = int(start_x + delta * i)
+                win.geometry(f"+{x}+{start_y}")
+                if i < steps:
+                    win.after(delay, step, i + 1)
+                else:
+                    on_done()
 
-                step()
-            else:  # left
-                end_x = start_x - win_w
-                delta = (start_x - end_x) / steps
-
-                def step(i: int = 0) -> None:
-                    x = int(start_x - delta * i)
-                    win.geometry(f"+{x}+{start_y}")
-                    if i < steps:
-                        win.after(delay, step, i + 1)
-                    else:
-                        on_done()
-
-                step()
+            step()
 
     def _reposition_children(self, event: tk.Event | None = None, exclude: tk.Toplevel | None = None) -> None:
-        """Keep child dialogs locked beside or around the main window."""
+        """Keep child dialogs locked beside or below the main window."""
         if not self._child_windows:
             return
         self._update_orientation()
@@ -423,52 +343,28 @@ class SecurityDialog(ttk.Frame):
 
         if self._child_vertical:
             x = root_x
-            if self._child_dir == "below":
-                y = root_y + root_h
-                for win in list(self._child_windows):
-                    if win is exclude:
-                        continue
-                    if win.winfo_exists():
-                        win.update_idletasks()
-                        win.geometry(f"+{x}+{y}")
-                        y += win.winfo_height()
-                    else:
-                        self._child_windows.remove(win)
-            else:  # above
-                y = root_y
-                for win in list(self._child_windows):
-                    if win is exclude:
-                        continue
-                    if win.winfo_exists():
-                        win.update_idletasks()
-                        y -= win.winfo_height()
-                        win.geometry(f"+{x}+{y}")
-                    else:
-                        self._child_windows.remove(win)
+            y = root_y + root_h
+            for win in list(self._child_windows):
+                if win is exclude:
+                    continue
+                if win.winfo_exists():
+                    win.update_idletasks()
+                    win.geometry(f"+{x}+{y}")
+                    y += win.winfo_height()
+                else:
+                    self._child_windows.remove(win)
         else:
+            x = root_x + root_w
             y = root_y
-            if self._child_dir == "right":
-                x = root_x + root_w
-                for win in list(self._child_windows):
-                    if win is exclude:
-                        continue
-                    if win.winfo_exists():
-                        win.update_idletasks()
-                        win.geometry(f"+{x}+{y}")
-                        x += win.winfo_width()
-                    else:
-                        self._child_windows.remove(win)
-            else:  # left
-                x = root_x
-                for win in list(self._child_windows):
-                    if win is exclude:
-                        continue
-                    if win.winfo_exists():
-                        win.update_idletasks()
-                        x -= win.winfo_width()
-                        win.geometry(f"+{x}+{y}")
-                    else:
-                        self._child_windows.remove(win)
+            for win in list(self._child_windows):
+                if win is exclude:
+                    continue
+                if win.winfo_exists():
+                    win.update_idletasks()
+                    win.geometry(f"+{x}+{y}")
+                    x += win.winfo_width()
+                else:
+                    self._child_windows.remove(win)
 
 
 def run():
