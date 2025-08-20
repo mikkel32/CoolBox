@@ -119,17 +119,25 @@ from .process_utils import (
     run_command_background,
 )
 from .scoring_engine import ScoringEngine, Tuning, tuning
-from .security import (
-    is_firewall_enabled,
-    set_firewall_enabled,
-    is_defender_realtime_on,
-    set_defender_enabled,
-    set_defender_realtime,
-    is_admin,
-    ensure_admin,
-    get_defender_status,
-    relaunch_security_center,
-)
+
+# ``security`` pulls in substantial platform specific dependencies. During
+# lightweight test runs the ``COOLBOX_LIGHTWEIGHT`` environment variable is set
+# to avoid importing those heavy modules.  Importing them unconditionally would
+# attempt to load the full application stack (including GUI components) and
+# break tests that stub out ``customtkinter``.  Guard the import so the rest of
+# the helpers remain usable in minimal environments.
+if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
+    from .security import (
+        is_firewall_enabled,
+        set_firewall_enabled,
+        is_defender_realtime_on,
+        set_defender_enabled,
+        set_defender_realtime,
+        is_admin,
+        ensure_admin,
+        get_defender_status,
+        relaunch_security_center,
+    )
 from .thread_manager import ThreadManager
 from .gpu import benchmark_gpu_usage
 

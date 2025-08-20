@@ -2556,9 +2556,12 @@ class ForceQuitDialog(BaseDialog):
             data = json.dumps(info, indent=2, default=str)
             logger.warning("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
-            messagebox.showwarning(
-                "Force Quit", "No process was selected", parent=self
-            )
+            try:
+                messagebox.showwarning(
+                    "Force Quit", "No process was selected", parent=self
+                )
+            except Exception:
+                pass
             self._populate()
             return
         if pid == os.getpid():
@@ -2578,9 +2581,12 @@ class ForceQuitDialog(BaseDialog):
             data = json.dumps(info, indent=2, default=str)
             logger.warning("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
-            messagebox.showwarning(
-                "Force Quit", "Cannot terminate this application", parent=self
-            )
+            try:
+                messagebox.showwarning(
+                    "Force Quit", "Cannot terminate this application", parent=self
+                )
+            except Exception:
+                pass
             self._populate()
             return
 
@@ -2602,9 +2608,12 @@ class ForceQuitDialog(BaseDialog):
             data = json.dumps(diag, indent=2, default=str)
             logger.warning("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
-            messagebox.showwarning(
-                "Force Quit", f"Process {pid} no longer exists", parent=self
-            )
+            try:
+                messagebox.showwarning(
+                    "Force Quit", f"Process {pid} no longer exists", parent=self
+                )
+            except Exception:
+                pass
             self._populate()
 
         if ctime is not None or cmd is not None or exe is not None:
@@ -2649,21 +2658,32 @@ class ForceQuitDialog(BaseDialog):
                     data = json.dumps(diag, indent=2, default=str)
                     logger.warning("%s: %s", msg, data)
                     print(f"{msg}: {data}", file=sys.stderr)
-                    messagebox.showwarning(
-                        "Force Quit", f"Process {pid} changed", parent=self
-                    )
+                    try:
+                        messagebox.showwarning(
+                            "Force Quit", f"Process {pid} changed", parent=self
+                        )
+                    except Exception:
+                        pass
                     self._populate()
                     return
             except psutil.Error:
                 pass
         if not overlay.skip_confirm:
-            if not messagebox.askyesno(
-                "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
-            ):
-                return
+            try:
+                if not messagebox.askyesno(
+                    "Force Quit", f"Terminate {title or 'window'} (pid {pid})?", parent=self
+                ):
+                    return
+            except Exception:
+                pass
         ok = self.force_kill(pid)
         if ok:
-            messagebox.showinfo("Force Quit", f"Terminated process {pid}", parent=self)
+            try:
+                messagebox.showinfo(
+                    "Force Quit", f"Terminated process {pid}", parent=self
+                )
+            except Exception:
+                pass
         elif psutil.pid_exists(pid):
             diag = info.copy()
             diag.update(
@@ -2679,9 +2699,12 @@ class ForceQuitDialog(BaseDialog):
             data = json.dumps(diag, indent=2, default=str)
             logger.error("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
-            messagebox.showerror(
-                "Force Quit", f"Failed to terminate process {pid}", parent=self
-            )
+            try:
+                messagebox.showerror(
+                    "Force Quit", f"Failed to terminate process {pid}", parent=self
+                )
+            except Exception:
+                pass
         else:
             _target_vanished()
         self._populate()
