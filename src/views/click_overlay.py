@@ -34,7 +34,7 @@ from src.utils.window_utils import (
     WindowInfo,
 )
 from src.utils.mouse_listener import get_global_listener, is_supported
-from src.utils.scoring_engine import ScoringEngine, tuning
+from src.utils.scoring_engine import ScoringEngine, tuning, softmax
 from src.utils.hover_tracker import HoverTracker
 from ._fast_confidence import weighted_confidence as _weighted_confidence_np
 from src.utils import get_screen_refresh_rate
@@ -1695,16 +1695,41 @@ class ClickOverlay(tk.Toplevel):
 
         confirm = self._confirm_window()
         samples = [info, confirm]
-        weights = self.engine.score_samples(
-            samples,
-            self._cursor_x,
-            self._cursor_y,
-            self._velocity,
-            self._path_history,
-            self._initial_active_pid,
-        )
-        if confirm.pid not in (self._own_pid, None):
-            weights[confirm.pid] = weights.get(confirm.pid, 0.0) + tuning.confirm_weight
+        attempts = 0
+        weights = {}
+        while True:
+            weights = self.engine.score_samples(
+                samples,
+                self._cursor_x,
+                self._cursor_y,
+                self._velocity,
+                self._path_history,
+                self._initial_active_pid,
+            )
+            for extra in samples[1:]:
+                if extra.pid not in (self._own_pid, None):
+                    weights[extra.pid] = weights.get(extra.pid, 0.0) + tuning.confirm_weight
+            probs = softmax(weights, tuning.softmax_temp)
+            if probs:
+                ordered = sorted(probs.items(), key=lambda i: i[1], reverse=True)
+                best_prob = ordered[0][1]
+                second_prob = ordered[1][1] if len(ordered) > 1 else 0.0
+                ratio = best_prob / (second_prob or 1e-6)
+            else:
+                best_prob = 0.0
+                ratio = 0.0
+            if (
+                ratio >= tuning.confidence_ratio
+                or best_prob >= tuning.dominance
+                or attempts >= tuning.extra_attempts
+            ):
+                break
+            attempts += 1
+            if tuning.confirm_delay > 0:
+                time.sleep(tuning.confirm_delay)
+            extra = self._confirm_window()
+            samples.append(extra)
+
         choice = self.engine.select_from_weights(samples, weights)
         if choice is not None:
             self.pid = choice.pid
