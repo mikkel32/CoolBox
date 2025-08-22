@@ -84,7 +84,7 @@ def _show_error_dialog(message: str, details: str) -> None:
 
             root = tk._default_root
             created_root = False
-            if root is None:
+            if root is None or not getattr(root, "winfo_exists", lambda: False)():
                 root = ctk.CTk()
                 root.withdraw()
                 created_root = True
@@ -99,7 +99,7 @@ def _show_error_dialog(message: str, details: str) -> None:
 
         root = tk._default_root
         created_root = False
-        if root is None:
+        if root is None or not getattr(root, "winfo_exists", lambda: False)():
             root = tk.Tk()
             root.withdraw()
             created_root = True
