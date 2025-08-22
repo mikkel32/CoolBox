@@ -54,13 +54,25 @@ class ThreadManager:
 
         The window's ``report_callback_exception`` hook is invoked so all
         dialogs and logging are handled by the global error handler.
+        If the window no longer exists or cannot schedule the callback,
+        fall back to invoking the handler directly so errors are still
+        surfaced.
         """
-        window.after(
-            0,
-            lambda: window.report_callback_exception(
-                type(exc), exc, exc.__traceback__
-            ),
-        )
+        tb = exc.__traceback__
+        try:
+            window.after(
+                0,
+                lambda exc=exc, tb=tb: window.report_callback_exception(
+                    type(exc), exc, tb
+                ),
+            )
+        except Exception:  # pragma: no cover - best effort
+            try:
+                window.report_callback_exception(type(exc), exc, tb)
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "failed to report exception", exc_info=True
+                )
 
     def run_tool(
         self,
