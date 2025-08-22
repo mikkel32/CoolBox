@@ -726,10 +726,30 @@ def check_outdated(*, requirements: Path | None, upgrade: bool = False) -> None:
 
 
 def show_info() -> None:
+    """Display basic system information in a table.
+
+    ``get_system_info`` from ``system_utils`` returns a multi-line string. The
+    previous implementation assumed a mapping and attempted to iterate over
+    ``info.items()``, which raised ``AttributeError`` and caused the setup
+    script to exit without any useful feedback.  Accept both the string output
+    (current behaviour) and a mapping for backwards compatibility.
+    """
+
     info = get_system_info()
     table = Table(title="CoolBox — System Info", box=box.MINIMAL_DOUBLE_HEAD)
-    for k, v in info.items():
-        table.add_row(k, str(v))
+
+    if isinstance(info, str):
+        # Each line is "Key: value"; split and populate the table accordingly.
+        for line in info.splitlines():
+            if ":" in line:
+                key, value = line.split(":", 1)
+                table.add_row(key.strip(), value.strip())
+            elif line:  # fallback for lines without colon
+                table.add_row("", line.strip())
+    else:  # pragma: no cover - defensive branch for potential dict return
+        for k, v in info.items():
+            table.add_row(str(k), str(v))
+
     console.print(table)
 
 
