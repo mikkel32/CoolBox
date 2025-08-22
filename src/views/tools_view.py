@@ -603,7 +603,12 @@ class ToolsView(BaseView):
 
     def _force_quit(self) -> None:
         """Open the advanced Force Quit dialog."""
-        self.app.open_force_quit()
+        # ForceQuitDialog requires interacting with Tk, which must occur on
+        # the main thread.  The tools view launches commands in background
+        # threads via ``ThreadManager``, so schedule the dialog creation back
+        # onto the Tk event loop to avoid ``RuntimeError: main thread is not
+        # in main loop`` when the tool is launched asynchronously.
+        self.app.window.after(0, self.app.open_force_quit)
 
     def _disk_cleanup(self):
         """Remove temporary files in the system temp directory."""
