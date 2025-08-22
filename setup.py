@@ -810,9 +810,24 @@ def collect_problems(
     problem_re = re.compile(f"({pattern})", re.IGNORECASE)
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
 
+    log("Scanning for problem markers...")
+
+    MAX_SCAN_BYTES = 1_000_000  # skip very large files that slow scanning
+
     def _is_text_file(path: Path) -> bool:
-        """Return True if *path* appears to be a text file."""
+        """Return True if *path* looks like a small text file.
+
+        Symlinks, very large files and anything containing NUL bytes are
+        treated as non-text to avoid hangs when scanning unusual paths.  This
+        keeps ``collect_problems`` fast even in worktrees that contain build
+        artefacts or binary blobs.
+        """
+
         try:
+            if path.is_symlink():
+                return False
+            if path.stat().st_size > MAX_SCAN_BYTES:
+                return False
             with path.open("rb") as fh:
                 chunk = fh.read(1024)
             return b"\0" not in chunk
@@ -869,6 +884,7 @@ def collect_problems(
             console.print(Panel(table, title=f"Problems ({count})", box=box.ROUNDED))
             problem_word = "problem" if count == 1 else "problems"
             console.print(f"[bold]{count} {problem_word} found.[/]")
+            log(f"Found {count} {problem_word}.")
         else:
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
@@ -1120,7 +1136,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     except BaseException as e:
         SUMMARY.add_error(f"Fatal: {e.__class__.__name__}: {e}")
         exit_code = 1
-        raise
+        # Log the stack trace so unexpected failures are visible, but do not
+        # re-raise here; ``sys.exit`` in ``finally`` would mask the original
+        # exception and make the script appear to stop without explanation.
+        logger.exception("Unhandled error")
     else:
         exit_code = 0
     finally:
