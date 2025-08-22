@@ -65,3 +65,59 @@ def test_handle_exception_uses_dialog(monkeypatch):
     assert "Location:" in called["details"]
     assert "Traceback:" in called["details"]
 
+
+def test_error_dialog_creates_root_when_default_destroyed(monkeypatch):
+    """If the default Tk root is unusable a new one should be created."""
+
+    class DeadRoot:
+        def winfo_exists(self):
+            return False
+
+        def wait_window(self, _):
+            pass
+
+    dead_root = DeadRoot()
+
+    monkeypatch.setattr(eh, "tk", SimpleNamespace(_default_root=dead_root), raising=False)
+
+    created = {}
+
+    class NewRoot:
+        def __init__(self):
+            self.destroyed = False
+
+        def withdraw(self):
+            pass
+
+        def wait_window(self, _):
+            pass
+
+        def destroy(self):
+            self.destroyed = True
+
+        def winfo_exists(self):
+            return True
+
+    new_root = NewRoot()
+
+    def fake_ctk():
+        created["called"] = True
+        return new_root
+
+    ctk_mod = SimpleNamespace(CTk=fake_ctk)
+    monkeypatch.setitem(sys.modules, "customtkinter", ctk_mod)
+
+    class FakeDialog:
+        def __init__(self, master, message, details, log_file):
+            pass
+
+    mod = SimpleNamespace(ModernErrorDialog=FakeDialog)
+    monkeypatch.setitem(sys.modules, "src.components.modern_error_dialog", mod)
+
+    monkeypatch.setattr(eh, "_get_log_file", lambda: None)
+
+    eh._show_error_dialog("oops", "details")
+
+    assert created["called"]
+    assert new_root.destroyed
+
