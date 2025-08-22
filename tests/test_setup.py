@@ -122,3 +122,15 @@ def test_config_file_overrides(monkeypatch, tmp_path):
     import importlib
     importlib.reload(setup)
     assert setup.CONFIG.no_anim is True
+
+
+def test_scan_project(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    f1 = proj / "a.py"
+    f1.write_text("x=1\n# TODO fix\n")
+    f2 = proj / "b.py"
+    f2.write_text("print('hi')\n# FIXME bug\n")
+    res = setup.scan_project(proj)
+    assert f1 in res and res[f1][0][0] == 2
+    assert f2 in res and any("FIXME" in t for _, t in res[f2])
