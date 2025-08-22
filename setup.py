@@ -839,11 +839,17 @@ def collect_problems(
             table.add_column("Text")
             for f, n, t in matches:
                 table.add_row(f, str(n), t)
-            console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
+            panel = Panel(
+                table,
+                title="Problems",
+                subtitle=f"Total problems: {len(matches)}",
+                box=box.ROUNDED,
+            )
+            console.print(panel)
         else:
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
-            log(f"Found {len(matches)} problem lines.")
+            log(f"Total problems: {len(matches)}")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
