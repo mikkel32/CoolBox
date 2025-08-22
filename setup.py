@@ -819,23 +819,13 @@ def collect_problems(
         except Exception:
             return False
 
-    files: list[Path] = []
-    for root, dirs, filenames in os.walk(ROOT_DIR, followlinks=False):
-        if any(part in ignore_dirs for part in Path(root).parts):
-            dirs[:] = []
-            continue
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
-        for name in filenames:
-            p = Path(root) / name
-            try:
-                if p.is_symlink():
-                    continue
-                if p.is_file() and _is_text_file(p):
-                    files.append(p)
-            except Exception:
-                continue
-
-    log(f"Scanning {len(files)} files for problem markers...")
+    files = [
+        p
+        for p in ROOT_DIR.rglob("*")
+        if p.is_file()
+        and _is_text_file(p)
+        and not any(part in ignore_dirs for part in p.parts)
+    ]
 
     def _scan(path: Path) -> list[tuple[str, int, str]]:
         results: list[tuple[str, int, str]] = []
