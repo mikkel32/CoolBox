@@ -296,6 +296,8 @@ class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
     def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
+        """Initialize the spinner and ensure base class setup runs."""
+        super().__init__()
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
