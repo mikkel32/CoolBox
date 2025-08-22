@@ -500,6 +500,10 @@ class RunSummary:
         for e in self.errors:
             table.add_row("[red]Error[/]", e)
         console.print(Panel(table, title="Summary", box=box.ROUNDED))
+        total = len(self.warnings) + len(self.errors)
+        console.print(
+            f"[bold]Total problems: {total} (Warnings: {len(self.warnings)}, Errors: {len(self.errors)})[/]"
+        )
 
 
 SUMMARY = RunSummary()
