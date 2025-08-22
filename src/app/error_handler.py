@@ -14,6 +14,8 @@ import time
 import traceback
 import warnings
 import webbrowser
+import argparse
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +61,7 @@ class _Hooks:
 
 _state_lock = threading.RLock()
 _installed = False
+_orig_hooks: _Hooks | None = None
 
 # Warning chain: our wrapper stays installed; we forward to downstream target.
 _downstream_showwarning: Callable[..., Any] = warnings.showwarning  # updated dynamically
@@ -443,7 +446,7 @@ def _patch_tk_for_future_roots() -> None:
 
 def install(window: TkRoot | None = None, *, warn_popups: Optional[bool] = None, log_warnings: Optional[bool] = None) -> None:
     """Install global hooks and cooperative warning capture. Safe to call multiple times."""
-    global _installed, _warn_popups, _log_warnings
+    global _installed, _warn_popups, _log_warnings, _orig_hooks
     with _state_lock:
         if warn_popups is not None:
             _warn_popups = bool(warn_popups)
@@ -460,7 +463,7 @@ def install(window: TkRoot | None = None, *, warn_popups: Optional[bool] = None,
                 _start_ui_pump(window)
             return
 
-        _snapshot_hooks()  # not used now, kept for symmetry/future
+        _orig_hooks = _snapshot_hooks()
         _apply_hooks()
 
         if tk is not None:
@@ -480,19 +483,25 @@ def install(window: TkRoot | None = None, *, warn_popups: Optional[bool] = None,
 
 def uninstall() -> None:
     """Remove hooks and stop watchdog. Buffers remain."""
-    global _installed
+    global _installed, _orig_hooks
     with _state_lock:
         if not _installed:
             return
         try:
-            # Restore just the warnings chain to current downstream target
             if warnings.showwarning is _chain_showwarning:
                 warnings.showwarning = _downstream_showwarning
+            if _orig_hooks is not None:
+                sys.excepthook = _orig_hooks.sys_excepthook
+                if hasattr(threading, "excepthook") and _orig_hooks.threading_excepthook is not None:
+                    threading.excepthook = _orig_hooks.threading_excepthook
+                if hasattr(sys, "unraisablehook") and _orig_hooks.sys_unraisablehook is not None:
+                    sys.unraisablehook = _orig_hooks.sys_unraisablehook
         except Exception:
             logger.debug("uninstall warnings restoration failed", exc_info=True)
         finally:
             _watchdog_stop.set()
             _installed = False
+            _orig_hooks = None
 
 
 def _drain_queue_at_exit() -> None:
@@ -536,3 +545,41 @@ __all__ = [
     "trigger_test_error",
     "trigger_test_warning",
 ]
+
+
+def _cli(argv: list[str] | None = None) -> int:
+    """Simple CLI for smoke-testing the error handler."""
+    parser = argparse.ArgumentParser(description="Error handler helper")
+    parser.add_argument("--check", action="store_true", help="Install handler and print health")
+    parser.add_argument("--trigger-error", action="store_true", help="Emit a test exception")
+    parser.add_argument("--trigger-warning", action="store_true", help="Emit a test warning")
+    parser.add_argument("--uninstall", action="store_true", help="Uninstall before exiting")
+    args = parser.parse_args(argv)
+
+    install()
+    if args.trigger_error:
+        try:
+            trigger_test_error()
+        except RuntimeError:
+            # Simulate an unhandled exception so the hook displays its dialog
+            handle_exception(*sys.exc_info())
+    if args.trigger_warning:
+        trigger_test_warning()
+
+    info = health()
+    # Always report current health so the CLI can be used for smoke tests
+    print(json.dumps(info))
+
+    if args.uninstall:
+        uninstall()
+
+    return 0 if info.get("installed") else 1
+
+
+def main() -> int:
+    """Entry point for ``python -m src.app.error_handler``."""
+    return _cli()
+
+
+if __name__ == "__main__":  # pragma: no cover - manual invocation
+    raise SystemExit(main())
