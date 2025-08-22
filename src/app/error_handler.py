@@ -8,7 +8,6 @@ import threading
 import traceback
 import warnings
 import webbrowser
-from datetime import datetime
 from pathlib import Path
 from typing import Type
 
@@ -163,33 +162,18 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
     This function is used for ``sys.excepthook`` and Tk's
     ``report_callback_exception`` so any uncaught exceptions are routed here.
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if tb is not None:
-        last = traceback.extract_tb(tb)[-1]
-        filename, lineno, func, _ = last
-        location = f"{filename}:{lineno} in {func}"
-    else:
-        location = "unknown location"
-
-    logger.error(
-        "Unhandled exception at %s [%s]", location, timestamp, exc_info=(exc, value, tb)
-    )
+    logger.error("Unhandled exception", exc_info=(exc, value, tb))
 
     tb_str = "".join(traceback.format_exception(exc, value, tb))
     context = _collect_context()
-    _record(
-        RECENT_ERRORS,
-        f"{timestamp} {location} {exc.__name__}:{value}\n{context}\n{tb_str}",
-    )
+    _record(RECENT_ERRORS, f"{exc.__name__}:{value}\n{context}\n{tb_str}")
 
     if isinstance(value, IOError):
-        base_msg = f"An I/O error occurred: {value}"
+        msg = f"An I/O error occurred: {value}"
     elif isinstance(value, ValueError):
-        base_msg = f"Invalid value: {value}"
+        msg = f"Invalid value: {value}"
     else:
-        base_msg = str(value)
-
-    msg = f"{base_msg} (File {location}, at {timestamp})"
+        msg = str(value)
 
     _show_error_dialog(msg, tb_str)
 
@@ -209,8 +193,7 @@ def install(window=None) -> None:
     sys.unraisablehook = _unraisable_hook
 
     def _showwarning(message, category, filename, lineno, file=None, line=None):
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        text = f"{ts} {filename}:{lineno} {category.__name__}: {message}"
+        text = f"{filename}:{lineno}:{category.__name__}:{message}"
         logger.warning(text)
         _record(RECENT_WARNINGS, text)
 
