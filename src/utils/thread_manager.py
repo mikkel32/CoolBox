@@ -4,7 +4,7 @@ import threading
 import time
 import logging
 from queue import Empty, SimpleQueue
-from typing import Any, Dict, Callable
+from typing import Any, Dict
 
 
 class ThreadManager:
@@ -19,13 +19,6 @@ class ThreadManager:
     def __init__(self) -> None:
         self.log_queue: SimpleQueue[str] = SimpleQueue()
         self.cmd_queue: SimpleQueue[Any] = SimpleQueue()
-        # Queue of callables that need to execute on the Tk main thread.
-        # Background threads enqueue functions here and ``ThreadManager``
-        # schedules a custom Tk event so the main thread can drain the
-        # queue without causing ``RuntimeError: main thread is not in main loop``
-        # when ``after`` is called from worker threads.
-        self._ui_queue: SimpleQueue[Callable[[], None]] = SimpleQueue()
-        self._ui_window: Any | None = None
         self.shutdown = threading.Event()
         self.lock = threading.Lock()
         self.heartbeats: Dict[str, float] = {}
@@ -56,72 +49,30 @@ class ThreadManager:
         for t in (self.logger_thread, self.process_thread):
             t.join(timeout=1)
 
-    def bind_window(self, window: Any) -> None:
-        """Bind the manager to a Tk *window*.
-
-        A custom virtual event ``<<ThreadManagerUI>>`` is installed so that
-        callbacks enqueued by worker threads can be executed on the main
-        thread without ever calling ``after`` from the wrong context.
-        """
-
-        self._ui_window = window
-        window.bind("<<ThreadManagerUI>>", self._drain_ui_queue)
-
-    # -- UI marshalling -------------------------------------------------
-    def _enqueue_ui(self, func: Callable[[], None]) -> None:
-        """Place *func* on the UI queue and trigger processing."""
-
-        if self._ui_window is None:
-            try:  # pragma: no cover - lightweight tests without UI
-                func()
-            except Exception:
-                logging.getLogger(__name__).debug(
-                    "failed to run UI callback", exc_info=True
-                )
-            return
-
-        self._ui_queue.put(func)
-        try:
-            # ``event_generate`` is safe from background threads when
-            # ``when='tail'`` so the event is appended to the queue and
-            # processed by the main loop.
-            self._ui_window.event_generate("<<ThreadManagerUI>>", when="tail")
-        except Exception:  # pragma: no cover - best effort
-            try:
-                func()
-            except Exception:
-                logging.getLogger(__name__).debug(
-                    "failed to run UI callback", exc_info=True
-                )
-
-    def _drain_ui_queue(self, _event: Any | None = None) -> None:
-        while True:
-            try:
-                func = self._ui_queue.get_nowait()
-            except Empty:
-                break
-            try:
-                func()
-            except Exception:  # pragma: no cover - best effort
-                logging.getLogger(__name__).debug(
-                    "UI callback raised", exc_info=True
-                )
-
     def post_exception(self, window, exc: BaseException) -> None:
-        """Report *exc* on the Tk main thread.
+        """Report *exc* on the Tk main thread using ``window.after``.
 
         The window's ``report_callback_exception`` hook is invoked so all
-        dialogs and logging are handled by the global error handler.  This
-        uses the internal UI queue so it is safe to call from background
-        threads without triggering ``RuntimeError: main thread is not in main
-        loop``.
+        dialogs and logging are handled by the global error handler.
+        If the window no longer exists or cannot schedule the callback,
+        fall back to invoking the handler directly so errors are still
+        surfaced.
         """
         tb = exc.__traceback__
-        self._enqueue_ui(
-            lambda exc=exc, tb=tb: window.report_callback_exception(
-                type(exc), exc, tb
+        try:
+            window.after(
+                0,
+                lambda exc=exc, tb=tb: window.report_callback_exception(
+                    type(exc), exc, tb
+                ),
             )
-        )
+        except Exception:  # pragma: no cover - best effort
+            try:
+                window.report_callback_exception(type(exc), exc, tb)
+            except Exception:
+                logging.getLogger(__name__).debug(
+                    "failed to report exception", exc_info=True
+                )
 
     def run_tool(
         self,
@@ -165,9 +116,7 @@ class ThreadManager:
                             )
                         )
                     if status_bar is not None:
-                        self._enqueue_ui(
-                            lambda: status_bar.set_message(msg, "error")
-                        )
+                        window.after(0, lambda: status_bar.set_message(msg, "error"))
                     self.post_exception(window, exc)
                 else:
                     for warn in captured:
@@ -182,16 +131,18 @@ class ThreadManager:
                     self.log_queue.put(f"INFO:{name} completed")
                     if status_bar is not None:
                         if captured:
-                            self._enqueue_ui(
+                            window.after(
+                                0,
                                 lambda: status_bar.set_message(
                                     f"{name} completed with warnings", "warning"
-                                )
+                                ),
                             )
                         else:
-                            self._enqueue_ui(
+                            window.after(
+                                0,
                                 lambda: status_bar.set_message(
                                     f"{name} completed", "success"
-                                )
+                                ),
                             )
             duration = time.time() - start
             self.log_queue.put(f"INFO:{name} finished in {duration:.2f}s")
