@@ -788,8 +788,10 @@ def collect_problems(
 ) -> None:
     """Scan project files for common problem markers.
 
-    By default this searches for TODO, FIXME, BUG and WARNING comments, but a
-    custom list of *markers* can be provided.
+    By default this searches for ``TODO``, ``FIXME``, ``BUG`` and ``WARNING``
+    comments across the repository.  All matches are appended to the global
+    ``SUMMARY`` so they are displayed in the final run report.  A custom list of
+    *markers* can be provided via ``markers``.
     """
 
     markers = [m.strip() for m in (markers or ["TODO", "FIXME", "BUG", "WARNING"])]
@@ -821,6 +823,10 @@ def collect_problems(
             matches.extend(res)
 
     matches.sort()
+
+    # Record all problem lines in the run summary for later display.
+    for f, n, t in matches:
+        SUMMARY.warnings.append(f"{f}:{n}: {t}")
 
     if output:
         output.write_text("\n".join(f"{f}:{n}: {t}" for f, n, t in matches))
@@ -1089,6 +1095,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     else:
         exit_code = 0
     finally:
+        if cmd != "problems":
+            try:
+                collect_problems()
+            except Exception as exc:  # pragma: no cover - best effort
+                SUMMARY.add_error(f"Problem scan failed: {exc}")
         SUMMARY.render()
         send_telemetry(SUMMARY)
         if exit_code == 0 and SUMMARY.errors:
