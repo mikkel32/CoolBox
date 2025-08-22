@@ -217,8 +217,9 @@ def _native_error_dialog(title: str, body: str) -> None:
             ctypes.windll.user32.MessageBoxW(None, body, title, MB_OK | MB_SYSTEMMODAL | MB_TOPMOST | MB_ICONERROR)  # type: ignore[attr-defined]
             return
         if sys.platform == "darwin":
+            escaped = body[:900].replace('"', '\\"')
             subprocess.run(
-                ["osascript", "-e", f'display alert "{title}" message "{body[:900].replace("\"","\\\"")}" as critical'],
+                ["osascript", "-e", f'display alert "{title}" message "{escaped}" as critical'],
                 check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             return
@@ -320,7 +321,10 @@ def _ensure_hidden_root(persistent: bool) -> TkRoot | None:
     global _persistent_root
     if tk is None:
         return None
-    r = _current_root()
+    try:
+        r = _current_root()
+    except Exception:
+        r = None
     if _root_alive(r):
         return r
     try:
@@ -331,7 +335,8 @@ def _ensure_hidden_root(persistent: bool) -> TkRoot | None:
             r = tk.Tk()  # type: ignore[call-arg]
         r.withdraw()
         setattr(r, "_cbx_err_persistent", bool(persistent))
-        _persistent_root = r
+        if persistent:
+            _persistent_root = r
         try:
             tk._default_root = r  # type: ignore[attr-defined]
         except Exception:
@@ -357,18 +362,42 @@ def _show_error_dialog(message: str, details: str) -> None:
         logger.error("Unhandled exception: %s\n%s\nUI diagnostics: %s", message, details, diag)
         return
 
-    if not _should_popup(f"E:{message.splitlines()[0][:200]}"):
-        logger.error("Suppressed popup: %s\n%s", message, details)
-        return
-
-    root = _current_root()
-    if not _root_alive(root):
-        root = _ensure_hidden_root(persistent=_want_persistent_root)
-    if not _root_alive(root):
-        title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
-        _native_error_dialog(title, body); _spawn_popup_subprocess(title, body); return
-
+    root_error: BaseException | None = None
     try:
+        root = _current_root()
+    except Exception as exc:
+        root = None
+        root_error = exc
+    temp_root = False
+    if not _root_alive(root):
+        try:
+            root = _ensure_hidden_root(persistent=False)
+        except Exception as exc:
+            root_error = exc if root_error is None else root_error
+            root = None
+        temp_root = _root_alive(root)
+    try:
+        if not _root_alive(root):
+            if root_error is not None:
+                try:
+                    tb = "".join(
+                        traceback.format_exception(
+                            type(root_error), root_error, root_error.__traceback__
+                        )
+                    )
+                    _record(
+                        RECENT_ERRORS,
+                        f"{datetime.now().isoformat()}:DialogError:show_error_dialog:{root_error}\n{tb}",
+                    )
+                except Exception:
+                    logger.debug("Failed to record dialog error", exc_info=True)
+            title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
+            _native_error_dialog(title, body); _spawn_popup_subprocess(title, body); return
+
+        if not _should_popup(f"E:{message.splitlines()[0][:200]}"):
+            logger.error("Suppressed popup: %s\n%s", message, details)
+            return
+
         # Prefer modern dialog
         try:
             import customtkinter as ctk  # type: ignore
@@ -413,6 +442,12 @@ def _show_error_dialog(message: str, details: str) -> None:
             logger.debug("Failed to record dialog error", exc_info=True)
         title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
         _native_error_dialog(title, body); _spawn_popup_subprocess(title, body)
+    finally:
+        if temp_root and _root_alive(root):
+            try:
+                root.destroy()
+            except Exception:
+                pass
 
 # -------------------------------------------------------------------------------------------------
 # exception handling
@@ -630,9 +665,16 @@ def install(window: TkRoot | None = None, *, warn_popups: Optional[bool] = None,
         _want_persistent_root = bool(ensure_root)
 
         if _installed:
+            # Re-apply hooks so external configuration (e.g. logging.captureWarnings)
+            # does not permanently stomp our warnings handler.
+            _apply_hooks()
             if tk is not None and window is not None:
-                try: window.report_callback_exception = handle_exception  # type: ignore[attr-defined]
-                except Exception: logger.debug("Failed to hook report_callback_exception", exc_info=True)
+                try:
+                    window.report_callback_exception = handle_exception  # type: ignore[attr-defined]
+                except Exception:
+                    logger.debug(
+                        "Failed to hook report_callback_exception", exc_info=True
+                    )
                 _start_ui_pump(window)
             return
 
@@ -733,6 +775,11 @@ def _cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-dialog", action="store_true", help="Show a forced dialog now")
     parser.add_argument("--diagnose-ui", action="store_true", help="Include GUI diagnostics")
     parser.add_argument("--ensure-root", action="store_true", help="Create hidden root if none exists")
+    parser.add_argument(
+        "--simulate-handler-failure",
+        action="store_true",
+        help="Trigger a failure inside the error handler",
+    )
     parser.add_argument("--uninstall", action="store_true", help="Uninstall before exiting")
     args = parser.parse_args(argv)
 
@@ -740,6 +787,12 @@ def _cli(argv: list[str] | None = None) -> int:
 
     if args.force_dialog:
         force_test_dialog("CLI forced dialog")
+
+    if args.simulate_handler_failure:
+        def _fail(exc, value, tb):  # pragma: no cover - testing path
+            raise RuntimeError("simulated failure")
+
+        globals()["handle_exception"] = _fail  # type: ignore[assignment]
 
     if args.trigger_error:
         with error_boundary():
