@@ -59,7 +59,8 @@ try:
 
     _rich_tb_install(show_locals=False)
     RICH_AVAILABLE = True
-except ImportError:  # pragma: no cover
+except Exception as exc:  # pragma: no cover - handle any import issue
+    print(f"Warning: rich import failed ({exc}).", file=sys.stderr)
     try:
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "rich>=13"],
@@ -82,7 +83,11 @@ except ImportError:  # pragma: no cover
         from rich import box as _rich_box
 
         RICH_AVAILABLE = True
-    except Exception:
+    except Exception as install_exc:
+        print(
+            f"Warning: rich installation failed ({install_exc}). Continuing without rich.",
+            file=sys.stderr,
+        )
         RICH_AVAILABLE = False
 
 if RICH_AVAILABLE:
@@ -100,6 +105,9 @@ if RICH_AVAILABLE:
 else:  # pragma: no cover - executed when rich unavailable
 
     class _PlainConsole:
+        def __init__(self, *_, **__):
+            pass
+
         def print(self, *args, **kwargs) -> None:
             print(*args, **kwargs)
 
