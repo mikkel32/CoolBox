@@ -3,4 +3,4 @@ set -e
 # This wrapper simply invokes the Python helper so command line options
 # like ``--prefer`` or ``--code`` work consistently across platforms.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec python "$SCRIPT_DIR/run_vm_debug.py" "$@"
+exec python "$SCRIPT_DIR/run_vm_dev.py" "$@"

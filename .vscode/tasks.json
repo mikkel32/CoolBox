@@ -2,9 +2,9 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Run CoolBox in Debug",
+            "label": "Run CoolBox",
             "type": "shell",
-            "command": "./scripts/run_debug.sh",
+            "command": "./scripts/run_dev.sh",
             "presentation": {
                 "reveal": "always"
             },
@@ -31,7 +31,7 @@
         {
             "label": "Run in Available VM",
             "type": "shell",
-            "command": "./scripts/run_vm_debug.sh",
+            "command": "./scripts/run_vm_dev.sh",
             "presentation": {
                 "reveal": "always"
             },
@@ -40,7 +40,7 @@
         {
             "label": "Run in Available VM (Python)",
             "type": "shell",
-            "command": "python scripts/run_vm_debug.py",
+            "command": "python scripts/run_vm_dev.py",
             "presentation": {
                 "reveal": "always"
             },
@@ -50,7 +50,7 @@
         {
             "label": "Run VM and Open VSCode",
             "type": "shell",
-            "command": "python scripts/run_vm_debug.py --code",
+            "command": "python scripts/run_vm_dev.py --code",
             "presentation": {
                 "reveal": "always"
             },

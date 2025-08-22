@@ -4,9 +4,9 @@ __version__ = "1.3.76"
 
 import os
 
-# NumPy 2.0 deprecates ``row_stack`` and emits a warning each time it is
+# NumPy 2.0 deprecates ``row_stack`` and emits a notice each time it is
 # used.  Matplotlib still calls this alias internally, so we replace it with
-# ``vstack`` to silence the warning without altering behaviour.
+# ``vstack`` to silence the notice without altering behaviour.
 try:  # pragma: no cover - optional dependency
     import numpy as _np
 

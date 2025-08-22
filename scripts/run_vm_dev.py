@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch CoolBox in a VM or container for debugging."""
+"""Launch CoolBox in a VM or container for development."""
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Callable
@@ -23,19 +23,19 @@ def available_backends() -> list[str]:
 
 
 def _load_launch() -> 'Callable[[str | None, bool, int, bool], None]':
-    """Load :func:`launch_vm_debug` without importing heavy deps."""
+    """Load :func:`launch_vm_dev` without importing heavy deps."""
     vm_path = ROOT / "src" / "utils" / "vm.py"
     spec = spec_from_file_location("_coolbox_vm", vm_path)
     if not spec or not spec.loader:
         raise RuntimeError(f"Unable to load {vm_path}")
     module = module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[arg-type]
-    return getattr(module, "launch_vm_debug")
+    return getattr(module, "launch_vm_dev")
 
 
 def parse_args(argv: list[str] | None = None) -> Namespace:
     """Return parsed command-line arguments."""
-    parser = ArgumentParser(description="Launch CoolBox for debugging")
+    parser = ArgumentParser(description="Launch CoolBox for development")
     parser.add_argument(
         "--prefer",
         choices=["docker", "vagrant", "auto"],
@@ -51,7 +51,7 @@ def parse_args(argv: list[str] | None = None) -> Namespace:
         "--port",
         type=int,
         default=5678,
-        help="Debug port to use when launching the environment",
+        help="Port to use when launching the environment",
     )
     parser.add_argument(
         "--list",
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> None:
 
     launch = _load_launch()
     print(
-        "Starting debug environment using",
+        "Starting dev environment using",
         args.prefer if args.prefer != "auto" else "auto-detected backend",
     )
     launch(

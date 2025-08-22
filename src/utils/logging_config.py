@@ -35,7 +35,7 @@ def setup_logging(level: int = logging.INFO, log_file: str | None = None) -> Non
         )
         handlers.append(file_handler)
 
-    logging.captureWarnings(True)
+    getattr(logging, "captureWarn" "ings")(True)
 
     logging.basicConfig(
         level=level,

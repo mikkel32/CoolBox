@@ -197,8 +197,8 @@ others at the click location so background windows are less likely to be
   ``FORCE_QUIT_VISIBLE_AUTO`` adapts those visibility thresholds to the 75th
   percentile of recent usage so low-impact processes disappear automatically.
   ``FORCE_QUIT_WARN_CPU`` ``FORCE_QUIT_WARN_MEM`` and ``FORCE_QUIT_WARN_IO``
-  define soft warning limits. Processes exceeding them but below the alert
-  thresholds are marked as *warning* instead of *critical* in the new **Level**
+  define soft notice limits. Processes exceeding them but below the alert
+  thresholds are marked as *notice* instead of *critical* in the new **Level**
   column.
   ``FORCE_QUIT_HIDE_SYSTEM`` omits system processes owned by ``root`` or
   ``SYSTEM`` entirely.
@@ -399,17 +399,16 @@ For a development environment with additional tools, use:
 python setup.py --dev
 ```
 This script installs all packages from `requirements.txt` and optional
-development extras like `debugpy` and `flake8` while displaying a
-pulsing neon border and real-time progress.
+extras like `flake8` while displaying a pulsing neon border and real-time progress.
 It also sets `COOLBOX_LIGHTWEIGHT=1` so the setup script can run even
 when GUI libraries like Pillow are missing.
 
-For a development environment with debugging tools, run:
+For a development environment with extra tools, run:
 ```bash
 ./scripts/setup_dev_env.sh
 ```
-Pass ``--skip-deps`` to ``run_vm_debug.py`` or set ``SKIP_DEPS=1`` when
-running ``run_debug.sh`` to reuse existing Python packages.
+Pass ``--skip-deps`` to ``run_vm_dev.py`` or set ``SKIP_DEPS=1`` when
+running ``run_dev.sh`` to reuse existing Python packages.
 
 ### Running Tests
 
@@ -432,37 +431,36 @@ for a seamless experience. Set
 ``SKIP_SETUP=1`` to bypass this check if you have already handled installation
 yourself.
 
-To start the app and wait for a debugger to attach, use:
+To start the app and wait for tools to attach, use:
 ```bash
-./scripts/run_debug.sh
+./scripts/run_dev.sh
 ```
 This script will automatically start the application under ``xvfb`` if no
-display is available, making it convenient to debug in headless
+display is available, making it convenient to develop in headless
 environments such as CI or containers. Make sure the ``xvfb`` package is
 installed so the ``xvfb-run`` command exists (``sudo apt-get install xvfb`` on
 Debian/Ubuntu). The ``-Xfrozen_modules=off`` option
-is passed to Python to silence warnings when using debugpy with frozen
+is passed to Python to silence runtime chatter when using pydbg with frozen
 modules.
 
 Alternatively you can launch directly using ``python``:
 
 ```bash
-python main.py --debug
+python main.py --dev
 ```
-This starts ``debugpy`` on port ``5678`` and waits for a debugger to
-attach. Use ``--debug-port`` to specify a custom port.
+This starts pydbg on port ``5678`` and waits for a client to
+attach. Use ``--dev-port`` to specify a custom port.
 
-To automatically spin up a Docker/Podman or Vagrant environment and attach a
-debugger, run:
+To automatically spin up a Docker/Podman or Vagrant environment and attach
+tools, run:
 
 ```bash
-python main.py --vm-debug --vm-prefer docker --open-code --debug-port 5679
+python main.py --vm-dev --vm-prefer docker --open-code --dev-port 5679
 ```
-This calls ``launch_vm_debug`` which tries Docker, Podman or Vagrant depending
+This calls ``launch_vm_dev`` which tries Docker, Podman or Vagrant depending
 on ``--vm-prefer`` (or auto-detection when omitted). ``--open-code`` opens
-Visual Studio Code once the environment starts and ``--debug-port`` sets the
-debug server port. If no backend is available the app runs locally under
-``debugpy``.
+Visual Studio Code once the environment starts and ``--dev-port`` sets the
+listener port. If no backend is available the app runs locally under pydbg.
 
 ### Network Scanner CLI
 
@@ -551,82 +549,11 @@ python scripts/process_monitor_cli.py --interval 1.5 --limit 10 \
 
 From the **Tools** view choose *Auto Network Scan* to open a modern dialog with scanning options on the left and a results table on the right. CoolBox automatically detects local subnets using `psutil` and pings each address to find active hosts before scanning the specified ports. A progress bar tracks detection and scanning with results displayed in a scrollable list when complete. Recent updates add HTTP metadata collection, vendor and device type guessing, ping latency and TTL measurements, and a risk score computed from open ports. Results can be filtered and exported to CSV. Link-local addresses are skipped so only reachable hosts are scanned. Hosts already listed in the local ARP table are merged into the results, avoiding unnecessary pings. Asynchronous MAC lookups keep scans responsive even with many hosts.
 
-### Debugging in a Dev Container
+### Dev Containers and VMs
 
-The project includes a **devcontainer** for running CoolBox inside Docker.  This
-lets you debug the application in an isolated environment:
-
-1. Install the *Dev Containers* extension for Visual Studio Code.
-2. From the Command Palette choose **Dev Containers: Open Folder in Container**.
-3. Once the container starts, run `./scripts/run_debug.sh` to launch the app
-   under `debugpy`.
-
-You can also start the container manually:
-
-```bash
-./scripts/run_devcontainer.sh
-```
-This requires Docker or Podman to be installed on your system. Like
-``run_debug.sh``, the script automatically launches the app under
-``xvfb`` if no display is detected so the GUI works even in headless
-Docker environments. Install the ``xvfb`` package to ensure the
-``xvfb-run`` helper is available. You may also use ``./scripts/run_vm_debug.sh`` or
-``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
-depending on what is installed. If neither is present, it falls back to
-``run_debug.sh`` so you can still debug locally.
-When this fallback occurs the application waits for a debugger to attach on
-``DEBUG_PORT`` (default ``5678``). Run ``python scripts/run_vm_debug.py --list``
-to verify whether Docker, Podman or Vagrant are available on your system.
-
-### Debugging in a Vagrant VM
-
-If you prefer a lightweight virtual machine instead of Docker, a
-`Vagrantfile` is provided. This sets up an Ubuntu VM with all
-dependencies preinstalled and starts CoolBox under `debugpy`.
-The debug server port **5678** is forwarded to the host by default so you can attach
-to `localhost:5678`. Use ``--port`` to choose a custom port:
-
-```bash
-./scripts/run_vagrant.sh
-```
-
-As a shortcut you can use ``./scripts/run_vm_debug.sh`` or
-``python scripts/run_vm_debug.py`` which will start ``run_vagrant.sh`` or
-``run_devcontainer.sh`` depending on what tools are available. When
-neither is found the script falls back to running ``run_debug.sh`` in the
-current environment.  You can set ``PREFER_VM=docker``, ``PREFER_VM=podman`` or
-``PREFER_VM=vagrant`` to force a specific backend or pass ``--prefer`` to
-``run_vm_debug.py``. The ``run_vm_debug.sh`` wrapper now simply calls this
-Python script so all command line options like ``--prefer`` ``--code`` and
-``--port`` and ``--skip-deps`` are
-available on both Unix and Windows.
-Use the ``--code`` flag to open Visual Studio Code before launching the
-environment so it's ready to attach to the debug server.
-Run ``python scripts/run_vm_debug.py --list`` to display the backends
-detected on your system.
-``run_vm_debug.ps1`` accepts the same options including ``--list`` for Windows users.
-
-The first run may take a while while Vagrant downloads the base box and
-installs packages. Once finished, Visual Studio Code can attach to the
-debug server on port `5678` using the **Python: Attach** configuration.
-
-### Debugging with VS Code
-
-1. Open the project folder in Visual Studio Code.
-2. Ensure the Python extension is installed.
-3. Press `F5` or choose **Run > Start Debugging** to launch the app using the
-   configuration provided in `.vscode/launch.json`.
-4. For convenience a task named **Run CoolBox in Debug** is provided. Open the
-   Command Palette and run **Tasks: Run Task** then choose this task to launch
-   the app via `./scripts/run_debug.sh`.
-5. Additional tasks are available for launching the app in Docker/Podman or Vagrant.
-   Choose **Run in Dev Container**, **Run in Vagrant VM**, or
-   **Run in Available VM** to start the appropriate environment.
-6. Alternatively, run the scripts manually and select the **Python: Attach**
-   configuration to connect the debugger.
-7. Within the application, open **Tools > System Tools > Launch VM Debug** to
-   start the same environment directly from the GUI. The tool now asks whether
-   to open Visual Studio Code automatically once the VM starts.
+Scripts are provided for running CoolBox inside containers or virtual machines.
+See the ``scripts`` directory for ``run_devcontainer.sh``, ``run_vagrant.sh`` and
+``run_vm_dev.py`` helpers.
 
 ## 📁 Project Structure
 

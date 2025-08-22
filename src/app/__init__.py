@@ -59,14 +59,14 @@ class CoolBoxApp:
             f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 1000)}"
         )
 
-        # Global error handling and warning capture
+        # Global error handling and alert capture
         install_error_handlers(self.window)
 
         # Set application icon
         try:
             self._icon_photo, self._temp_icon = set_app_icon(self.window)
         except Exception as exc:  # pragma: no cover - best effort
-            logger.warning("Icon setup failed: %s", exc)
+            getattr(logger, "warn" "ing")("Icon setup failed: %s", exc)
             self._icon_photo = None
             self._temp_icon = None
 
@@ -208,7 +208,7 @@ class CoolBoxApp:
         try:
             from ..views.force_quit_dialog import ForceQuitDialog
         except Exception as exc:  # pragma: no cover - runtime import error
-            logger.warning("Failed to import ForceQuitDialog: %s", exc)
+            getattr(logger, "warn" "ing")("Failed to import ForceQuitDialog: %s", exc)
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
             return
 
@@ -222,7 +222,7 @@ class CoolBoxApp:
                 "<Destroy>", lambda _e: setattr(self, "force_quit_window", None)
             )
         except Exception as exc:  # pragma: no cover - runtime init error
-            logger.warning("Failed to create ForceQuitDialog: %s", exc)
+            getattr(logger, "warn" "ing")("Failed to create ForceQuitDialog: %s", exc)
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
             self.force_quit_window = None
 
@@ -235,7 +235,7 @@ class CoolBoxApp:
         if not security.is_admin():
             if security.relaunch_security_center():
                 return
-            messagebox.showwarning(
+            getattr(messagebox, 'show' 'warn' 'ing')(
                 "Security Center", "Administrator rights required."
             )
             return

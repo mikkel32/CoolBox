@@ -47,7 +47,7 @@ class TestClickOverlay(unittest.TestCase):
         root = tk.Tk()
         with patch("src.views.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
-        self.assertFalse(overlay._colorkey_warning_shown)
+        self.assertFalse(overlay._colorkey_notice_shown)
         overlay.destroy()
         root.destroy()
 
@@ -464,7 +464,7 @@ class TestClickOverlay(unittest.TestCase):
                 fut: Future = Future()
                 try:
                     fut.set_result(fn(*args, **kwargs))
-                except Exception as e:  # pragma: no cover - debug aid
+                except Exception as e:  # pragma: no cover - diagnostic aid
                     fut.set_exception(e)
                 return fut
 
@@ -2644,7 +2644,7 @@ def test_pointer_move_frame_delay_benchmark() -> None:
             fut: Future = Future()
             try:
                 fut.set_result(fn(*args, **kwargs))
-            except Exception as e:  # pragma: no cover - debug aid
+            except Exception as e:  # pragma: no cover - diagnostic aid
                 fut.set_exception(e)
             return fut
 

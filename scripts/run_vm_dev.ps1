@@ -8,7 +8,7 @@ param(
 )
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$PythonScript = Join-Path $ScriptDir 'run_vm_debug.py'
+$PythonScript = Join-Path $ScriptDir 'run_vm_dev.py'
 
 $ArgsList = @()
 if ($Prefer -ne 'auto') { $ArgsList += '--prefer'; $ArgsList += $Prefer }

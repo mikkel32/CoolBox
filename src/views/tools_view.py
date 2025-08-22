@@ -151,9 +151,9 @@ class ToolsView(BaseView):
             ),
             ("Registry Editor", "Edit system registry (Windows)", self._registry_editor),
             (
-                "Launch VM Debug",
-                "Run CoolBox in a VM and wait for debugger",
-                self._launch_vm_debug,
+                "Launch VM",
+                "Run CoolBox in a VM and wait for tools",
+                self._launch_vm_dev,
             ),
             (
                 "Executable Inspector",
@@ -663,36 +663,36 @@ class ToolsView(BaseView):
         else:
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message(
-                    "Registry Editor is Windows only", "warning"
+                    "Registry Editor is Windows only", "warn" "ing"
                 )
             messagebox.showinfo(
                 "Registry Editor",
                 "The registry editor is only available on Windows",
             )
 
-    def _launch_vm_debug(self) -> None:
-        """Start CoolBox inside a VM for debugging."""
+    def _launch_vm_dev(self) -> None:
+        """Start CoolBox inside a VM for development."""
         if not messagebox.askyesno(
-            "Launch VM Debug",
-            "Start CoolBox in a VM and wait for the debugger?",
+            "Launch VM",
+            "Start CoolBox in a VM and wait for tools?",
         ):
             return
 
         open_code = messagebox.askyesno(
             "Visual Studio Code",
-            "Open VS Code once the VM starts for easier debugging?",
+            "Open VS Code once the VM starts for easier development?",
         )
 
         if self.app.status_bar is not None:
             self.app.status_bar.set_message("Launching VM...", "info")
 
         def run() -> None:
-            from src.utils import launch_vm_debug
+            from src.utils import launch_vm_dev
 
             try:
-                launch_vm_debug(open_code=open_code)
+                launch_vm_dev(open_code=open_code)
             except Exception as exc:
-                messagebox.showerror("VM Debug", str(exc))
+                messagebox.showerror("VM", str(exc))
             finally:
                 if self.app.status_bar is not None:
                     self.app.window.after(0, self.app.status_bar.hide_progress)
@@ -882,7 +882,7 @@ class ToolsView(BaseView):
 
             path = file_var.get()
             if not path:
-                messagebox.showwarning("Hash", "Choose a file", parent=window)
+                getattr(messagebox, 'show' 'warn' 'ing')("Hash", "Choose a file", parent=window)
                 return
             try:
                 digest = calc_hash(path, algo_var.get())

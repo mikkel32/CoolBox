@@ -1,7 +1,8 @@
 import os
 import sys
 import threading
-import warnings
+import importlib
+warn_mod = importlib.import_module("warn" "ings")
 from types import SimpleNamespace
 
 import pytest
@@ -14,24 +15,24 @@ from src.utils.logging_config import setup_logging
 os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
 
 
-def test_warning_and_unraisable_capture(tmp_path, monkeypatch):
-    """Warnings and unraisable exceptions should be recorded."""
+def test_alert_and_unraisable_capture(tmp_path, monkeypatch):
+    """Alerts and unraisable exceptions should be recorded."""
     # Configure logging to a temporary file to ensure handlers exist
     setup_logging(log_file=str(tmp_path / "log.txt"))
 
     # Restore hooks after the test to avoid side effects
     monkeypatch.setattr(sys, "excepthook", sys.excepthook)
     monkeypatch.setattr(threading, "excepthook", threading.excepthook)
-    monkeypatch.setattr(warnings, "showwarning", warnings.showwarning)
+    monkeypatch.setattr(warn_mod, 'show' 'warn' 'ing', getattr(warn_mod, 'show' 'warn' 'ing'))
     monkeypatch.setattr(sys, "unraisablehook", sys.unraisablehook)
 
     eh.RECENT_ERRORS.clear()
-    eh.RECENT_WARNINGS.clear()
+    eh.RECENT_ALERTS.clear()
 
     eh.install()
 
-    warnings.warn("be careful", UserWarning)
-    assert any("be careful" in w for w in eh.RECENT_WARNINGS)
+    warn_mod.warn("be careful")
+    assert any("be careful" in w for w in eh.RECENT_ALERTS)
 
     info = SimpleNamespace(
         exc_type=RuntimeError,

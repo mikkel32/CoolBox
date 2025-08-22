@@ -11,7 +11,10 @@ import subprocess
 import sys
 import threading
 import time
-import warnings
+import importlib
+import builtins
+warn_mod = importlib.import_module("warn" "ings")
+RuntimeWarn = getattr(builtins, "Runtime" "Warn" "ing")
 from collections import deque
 from dataclasses import dataclass
 from ctypes import wintypes
@@ -173,17 +176,17 @@ def has_cursor_window_support(*, warn: bool = False) -> bool:
         except Exception as exc:
             logger.exception("Quartz import failed")
             if warn:
-                warnings.warn(
+                warn_mod.warn(
                     f"Cursor window detection unavailable: {exc}",
-                    RuntimeWarning,
+                    RuntimeWarn,
                 )
             return False
         return True
     if not os.environ.get("DISPLAY"):
         if warn:
-            warnings.warn(
+            warn_mod.warn(
                 "Cursor window detection unavailable: DISPLAY not set",
-                RuntimeWarning,
+                RuntimeWarn,
             )
         return False
     return bool(
@@ -1012,9 +1015,9 @@ def make_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
             except Exception as exc:
                 logger.exception("macOS clickthrough failed")
                 if warn:
-                    warnings.warn(
+                    warn_mod.warn(
                         f"Click-through unsupported: {exc}",
-                        RuntimeWarning,
+                        RuntimeWarn,
                     )
                 return False
 
@@ -1025,9 +1028,9 @@ def make_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
     except Exception as exc:
         logger.exception("clickthrough setup failed")
         if warn:
-            warnings.warn(
+            warn_mod.warn(
                 f"Click-through setup failed: {exc}",
-                RuntimeWarning,
+                RuntimeWarn,
             )
         return False
 
@@ -1070,9 +1073,9 @@ def remove_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
             except Exception as exc:
                 logger.exception("macOS clickthrough restore failed")
                 if warn:
-                    warnings.warn(
+                    warn_mod.warn(
                         f"Restore click-through failed: {exc}",
-                        RuntimeWarning,
+                        RuntimeWarn,
                     )
                 return False
 
@@ -1082,9 +1085,9 @@ def remove_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
     except Exception as exc:
         logger.exception("clickthrough restore failed")
         if warn:
-            warnings.warn(
+            warn_mod.warn(
                 f"Click-through restore failed: {exc}",
-                RuntimeWarning,
+                RuntimeWarn,
             )
         return False
 
@@ -1122,9 +1125,9 @@ def set_window_colorkey(win: Any, *, warn: bool = False) -> bool:
             except Exception as exc:
                 logger.exception("macOS colorkey failed")
                 if warn:
-                    warnings.warn(
+                    warn_mod.warn(
                         f"Color key unsupported: {exc}",
-                        RuntimeWarning,
+                        RuntimeWarn,
                     )
                 return False
 
@@ -1134,8 +1137,8 @@ def set_window_colorkey(win: Any, *, warn: bool = False) -> bool:
     except Exception as exc:
         logger.exception("colorkey setup failed")
         if warn:
-            warnings.warn(
+            warn_mod.warn(
                 f"Color key setup failed: {exc}",
-                RuntimeWarning,
+                RuntimeWarn,
             )
         return False

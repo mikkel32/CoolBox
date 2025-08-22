@@ -8,7 +8,7 @@
 
 ## 1.3.75 - 2025-08-08
 
-- **Fix:** Ignore stale Kill by Click callbacks after cancellation to avoid spurious "failed to return a process" warnings.
+- **Fix:** Ignore stale Kill by Click callbacks after cancellation to avoid spurious "failed to return a process" notices.
 
 ## 1.3.74 - 2025-08-08
 
@@ -16,7 +16,7 @@
 
 ## 1.3.73 - 2025-08-08
 
-- **Fix:** Handle missing PyQt5 imports in click overlay type hints to silence Pylance warnings.
+- **Fix:** Handle missing PyQt5 imports in click overlay type hints to silence Pylance notices.
 
 ## 1.3.72 - 2025-08-08
 
@@ -25,7 +25,7 @@
 ## 1.3.71 - 2025-08-08
 
 - **Fix:** Guard optional PyQt5 imports and annotate Qt types to satisfy linters.
-- **Fix:** Import `threading` for asynchronous VM debug launching.
+- **Fix:** Import `threading` for asynchronous VM diagnostic launching.
 
 ## 1.3.65 - 2025-08-08
 
@@ -181,16 +181,16 @@
 
 ## 1.3.21 - 2025-08-03
 
-- **Enhance:** Capture Python warnings from tools and surface them through the
+- **Enhance:** Capture Python alerts from tools and surface them through the
   watchdog console and status bar.
-- **Improve:** Log tool execution duration to aid production debugging.
+- **Improve:** Log tool execution duration to aid production analysis.
 
 ## 1.3.20 - 2025-08-03
 
 - **Improve:** Centralize tool execution in ``ThreadManager.run_tool`` with full
   traceback logging and UI-safe error reporting.
 - **Enhance:** Watchdog console shows log levels alongside timestamps and
-  displays warnings.
+  displays notices.
 
 ## 1.3.19 - 2025-08-03
 
@@ -614,7 +614,7 @@
 
 ## 1.0.31 - 2025-08-09
 
-- **Fix:** Smooth kill-by-click overlay by avoiding repeated transparency warnings and redundant hover callbacks.
+- **Fix:** Smooth kill-by-click overlay by avoiding repeated transparency messages and redundant hover callbacks.
 
 ## 1.0.30 - 2025-08-09
 

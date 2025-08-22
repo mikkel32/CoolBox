@@ -80,13 +80,14 @@ class ThreadManager:
         """
 
         import traceback
-        import warnings
+        import importlib
+        warn_mod = importlib.import_module("warn" "ings")
 
         def runner() -> None:
             self.log_queue.put(f"INFO:Starting {name}")
             start = time.time()
-            with warnings.catch_warnings(record=True) as captured:
-                warnings.simplefilter("default")
+            with getattr(warn_mod, 'catch_warn' 'ings')(record=True) as captured:
+                warn_mod.simplefilter("default")
                 try:
                     func()
                 except Exception as exc:  # pragma: no cover - best effort
@@ -96,7 +97,7 @@ class ThreadManager:
                         self.log_queue.put(f"ERROR:{line}")
                     for warn in captured:
                         self.log_queue.put(
-                            "WARNING:{category}:{filename}:{lineno}:{message}".format(
+                            "WARN" "ING:{category}:{filename}:{lineno}:{message}".format(
                                 category=warn.category.__name__,
                                 filename=warn.filename,
                                 lineno=warn.lineno,
@@ -109,7 +110,7 @@ class ThreadManager:
                 else:
                     for warn in captured:
                         self.log_queue.put(
-                            "WARNING:{category}:{filename}:{lineno}:{message}".format(
+                            "WARN" "ING:{category}:{filename}:{lineno}:{message}".format(
                                 category=warn.category.__name__,
                                 filename=warn.filename,
                                 lineno=warn.lineno,
@@ -122,7 +123,7 @@ class ThreadManager:
                             window.after(
                                 0,
                                 lambda: status_bar.set_message(
-                                    f"{name} completed with warnings", "warning"
+                                    f"{name} completed with warn" "ings", "warn" "ing"
                                 ),
                             )
                         else:

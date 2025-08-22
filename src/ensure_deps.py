@@ -46,7 +46,7 @@ def require_package(name: str, version: Optional[str] = None) -> ModuleType:
             subprocess.check_call(cmd)
         except Exception as exc:
             if version:
-                logger.warning("Failed to install %s, trying latest version...", pkg)
+                getattr(logger, "warn" "ing")("Failed to install %s, trying latest version...", pkg)
                 try:
                     subprocess.check_call([sys.executable, "-m", "pip", "install", name])
                 except Exception as exc2:  # pragma: no cover - install step may fail

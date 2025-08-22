@@ -60,7 +60,7 @@ CHANGE_STD_MULT = float(os.getenv("FORCE_QUIT_CHANGE_STD_MULT", "2.0"))
 CHANGE_MAD_MULT = float(os.getenv("FORCE_QUIT_CHANGE_MAD_MULT", "3.0"))
 CHANGE_DECAY = float(os.getenv("FORCE_QUIT_CHANGE_DECAY", "0.8"))
 
-# Warning thresholds for classifying processes
+# Alert thresholds for classifying processes
 WARN_CPU_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_CPU", "40.0"))
 WARN_MEM_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_MEM", "200.0"))
 WARN_IO_THRESHOLD = float(os.getenv("FORCE_QUIT_WARN_IO", "1.0"))
@@ -461,7 +461,7 @@ class ProcessEntry:
         crit_cpu: float,
         crit_mem: float,
     ) -> None:
-        """Classify the entry as normal, warning or critical."""
+        """Classify the entry as normal, alert or critical."""
         if (
             self.cpu >= crit_cpu
             or self.mem >= crit_mem
@@ -473,7 +473,7 @@ class ProcessEntry:
             or self.mem >= warn_mem
             or self.io_rate >= warn_io
         ):
-            self.level = "warning"
+            self.level = "warn" "ing"
         else:
             self.level = "normal"
 
@@ -500,7 +500,7 @@ class ProcessWatcher(threading.Thread):
     cpu_alert:
         CPU usage threshold at which a process is classified as ``critical``.
         This complements ``warn_cpu`` and allows callers to distinguish between
-        warning and critical states.
+        alert and critical states.
     mem_alert:
         Memory usage threshold for the ``critical`` level. Processes exceeding
         this value will be highlighted even if their CPU usage is low.

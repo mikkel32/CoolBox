@@ -24,7 +24,7 @@ from .color_utils import (
     hex_brightness,
 )
 from .rainbow import RainbowBorder, NeonPulseBorder
-from .vm import launch_vm_debug
+from .vm import launch_vm_dev
 from .file_manager import (
     FileManagerError,
     read_text,
@@ -182,7 +182,7 @@ __all__ = [
     "console",
     "RainbowBorder",
     "NeonPulseBorder",
-    "launch_vm_debug",
+    "launch_vm_dev",
     "scan_ports",
     "async_scan_ports",
     "scan_port_list",

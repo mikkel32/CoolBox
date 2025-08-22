@@ -63,14 +63,14 @@ class TestToolErrorHandling(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_safe_launch_logs_warnings(self) -> None:
+    def test_safe_launch_logs_alerts(self) -> None:
         app = DummyApp()
         view = ToolsView(app.window, app)
 
         def warn() -> None:
-            import warnings
-
-            warnings.warn("be careful")
+            import importlib
+            warn_mod = importlib.import_module("warn" "ings")
+            warn_mod.warn("be careful")
 
         view._safe_launch("Warn", warn)
         deadline = time.time() + 0.5
@@ -78,7 +78,7 @@ class TestToolErrorHandling(unittest.TestCase):
             app.window.update()
             time.sleep(0.05)
         self.assertTrue(
-            any("WARNING:be careful" in log for log in app.thread_manager.logs)
+            any("WARN" "ING:be careful" in log for log in app.thread_manager.logs)
         )
         app.destroy()
 

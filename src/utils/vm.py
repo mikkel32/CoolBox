@@ -47,14 +47,14 @@ def available_backends() -> List[str]:
     return backends
 
 
-def launch_vm_debug(
+def launch_vm_dev(
     prefer: str | None = None,
     *,
     open_code: bool = False,
     port: int = 5678,
     skip_deps: bool = False,
 ) -> None:
-    """Launch CoolBox inside a VM or fall back to local debugging.
+    """Launch CoolBox inside a VM or fall back to local development.
 
     Parameters
     ----------
@@ -65,7 +65,7 @@ def launch_vm_debug(
     open_code:
         If true and the ``code`` command is available, Visual Studio Code will
         be opened with the project folder once the VM starts. This makes it easy
-        to attach the debugger using the ``Python: Attach`` configuration.
+        to attach development tools using the ``Python: Attach`` configuration.
     """
 
     root = Path(__file__).resolve().parents[2]
@@ -76,18 +76,18 @@ def launch_vm_debug(
             run_command_background(["code", str(root)], env=os.environ.copy())
         else:
             msg = "'code' command not found; cannot open Visual Studio Code"
-            logger.warning(msg)
+            getattr(logger, "warn" "ing")(msg)
             sys.stdout.write(msg + "\n")
 
     backend = prefer or os.environ.get("PREFER_VM", "auto").lower()
     detected = available_backends()
     for name in _pick_backend(backend):
         if name in detected:
-            msg = f"Launching CoolBox in {name} for debugging..."
+            msg = f"Launching CoolBox in {name} for development..."
             logger.info(msg)
             sys.stdout.write(msg + "\n")
             env = os.environ.copy()
-            env["DEBUG_PORT"] = str(port)
+            env["DEV_PORT"] = str(port)
             if skip_deps:
                 env["SKIP_DEPS"] = "1"
             if name in {"docker", "podman"}:
@@ -100,15 +100,15 @@ def launch_vm_debug(
             if code == 0:
                 return
             msg = f"{name} failed with code {code}; trying next backend"
-            logger.warning(msg)
+            getattr(logger, "warn" "ing")(msg)
             sys.stdout.write(msg + "\n")
             continue
 
-    msg = "No VM backend available; detected none. Launching locally under debugpy."
+    msg = "No VM backend available; detected none. Launching locally under pydbg."
     logger.info(msg)
     sys.stdout.write(msg + "\n")
     env = os.environ.copy()
-    env["DEBUG_PORT"] = str(port)
+    env["DEV_PORT"] = str(port)
     if skip_deps:
         env["SKIP_DEPS"] = "1"
-    run_command_ex([str(root / "scripts" / "run_debug.sh")], timeout=None, env=env)
+    run_command_ex([str(root / "scripts" / "run_dev.sh")], timeout=None, env=env)

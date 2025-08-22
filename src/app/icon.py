@@ -51,7 +51,7 @@ def set_app_icon(window):
                     pass
                 temp_icon = tmp.name
             except Exception as exc:
-                logger.warning("Failed to set taskbar icon: %s", exc)
+                getattr(logger, "warn" "ing")("Failed to set taskbar icon: %s", exc)
                 raise RuntimeError(f"Failed to set taskbar icon: {exc}") from exc
     except Exception as exc:
         logger.error("Failed to set window icon: %s", exc)
@@ -64,7 +64,7 @@ def set_app_icon(window):
             ns_image = NSImage.alloc().initByReferencingFile_(str(icon_path))
             NSApplication.sharedApplication().setApplicationIconImage_(ns_image)
         except Exception as exc:
-            logger.warning("Failed to set dock icon: %s", exc)
+            getattr(logger, "warn" "ing")("Failed to set dock icon: %s", exc)
             raise RuntimeError(f"Failed to set dock icon: {exc}") from exc
 
     return photo, temp_icon

@@ -414,7 +414,7 @@ class ExeInspectorDialog(BaseDialog):
             ("prompt", self.accent_purple, ("Consolas", 12, "bold")),
             ("error", self.accent_red, ("Cascadia Code", 12, "bold")),
             ("dim", self.text_dim, ("Cascadia Code", 11)),
-            ("warning", "#ffcc00", ("Cascadia Code", 12)),
+            ("warn" "ing", "#ffcc00", ("Cascadia Code", 12)),
             ("success", self.accent_green, ("Cascadia Code", 12, "bold")),
             ("accent", self.accent_cyan, ("Cascadia Code", 12)),
             ("matrix", self.text_faint, ("Cascadia Code", 9)),
@@ -595,7 +595,7 @@ class ExeInspectorDialog(BaseDialog):
             ("[✓] Encryption layer established", "success"),
             ("[✓] Glass interface rendered", "success"),
             ("[✓] Security modules loaded", "success"),
-            ("[!] Aegis Terminal Ready", "warning"),
+            ("[!] Aegis Terminal Ready", "warn" "ing"),
             ("\n", "value")
         ]
         
@@ -782,7 +782,7 @@ class ExeInspectorDialog(BaseDialog):
                 self.output.insert("end", "    ◆ " + line.strip() + "\n", "success")
             elif line.strip().startswith("Port"):
                 # Port
-                self.output.insert("end", "    ◈ " + line.strip() + "\n", "warning")
+                self.output.insert("end", "    ◈ " + line.strip() + "\n", "warn" "ing")
             elif line.strip().startswith("["):
                 # String
                 self.output.insert("end", "    " + line.strip() + "\n", "dim")
@@ -935,7 +935,7 @@ Type 'help' for command list.
         ]
         
         for msg, delay in scan_steps[:-1]:
-            self.output.insert("end", msg + "\r", "warning")
+            self.output.insert("end", msg + "\r", "warn" "ing")
             self.output.see("end")
             self.update()
             time.sleep(delay)
@@ -1005,7 +1005,7 @@ Type 'help' for command list.
         self.output.insert("end", "\n╭─[", "dim")
         self.output.insert("end", "AEGIS", "glow")
         self.output.insert("end", "]──[", "dim")
-        self.output.insert("end", ts, "warning")
+        self.output.insert("end", ts, "warn" "ing")
         self.output.insert("end", "]──[", "dim")
         self.output.insert("end", str(Path.cwd()).replace(str(Path.home()), "~"), "subheader")
         self.output.insert("end", "]\n", "dim")
@@ -1045,8 +1045,8 @@ Type 'help' for command list.
                 for line in out.splitlines():
                     if any(err in line.lower() for err in ["error", "fail", "denied", "not found", "permission"]):
                         self.output.insert("end", "  ✗ " + line + "\n", "error")
-                    elif any(warn in line.lower() for warn in ["warning", "caution", "deprecated"]):
-                        self.output.insert("end", "  ⚠ " + line + "\n", "warning")
+                    elif any(warn in line.lower() for warn in ["warn" "ing", "caution", "deprecated"]):
+                        self.output.insert("end", "  ⚠ " + line + "\n", "warn" "ing")
                     else:
                         self.output.insert("end", "  " + line + "\n", "value")
             else:

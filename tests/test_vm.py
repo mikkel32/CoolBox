@@ -2,19 +2,19 @@ import shutil
 from pathlib import Path
 
 import src.utils.vm as vm
-from src.utils.vm import launch_vm_debug
-import scripts.run_vm_debug as vmcli
+from src.utils.vm import launch_vm_dev
+import scripts.run_vm_dev as vmcli
 
 
-def test_launch_vm_debug_vagrant(monkeypatch):
+def test_launch_vm_dev_vagrant(monkeypatch):
     called = []
     monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/vagrant" if x == "vagrant" else None)
     monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
+    launch_vm_dev()
     assert Path(called[0][0]).name == "run_vagrant.sh"
 
 
-def test_launch_vm_debug_docker(monkeypatch):
+def test_launch_vm_dev_docker(monkeypatch):
     called = []
 
     def which(cmd):
@@ -22,12 +22,12 @@ def test_launch_vm_debug_docker(monkeypatch):
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
+    launch_vm_dev()
     assert Path(called[0][0]).name == "run_devcontainer.sh"
     assert called[0][1] == "docker"
 
 
-def test_launch_vm_debug_fallback(monkeypatch):
+def test_launch_vm_dev_fallback(monkeypatch):
     calls = []
 
     def which(cmd):
@@ -35,19 +35,19 @@ def test_launch_vm_debug_fallback(monkeypatch):
 
     def fail_call(args, **kwargs):
         calls.append(args)
-        if Path(args[0]).name == "run_debug.sh":
+        if Path(args[0]).name == "run_dev.sh":
             return "", 0
         return "", 1
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(vm, "run_command_ex", fail_call)
-    launch_vm_debug()
+    launch_vm_dev()
     # first attempt with docker should fail then fall back to local
     assert Path(calls[0][0]).name == "run_devcontainer.sh"
-    assert Path(calls[1][0]).name == "run_debug.sh"
+    assert Path(calls[1][0]).name == "run_dev.sh"
 
 
-def test_launch_vm_debug_podman(monkeypatch):
+def test_launch_vm_dev_podman(monkeypatch):
     called = []
 
     def which(cmd):
@@ -55,17 +55,17 @@ def test_launch_vm_debug_podman(monkeypatch):
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
+    launch_vm_dev()
     assert Path(called[0][0]).name == "run_devcontainer.sh"
     assert called[0][1] == "podman"
 
 
-def test_launch_vm_debug_missing(monkeypatch):
+def test_launch_vm_dev_missing(monkeypatch):
     called = []
     monkeypatch.setattr(shutil, "which", lambda x: None)
     monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
-    assert Path(called[0][0]).name == "run_debug.sh"
+    launch_vm_dev()
+    assert Path(called[0][0]).name == "run_dev.sh"
 
 
 def test_launch_vm_prefer_env(monkeypatch):
@@ -77,7 +77,7 @@ def test_launch_vm_prefer_env(monkeypatch):
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setenv("PREFER_VM", "vagrant")
     monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
+    launch_vm_dev()
     assert Path(called[0][0]).name == "run_vagrant.sh"
 
 
@@ -89,7 +89,7 @@ def test_launch_vm_prefer_arg(monkeypatch):
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug(prefer="docker")
+    launch_vm_dev(prefer="docker")
     assert Path(called[0][0]).name == "run_devcontainer.sh"
 
 
@@ -116,25 +116,25 @@ def test_launch_vm_open_code(monkeypatch):
             (Path(args[0]).name, args[1] if len(args) > 1 else None)
         ) or ("", 0))
     )
-    launch_vm_debug(open_code=True)
+    launch_vm_dev(open_code=True)
     assert calls[0] == "code"
     assert calls[1][0] == "run_vagrant.sh"
 
 
 def test_launch_vm_open_code_missing(monkeypatch, capsys):
-    """Ensure a warning is printed if VS Code is not installed."""
+    """Ensure a notice is printed if VS Code is not installed."""
     def which(cmd: str) -> str | None:
         return "/usr/bin/vagrant" if cmd == "vagrant" else None
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(vm, "run_command_background", lambda *a, **k: (False, None))
     monkeypatch.setattr(vm, "run_command_ex", lambda *a, **k: ("", 0))
-    launch_vm_debug(open_code=True)
+    launch_vm_dev(open_code=True)
     out = capsys.readouterr().out
     assert "code' command not found" in out
 
 
-def test_launch_vm_debug_env(monkeypatch):
+def test_launch_vm_dev_env(monkeypatch):
     captured = []
 
     def which(cmd: str) -> str | None:
@@ -146,9 +146,9 @@ def test_launch_vm_debug_env(monkeypatch):
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(vm, "run_command_ex", fake_run)
-    launch_vm_debug(port=9999, skip_deps=True)
+    launch_vm_dev(port=9999, skip_deps=True)
     env = captured[0]
-    assert env["DEBUG_PORT"] == "9999"
+    assert env["DEV_PORT"] == "9999"
     assert env["SKIP_DEPS"] == "1"
 
 
