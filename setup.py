@@ -381,7 +381,13 @@ _OFFLINE_AUTO: bool | None = None
 def set_offline(value: bool) -> None:
     global _OFFLINE_FORCED, _OFFLINE_AUTO
     _OFFLINE_FORCED = value
-    _OFFLINE_AUTO = True if value else None
+    # When explicitly toggling offline mode we should also override any
+    # previous auto-detection result.  Setting ``_OFFLINE_AUTO`` to ``False``
+    # when disabling offline mode avoids a new detection pass that might
+    # incorrectly mark the environment as offline again.  This ensures that
+    # calls such as ``set_offline(False)`` truly force online behaviour
+    # regardless of transient network failures (e.g. in CI environments).
+    _OFFLINE_AUTO = True if value else False
     if value:
         os.environ["COOLBOX_OFFLINE"] = "1"
         BASE_ENV["COOLBOX_OFFLINE"] = "1"
