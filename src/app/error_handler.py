@@ -166,11 +166,9 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
     timestamp = datetime.now().isoformat()
     if tb is not None:
         last = traceback.extract_tb(tb)[-1]
-        location = f"{last.filename}:{last.lineno} in {last.name}"
-        code_line = (last.line or "").strip()
+        location = f"{last.filename}:{last.lineno}"
     else:
         location = "unknown location"
-        code_line = ""
 
     logger.error(
         "Unhandled exception %s at %s on %s",
@@ -182,17 +180,10 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
 
     tb_str = "".join(traceback.format_exception(exc, value, tb))
     context = _collect_context()
-    code_part = f"Code: {code_line}\n" if code_line else ""
-    details = (
-        f"Exception type: {exc.__name__}\n"
-        f"Exception message: {value}\n"
-        f"Location: {location}\n"
-        f"{code_part}"
-        f"Timestamp: {timestamp}\n"
-        f"Context: {context}\n\n"
-        f"Traceback:\n{tb_str}"
+    _record(
+        RECENT_ERRORS,
+        f"{timestamp}:{exc.__name__}:{location}:{value}\n{context}\n{tb_str}",
     )
-    _record(RECENT_ERRORS, details)
 
     if isinstance(value, IOError):
         desc = f"An I/O error occurred: {value}"
@@ -201,8 +192,8 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
     else:
         desc = str(value)
 
-    msg = f"{exc.__name__}: {desc} (at {location} on {timestamp})"
-    _show_error_dialog(msg, details)
+    msg = f"{desc} (at {location} on {timestamp})"
+    _show_error_dialog(msg, tb_str)
 
 
 def install(window=None) -> None:
