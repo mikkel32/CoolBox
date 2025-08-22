@@ -528,11 +528,8 @@ class ToolsView(BaseView):
     def _system_info(self):
         """Open the enhanced System Info dialog."""
         from .system_info_dialog import SystemInfoDialog
-        # ``ThreadManager.run_tool`` executes tool functions in a background thread
-        # to keep the UI responsive.  Creating Tkinter widgets from a worker thread
-        # raises ``RuntimeError: main thread is not in main loop``.  Schedule the
-        # dialog creation on the Tk main thread instead so it runs safely.
-        self.app.window.after(0, lambda: SystemInfoDialog(self.app))
+
+        SystemInfoDialog(self.app)
 
     def _process_manager(self):
         """Display a simple cross-platform process manager."""
