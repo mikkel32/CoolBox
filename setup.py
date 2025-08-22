@@ -782,52 +782,6 @@ def clean_pyc() -> None:
     log(f"Removed {n} __pycache__ folders.")
 
 
-def scan_project(
-    root: Path | None = None,
-    markers: Sequence[str] = ("TODO", "FIXME", "BUG"),
-) -> dict[Path, list[tuple[int, str]]]:
-    """Scan project files for common problem markers.
-
-    Returns a mapping of file paths to a list of ``(line_number, text)`` tuples
-    for each line that contains any of *markers*.
-    """
-    root = root or ROOT_DIR
-    files = [p for p in root.rglob("*.py") if p.is_file()]
-    results: dict[Path, list[tuple[int, str]]] = {}
-
-    def _process(p: Path) -> None:
-        hits: list[tuple[int, str]] = []
-        try:
-            with p.open("r", encoding="utf-8", errors="ignore") as fh:
-                for lineno, line in enumerate(fh, 1):
-                    if any(m in line for m in markers):
-                        hits.append((lineno, line.strip()))
-        except Exception:
-            return
-        if hits:
-            results[p] = hits
-
-    with ThreadPoolExecutor() as ex:
-        list(ex.map(_process, files))
-    return results
-
-
-def report_problems() -> None:
-    """Display a table of problem markers found in the project."""
-    results = scan_project()
-    if not results:
-        log("No problem markers found.")
-        return
-    table = Table(box=box.SIMPLE_HEAVY)
-    table.add_column("File", overflow="fold")
-    table.add_column("Line", no_wrap=True)
-    table.add_column("Text", overflow="fold")
-    for path in sorted(results):
-        for lineno, text in results[path]:
-            table.add_row(str(path.relative_to(ROOT_DIR)), str(lineno), text)
-    console.print(table)
-
-
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
     """Assemble pip commands needed for installation."""
     planned: list[tuple[str, list[str], bool]] = []
@@ -974,8 +928,6 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
     sub.add_parser("clean-pyc", help="Remove __pycache__ folders")
 
-    sub.add_parser("scan", help="Scan project for TODO/FIXME/BUG markers")
-
     p_test = sub.add_parser("test", help="Run pytest")
     p_test.add_argument("extra", nargs="*", default=[])
 
@@ -1040,8 +992,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             log("Virtualenv ready.")
         elif cmd == "clean-pyc":
             clean_pyc()
-        elif cmd == "scan":
-            report_problems()
         elif cmd == "test":
             run_tests(args.extra)
         elif cmd == "update":
