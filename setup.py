@@ -296,7 +296,6 @@ class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
     def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
-        super().__init__()
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
@@ -793,38 +792,21 @@ def collect_problems(
 ) -> None:
     """Scan project files for common problem markers.
 
-    By default this searches for ``TODO``, ``FIXME`` and ``BUG``
+    By default this searches for ``TODO``, ``FIXME``, ``BUG`` and ``WARNING``
     comments across the repository.  All matches are appended to the global
     ``SUMMARY`` so they are displayed in the final run report.  A custom list of
     *markers* can be provided via ``markers``.
     """
 
-    markers = [m.strip() for m in (markers or ["TODO", "FIXME", "BUG"])]
+    markers = [m.strip() for m in (markers or ["TODO", "FIXME", "BUG", "WARNING"])]
     pattern = "|".join(re.escape(m) for m in markers)
     problem_re = re.compile(f"({pattern})", re.IGNORECASE)
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
 
-    def _is_text_file(path: Path) -> bool:
-        try:
-            with path.open("rb") as fh:
-                chunk = fh.read(1024)
-            if b"\0" in chunk:
-                return False
-            chunk.decode("utf-8")
-            return True
-        except Exception:
-            return False
-
-    current_file = Path(__file__).resolve()
     files = [
         p
         for p in ROOT_DIR.rglob("*")
-        if (
-            p.is_file()
-            and p.resolve() != current_file
-            and not any(part in ignore_dirs for part in p.parts)
-            and _is_text_file(p)
-        )
+        if p.is_file() and not any(part in ignore_dirs for part in p.parts)
     ]
 
     def _scan(path: Path) -> list[tuple[str, int, str]]:
@@ -1023,7 +1005,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--markers",
         type=str,
         default=None,
-        help="Comma separated markers (default: TODO,FIXME,BUG)",
+        help="Comma separated markers (default: TODO,FIXME,BUG,WARNING)",
     )
 
     p_test = sub.add_parser("test", help="Run pytest")
