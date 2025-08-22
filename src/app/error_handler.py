@@ -210,7 +210,15 @@ def install(window=None) -> None:
     """Install global hooks so all warnings and errors are logged."""
 
     def _thread_hook(args):
-        handle_exception(args.exc_type, args.exc_value, args.exc_traceback)
+        if window is not None and hasattr(window, "after"):
+            window.after(
+                0,
+                lambda: handle_exception(
+                    args.exc_type, args.exc_value, args.exc_traceback
+                ),
+            )
+        else:
+            handle_exception(args.exc_type, args.exc_value, args.exc_traceback)
 
     def _unraisable_hook(args):
         exc = args.exc_type or type(args.exc_value)
