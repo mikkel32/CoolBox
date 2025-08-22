@@ -62,4 +62,6 @@ def test_handle_exception_uses_dialog(monkeypatch):
 
     assert "kaboom" in called["msg"]
     assert "RuntimeError" in called["details"]
+    assert "Location:" in called["details"]
+    assert "Traceback:" in called["details"]
 
