@@ -255,7 +255,12 @@ class ToolsView(BaseView):
         )
 
     def _safe_launch(self, name: str, func: callable) -> None:
-        """Run *func* in a background thread and surface errors gracefully."""
+        """Run *func* in a background thread and surface errors gracefully.
+
+        ``ThreadManager.run_tool`` automatically retries functions that need
+        the Tk main thread, so tools are launched the same way regardless of
+        whether they create dialogs or perform background work.
+        """
 
         self.app.thread_manager.run_tool(
             name,
