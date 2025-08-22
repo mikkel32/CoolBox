@@ -140,54 +140,35 @@ class ToolsView(BaseView):
         )
 
         tools = [
-            ("System Info", "View system information", self._system_info, True),
-            (
-                "Process Manager",
-                "Manage running processes",
-                self._process_manager,
-                True,
-            ),
-            (
-                "Force Quit",
-                "Forcefully terminate a process",
-                self._force_quit,
-                False,
-            ),
-            ("Disk Cleanup", "Clean temporary files", self._disk_cleanup, True),
+            ("System Info", "View system information", self._system_info),
+            ("Process Manager", "Manage running processes", self._process_manager),
+            ("Force Quit", "Forcefully terminate a process", self._force_quit),
+            ("Disk Cleanup", "Clean temporary files", self._disk_cleanup),
             (
                 "Screenshot",
                 "Capture screen to an image file",
                 self._screenshot_tool,
-                True,
             ),
-            (
-                "Registry Editor",
-                "Edit system registry (Windows)",
-                self._registry_editor,
-                True,
-            ),
+            ("Registry Editor", "Edit system registry (Windows)", self._registry_editor),
             (
                 "Launch VM Debug",
                 "Run CoolBox in a VM and wait for debugger",
                 self._launch_vm_debug,
-                True,
             ),
             (
                 "Executable Inspector",
                 "Inspect an executable file",
                 self._exe_inspector,
-                True,
             ),
             (
                 "Security Center",
                 "Toggle Firewall and Defender",
                 self._security_center,
-                True,
             ),
         ]
 
-        for name, desc, func, threaded in tools:
-            self._create_tool_item(body, name, desc, func, use_thread=threaded)
+        for name, desc, func in tools:
+            self._create_tool_item(body, name, desc, func)
 
     def _create_text_tools(self):
         """Create text manipulation tools"""
@@ -227,15 +208,7 @@ class ToolsView(BaseView):
         for name, desc, func in tools:
             self._create_tool_item(body, name, desc, func)
 
-    def _create_tool_item(
-        self,
-        parent,
-        name: str,
-        description: str,
-        command,
-        *,
-        use_thread: bool = True,
-    ) -> None:
+    def _create_tool_item(self, parent, name: str, description: str, command):
         """Create a tool item"""
         # Tool frame
         tool_frame = ctk.CTkFrame(parent)
@@ -261,9 +234,7 @@ class ToolsView(BaseView):
         button = self.grid_button(
             tool_frame,
             "Launch",
-            lambda cmd=command, name=name, ut=use_thread: self._safe_launch(
-                name, cmd, use_thread=ut
-            ),
+            lambda cmd=command, name=name: self._safe_launch(name, cmd),
             0,
             column=1,
             columnspan=1,
@@ -283,22 +254,14 @@ class ToolsView(BaseView):
             )
         )
 
-    def _safe_launch(
-        self, name: str, func: callable, *, use_thread: bool = True
-    ) -> None:
-        """Execute *func* in the thread manager with error handling.
-
-        Tools run in a background thread by default.  If a callback requires
-        Tk's main loop (for example when creating dialogs) the thread manager
-        automatically retries the command on the UI thread.
-        """
+    def _safe_launch(self, name: str, func: callable) -> None:
+        """Run *func* in a background thread and surface errors gracefully."""
 
         self.app.thread_manager.run_tool(
             name,
             func,
             window=self.app.window,
             status_bar=self.app.status_bar,
-            use_thread=use_thread,
         )
 
     # Tool implementations
