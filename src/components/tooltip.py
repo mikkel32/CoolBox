@@ -18,6 +18,12 @@ class Tooltip(ctk.CTkToplevel):
         # registrations.
         scaling_tracker.ScalingTracker.add_window(self._set_scaling, self)
 
+        # Ensure tooltip is deregistered even if the parent window destroys it
+        # directly. Tkinter does not call our ``destroy`` override when a
+        # toplevel is destroyed as part of its parent, so we bind to the
+        # ``<Destroy>`` event to perform cleanup in all cases.
+        self.bind("<Destroy>", self._on_destroy, add="+")
+
         self.overrideredirect(True)
         self.withdraw()
         self.label = ctk.CTkLabel(self, text=text, font=ctk.CTkFont(size=12))
@@ -32,9 +38,13 @@ class Tooltip(ctk.CTkToplevel):
         """Hide the tooltip."""
         self.withdraw()
 
-    def destroy(self) -> None:  # type: ignore[override]
-        """Destroy tooltip and deregister from scaling tracker."""
+    def _on_destroy(self, _event=None) -> None:
+        """Remove tooltip from CustomTkinter's scaling tracker."""
         scaling_tracker.ScalingTracker.remove_window(self._set_scaling, self)
         scaling_tracker.ScalingTracker.window_widgets_dict.pop(self, None)
         scaling_tracker.ScalingTracker.window_dpi_scaling_dict.pop(self, None)
+
+    def destroy(self) -> None:  # type: ignore[override]
+        """Destroy tooltip and deregister from scaling tracker."""
+        self._on_destroy()
         super().destroy()
