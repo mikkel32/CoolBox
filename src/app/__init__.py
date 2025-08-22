@@ -14,7 +14,6 @@ from typing import Dict, Optional, TYPE_CHECKING
 from pathlib import Path
 import sys
 import logging
-import threading
 from tkinter import messagebox
 
 from ..config import Config
@@ -206,9 +205,6 @@ class CoolBoxApp:
 
     def open_force_quit(self) -> None:
         """Launch the Force Quit dialog or focus the existing one."""
-        if threading.current_thread() is not threading.main_thread():
-            self.window.after(0, self.open_force_quit)
-            return
         try:
             from ..views.force_quit_dialog import ForceQuitDialog
         except Exception as exc:  # pragma: no cover - runtime import error
