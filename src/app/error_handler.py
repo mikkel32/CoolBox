@@ -115,6 +115,7 @@ def _start_ui_pump(root: TkRoot) -> None:
     global _PUMP_STARTED, _root_ref
     if _PUMP_STARTED:
         return
+    _PUMP_STARTED = True
     _root_ref = weakref.ref(root)
 
     def _poll() -> None:
@@ -142,8 +143,6 @@ def _start_ui_pump(root: TkRoot) -> None:
         root.after(200, _poll)
     except Exception:
         logger.debug("Failed to start UI pump", exc_info=True)
-    else:
-        _PUMP_STARTED = True
 
 
 def _enqueue_ui(kind: str, message: str, details: str) -> None:
