@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Fix:** Retry tools on the UI thread when background execution raises
+  "main thread is not in main loop" so dialogs launch reliably.
+- **Fix:** Propagate Force Quit dialog creation errors so tools retry on the
+  main thread without spurious warnings.
+- **Fix:** Repair malformed error handler formatting that caused syntax
+  errors under Python 3.13.
+
 ## 1.3.76 - 2025-08-08
 
 - **Fix:** Ensure Kill by Click overlay closes when no process is selected to prevent UI lockups.
