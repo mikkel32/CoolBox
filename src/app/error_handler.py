@@ -71,7 +71,25 @@ def _show_error_dialog(message: str, details: str) -> None:
         if messagebox is not None:
             try:
                 messagebox.showerror("Unexpected Error", f"{message}\n\n{details}")
-            except Exception:  # pragma: no cover - best effort
+            except Exception as dialog_error:  # pragma: no cover - best effort
+                # If even the simple fallback dialog fails we log the failure with
+                # the traceback so developers can understand why nothing was
+                # shown.  The original error is then logged as a last resort.
+                logger.exception("Failed to display error dialog")
+                try:
+                    tb = "".join(
+                        traceback.format_exception(
+                            type(dialog_error),
+                            dialog_error,
+                            dialog_error.__traceback__,
+                        )
+                    )
+                    _record(
+                        RECENT_ERRORS,
+                        f"{datetime.now().isoformat()}:DialogError:show_error_dialog:{dialog_error}\n{tb}",
+                    )
+                except Exception:  # pragma: no cover - extremely defensive
+                    logger.debug("Failed to record dialog error", exc_info=True)
                 logger.error("Unhandled exception: %s\n%s", message, details)
         else:  # pragma: no cover - headless environment
             logger.error("Unhandled exception: %s\n%s", message, details)
