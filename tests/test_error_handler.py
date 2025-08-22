@@ -2,6 +2,8 @@ import os
 import sys
 import threading
 import warnings
+import subprocess
+import json
 from types import SimpleNamespace
 
 from src.app import error_handler as eh
@@ -136,3 +138,43 @@ def test_dialog_failure_is_recorded(monkeypatch):
     eh._show_error_dialog("oops", "details")
 
     assert any("DialogError" in e and "boom" in e for e in eh.RECENT_ERRORS)
+
+
+def test_uninstall_restores_hooks():
+    orig_excepthook = sys.excepthook
+    orig_showwarning = warnings.showwarning
+    orig_unraisable = getattr(sys, "unraisablehook", None)
+    orig_thread_hook = getattr(threading, "excepthook", None)
+
+    eh.install()
+    eh.uninstall()
+
+    assert sys.excepthook is orig_excepthook
+    assert warnings.showwarning is orig_showwarning
+    if hasattr(sys, "unraisablehook"):
+        assert sys.unraisablehook is orig_unraisable
+    if hasattr(threading, "excepthook"):
+        assert threading.excepthook is orig_thread_hook
+
+
+def test_cli_check():
+    env = os.environ.copy()
+    env["COOLBOX_LIGHTWEIGHT"] = "1"
+    cmd = [sys.executable, "-m", "src.app.error_handler", "--check", "--uninstall"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert data["installed"] is True
+    assert data["warnings_chained"] is True
+
+
+def test_cli_trigger_error_invokes_handler():
+    env = os.environ.copy()
+    env["COOLBOX_LIGHTWEIGHT"] = "1"
+    cmd = [sys.executable, "-m", "src.app.error_handler", "--trigger-error", "--uninstall"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0
+    # our handler should log the simulated unhandled exception
+    assert "test error from trigger_test_error" in proc.stderr
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert data["installed"] is True
