@@ -784,10 +784,8 @@ def clean_pyc() -> None:
 
 
 def collect_problems(output: Path | None = None) -> None:
-    """Scan project files for common warning markers and compile issues."""
-    problem_re = re.compile(
-        r"(TODO|FIXME|BUG|WARNING|DEPRECATED|warnings\.warn)", re.IGNORECASE
-    )
+    """Scan project files for TODO/FIXME/BUG markers."""
+    problem_re = re.compile(r"(TODO|FIXME|BUG)")
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
 
     files = [
@@ -799,23 +797,11 @@ def collect_problems(output: Path | None = None) -> None:
     def _scan(path: Path) -> list[str]:
         results: list[str] = []
         try:
-            rel = path.relative_to(ROOT_DIR)
-            if path.suffix == ".py":
-                proc = subprocess.run(
-                    [sys.executable, "-Wdefault", "-m", "py_compile", str(path)],
-                    capture_output=True,
-                    text=True,
-                )
-                if proc.returncode != 0 or proc.stderr:
-                    msg = proc.stderr.strip() or "py_compile returned error"
-                    results.append(f"{rel}:0: COMPILE: {msg}")
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 for lineno, line in enumerate(fh, 1):
-                    match = problem_re.search(line)
-                    if match:
-                        results.append(
-                            f"{rel}:{lineno}: {match.group(1).upper()}: {line.rstrip()}"
-                        )
+                    if problem_re.search(line):
+                        rel = path.relative_to(ROOT_DIR)
+                        results.append(f"{rel}:{lineno}: {line.rstrip()}")
         except Exception as exc:  # pragma: no cover - file read errors
             SUMMARY.add_warning(f"Could not read {path}: {exc}")
         return results
@@ -827,11 +813,11 @@ def collect_problems(output: Path | None = None) -> None:
 
     if output:
         output.write_text("\n".join(matches))
-        log(f"Wrote {len(matches)} issue lines to {output}")
+        log(f"Wrote {len(matches)} problem lines to {output}")
     else:
         for line in matches:
             log(line)
-        log(f"Found {len(matches)} issue lines.")
+        log(f"Found {len(matches)} problem lines.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
@@ -980,13 +966,8 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
     sub.add_parser("clean-pyc", help="Remove __pycache__ folders")
 
-    p_prob = sub.add_parser(
-        "problems",
-        help="Scan project for warnings, TODO/FIXME/BUG markers, and compile issues",
-    )
-    p_prob.add_argument(
-        "--output", type=Path, default=None, help="Write results to file"
-    )
+    p_prob = sub.add_parser("problems", help="Scan project for TODO/FIXME/BUG comments")
+    p_prob.add_argument("--output", type=Path, default=None, help="Write results to file")
 
     p_test = sub.add_parser("test", help="Run pytest")
     p_test.add_argument("extra", nargs="*", default=[])
