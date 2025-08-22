@@ -193,7 +193,17 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
         desc = str(value)
 
     msg = f"{desc} (at {location} on {timestamp})"
-    _show_error_dialog(msg, tb_str)
+    details_lines = [
+        f"Exception: {exc.__name__}",
+        f"Message: {value}",
+        f"Location: {location}",
+        f"Time: {timestamp}",
+        f"Context: {context}",
+        "Traceback:",
+        tb_str,
+    ]
+    formatted_details = "\n".join(details_lines)
+    _show_error_dialog(msg, formatted_details)
 
 
 def install(window=None) -> None:
