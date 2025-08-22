@@ -217,9 +217,10 @@ def _native_error_dialog(title: str, body: str) -> None:
             ctypes.windll.user32.MessageBoxW(None, body, title, MB_OK | MB_SYSTEMMODAL | MB_TOPMOST | MB_ICONERROR)  # type: ignore[attr-defined]
             return
         if sys.platform == "darwin":
+            safe_body = body[:900].replace('"', '\\"')
             subprocess.run(
-                ["osascript", "-e", f'display alert "{title}" message "{body[:900].replace("\"","\\\"")}" as critical'],
-                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                ["osascript", "-e", f'display alert "{title}" message "{safe_body}" as critical'],
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             return
         for cmd in (["zenity", "--error", "--no-wrap", "--title", title, "--text", body[:2000]],
