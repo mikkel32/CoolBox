@@ -823,7 +823,6 @@ def collect_problems(
             matches.extend(res)
 
     matches.sort()
-    total_files = len({f for f, _, _ in matches})
 
     # Record all problem lines in the run summary for later display.
     for f, n, t in matches:
@@ -841,12 +840,10 @@ def collect_problems(
             for f, n, t in matches:
                 table.add_row(f, str(n), t)
             console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
-            console.print(f"[bold]Total problems: {len(matches)} across {total_files} files[/]")
         else:
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
-        if not RICH_AVAILABLE:
-            log(f"Total problems: {len(matches)} across {total_files} files")
+            log(f"Found {len(matches)} problem lines.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
