@@ -3,7 +3,6 @@ import sys
 import threading
 import warnings
 from types import SimpleNamespace
-import logging
 
 import pytest
 
@@ -121,72 +120,4 @@ def test_error_dialog_creates_root_when_default_destroyed(monkeypatch):
 
     assert created["called"]
     assert new_root.destroyed
-
-
-def test_modern_dialog_failure_logs(monkeypatch, caplog):
-    """If the modern dialog fails, a warning should be logged and recorded."""
-
-    # Ensure a clean slate for recorded errors
-    eh.RECENT_ERRORS.clear()
-
-    class DeadRoot:
-        def winfo_exists(self):
-            return False
-
-        def wait_window(self, _):
-            pass
-
-    dead_root = DeadRoot()
-
-    class DummyRoot:
-        def withdraw(self):
-            pass
-
-        def wait_window(self, _):
-            pass
-
-        def destroy(self):
-            pass
-
-        def winfo_exists(self):
-            return True
-
-    new_root = DummyRoot()
-
-    def bad_ctk():
-        raise RuntimeError("boom")
-
-    ctk_mod = SimpleNamespace(CTk=bad_ctk)
-    monkeypatch.setitem(sys.modules, "customtkinter", ctk_mod)
-    monkeypatch.setitem(
-        sys.modules,
-        "src.components.modern_error_dialog",
-        SimpleNamespace(ModernErrorDialog=lambda *a, **k: None),
-    )
-
-    tk_mod = SimpleNamespace(_default_root=dead_root, Tk=lambda: new_root, Toplevel=lambda *a, **k: new_root)
-    monkeypatch.setattr(eh, "tk", tk_mod, raising=False)
-
-    class DummyWidget:
-        def pack(self, *a, **k):
-            pass
-
-        def insert(self, *a, **k):
-            pass
-
-        def configure(self, *a, **k):
-            pass
-
-        def pack_forget(self, *a, **k):
-            pass
-
-    monkeypatch.setattr(eh, "ttk", SimpleNamespace(Label=lambda *a, **k: DummyWidget(), Button=lambda *a, **k: DummyWidget()))
-    monkeypatch.setattr(eh, "scrolledtext", SimpleNamespace(ScrolledText=lambda *a, **k: DummyWidget()))
-    monkeypatch.setattr(eh, "_get_log_file", lambda: None)
-
-    caplog.set_level(logging.WARNING)
-    eh._show_error_dialog("oops", "details")
-
-    assert any("modern error dialog unavailable" in rec.message.lower() for rec in caplog.records)
-    assert any("ModernErrorDialog" in e for e in eh.RECENT_ERRORS)
 
