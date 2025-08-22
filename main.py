@@ -134,7 +134,7 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
         if requirements.is_file():
             sentinel.write_text(current)
     except Exception as exc:  # pragma: no cover - best effort setup
-        logger.warning("failed to run setup: %s", exc)
+        logger.exception("failed to run setup: %s", exc)
 
 
 def main() -> None:
