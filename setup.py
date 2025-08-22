@@ -819,8 +819,6 @@ def collect_problems(
         except Exception:
             return False
 
-    log("Scanning project for problem markers: " + ", ".join(markers))
-
     files = [
         p
         for p in ROOT_DIR.rglob("*")
@@ -852,23 +850,16 @@ def collect_problems(
 
     matches.sort()
 
-    # Record a limited number of problem lines in the run summary to
-    # avoid overwhelming the final report on large repositories.
-    max_lines = 20
-    for idx, (f, n, t) in enumerate(matches):
-        if idx < max_lines:
-            SUMMARY.warnings.append(f"{f}:{n}: {t}")
-        elif idx == max_lines:
-            remaining = len(matches) - max_lines
-            SUMMARY.warnings.append(f"… {remaining} more problem lines omitted …")
-            break
+    # Record all problem lines in the run summary for later display.
+    for f, n, t in matches:
+        SUMMARY.warnings.append(f"{f}:{n}: {t}")
 
     count = len(matches)
     if output:
         output.write_text("\n".join(f"{f}:{n}: {t}" for f, n, t in matches))
         log(f"Wrote {count} problem line{'s' if count != 1 else ''} to {output}")
     else:
-        if RICH_AVAILABLE and matches:
+        if RICH_AVAILABLE:
             table = Table(box=box.SIMPLE_HEAVY)
             table.add_column("File", overflow="fold")
             table.add_column("Line", justify="right")
@@ -878,8 +869,6 @@ def collect_problems(
             console.print(Panel(table, title=f"Problems ({count})", box=box.ROUNDED))
             problem_word = "problem" if count == 1 else "problems"
             console.print(f"[bold]{count} {problem_word} found.[/]")
-        elif not matches:
-            log("No problem markers found.")
         else:
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
