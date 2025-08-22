@@ -254,14 +254,20 @@ class ToolsView(BaseView):
             )
         )
 
-    def _safe_launch(self, name: str, func: callable) -> None:
-        """Run *func* in a background thread and surface errors gracefully."""
+    def _safe_launch(self, name: str, func: callable, *, use_thread: bool = False) -> None:
+        """Execute *func* and surface errors via the thread manager.
+
+        By default the function is scheduled on the Tk main loop to avoid
+        cross-thread UI errors.  Pass ``use_thread=True`` for long-running tasks
+        that can safely execute in a background thread.
+        """
 
         self.app.thread_manager.run_tool(
             name,
             func,
             window=self.app.window,
             status_bar=self.app.status_bar,
+            use_thread=use_thread,
         )
 
     # Tool implementations
