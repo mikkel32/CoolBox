@@ -8,7 +8,6 @@ import threading
 import traceback
 import warnings
 import webbrowser
-from datetime import datetime
 from pathlib import Path
 from typing import Type
 
@@ -167,26 +166,16 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
 
     tb_str = "".join(traceback.format_exception(exc, value, tb))
     context = _collect_context()
-
-    if tb is not None:
-        frame = traceback.extract_tb(tb)[-1]
-        location = f"{frame.filename}:{frame.lineno} in {frame.name}"
-    else:
-        location = "<unknown>"
-
-    timestamp = datetime.now().isoformat(timespec="seconds")
+    _record(RECENT_ERRORS, f"{exc.__name__}:{value}\n{context}\n{tb_str}")
 
     if isinstance(value, IOError):
-        base_msg = f"An I/O error occurred: {value}"
+        msg = f"An I/O error occurred: {value}"
     elif isinstance(value, ValueError):
-        base_msg = f"Invalid value: {value}"
+        msg = f"Invalid value: {value}"
     else:
-        base_msg = str(value)
+        msg = str(value)
 
-    formatted = f"{timestamp} - {base_msg} ({location})"
-    _record(RECENT_ERRORS, f"{formatted}\n{context}\n{tb_str}")
-
-    _show_error_dialog(formatted, tb_str)
+    _show_error_dialog(msg, tb_str)
 
 
 def install(window=None) -> None:
@@ -204,8 +193,7 @@ def install(window=None) -> None:
     sys.unraisablehook = _unraisable_hook
 
     def _showwarning(message, category, filename, lineno, file=None, line=None):
-        timestamp = datetime.now().isoformat(timespec="seconds")
-        text = f"{timestamp} - {filename}:{lineno}:{category.__name__}:{message}"
+        text = f"{filename}:{lineno}:{category.__name__}:{message}"
         logger.warning(text)
         _record(RECENT_WARNINGS, text)
 
