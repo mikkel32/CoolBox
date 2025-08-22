@@ -147,7 +147,27 @@ def _show_error_dialog(message: str, details: str) -> None:
         root.wait_window(dialog)
         if created_root:
             root.destroy()
-    except Exception:  # pragma: no cover - last resort fallback
+    except Exception as dialog_error:  # pragma: no cover - last resort fallback
+        # If displaying the error dialog itself fails we still want to know why
+        # so log the failure with the full traceback and store it for tests or
+        # other diagnostics. This prevents silent crashes where the original
+        # error is swallowed without any hint of what went wrong while trying to
+        # present the dialog.
+        logger.exception("Failed to display error dialog")
+        try:
+            tb = "".join(
+                traceback.format_exception(
+                    type(dialog_error), dialog_error, dialog_error.__traceback__
+                )
+            )
+            _record(
+                RECENT_ERRORS,
+                f"{datetime.now().isoformat()}:DialogError:show_error_dialog:{dialog_error}\n{tb}",
+            )
+        except Exception:
+            # _record should never fail, but guard just in case
+            logger.debug("Failed to record dialog error", exc_info=True)
+
         if messagebox is not None:
             try:
                 messagebox.showerror("Unexpected Error", f"{message}\n\n{details}")
