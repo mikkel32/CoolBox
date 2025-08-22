@@ -34,10 +34,6 @@ class LockingConsole(Console):
         with self._lock:
             return super().control(*args, **kwargs)
 
-# `threading.RLock` is a factory function which returns an instance of the
-# underlying `_thread.RLock` type.  Using it directly with `isinstance`
-# therefore raises ``TypeError`` because it's not a class.  Capture the actual
-# lock type once so we can make safe ``isinstance`` checks later.
 _RLOCK_TYPE = type(threading.RLock())
 
 @contextmanager
@@ -82,12 +78,11 @@ THEMES: dict[str, Sequence[str]] = {
     "awau": ["#ff75c3", "#ffa647", "#ffe654", "#8efc94", "#74eaf7", "#d6a4ff"],
     "matrix": ["#0f0", "#0c0", "#0a0", "#070", "#050", "#020"],
     "sunset": ["#ff6b6b", "#ff8e53", "#ffd166", "#06d6a0", "#118ab2", "#8338ec"],
-    # True rainbow driven by HSL. The list is informational.
     "pride": ["#e40303", "#ff8c00", "#ffed00", "#008026", "#004dff", "#750787"],
 }
 
 BORDER_STYLES: dict[str, Tuple[str, str, str, str, str, str]] = {
-    "single": ("┏", "┓", "┗", "┛", "━", "┃"),
+    "single": ("┏", "┓", "┗", "┛", "═", "║"),
     "double": ("╔", "╗", "╚", "╝", "═", "║"),
     "rounded": ("╭", "╮", "╰", "╯", "─", "│"),
     "heavy": ("┏", "┓", "┗", "┛", "━", "┃"),
@@ -99,11 +94,6 @@ BORDER_STYLES: dict[str, Tuple[str, str, str, str, str, str]] = {
 class RainbowBorder:
     """
     Animated rainbow frame around the terminal, resize-aware.
-
-    Design for stability:
-      - All IO under a shared re-entrant lock (see LockingConsole) to prevent flicker.
-      - Optional alternate screen buffer to keep scrollback clean.
-      - Fixed frame pacing with draw-time compensation.
     """
 
     def __init__(
@@ -127,7 +117,6 @@ class RainbowBorder:
         self._thread: threading.Thread | None = None
         self._last_size: Tuple[int, int] | None = None
 
-    # context manager
     def __enter__(self) -> "RainbowBorder":
         self.start()
         return self
@@ -135,20 +124,16 @@ class RainbowBorder:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.stop()
 
-    # lifecycle
     def start(self) -> None:
         if self._thread is None and getattr(self.console, "is_terminal", True):
             self._stop.clear()
             with _console_lock_ctx(self.console):
                 if self.use_alt_screen:
-                    # Enter alternate screen buffer
                     self.console.file.write("\x1b[?1049h")
                 hide_cursor = getattr(Control, "hide_cursor", None)
                 if hide_cursor:
-                    # Older versions of Rich provide a dedicated hide_cursor
                     self.console.control(hide_cursor())
                 else:
-                    # Rich 13.7+ merges hide/show into show_cursor
                     self.console.control(Control.show_cursor(False))
                 self.console.file.flush()
             self._thread = threading.Thread(target=self._run, daemon=True, name="RainbowBorder")
@@ -163,30 +148,24 @@ class RainbowBorder:
             with _console_lock_ctx(self.console):
                 show_cursor = getattr(Control, "show_cursor")
                 try:
-                    # Rich 13.7+ expects a boolean parameter
                     self.console.control(show_cursor(True))
                 except TypeError:
-                    # Older versions take no parameters
                     self.console.control(show_cursor())
                 if self.use_alt_screen:
-                    # Leave alternate screen buffer
                     self.console.file.write("\x1b[?1049l")
                 self.console.file.flush()
 
-    # animation loop
     def _run(self) -> None:
         offset = 0
         while not self._stop.is_set():
             t0 = time.perf_counter()
             self._draw(offset)
             elapsed = time.perf_counter() - t0
-            # steady pacing
             sleep_for = self.speed - elapsed
             if sleep_for > 0:
                 time.sleep(sleep_for)
             offset += 1
 
-    # drawing
     def _draw(self, offset: int) -> None:
         width, height = shutil.get_terminal_size(fallback=(80, 24))
         if width < 4 or height < 3:
@@ -199,7 +178,6 @@ class RainbowBorder:
         with _console_lock_ctx(self.console):
             self.console.file.write("\x1b7")  # save cursor
 
-            # draw each layer for thickness
             for layer in range(self.thickness):
                 w = width - layer * 2
                 hgt = height - layer * 2
@@ -251,19 +229,15 @@ class RainbowBorder:
 
 class NeonPulseBorder(RainbowBorder):
     """
-    Advanced border:
-      - True HSL rainbow mapped to perimeter distance.
-      - Temporal pulse + specular ridge for neon pop.
-      - Subtle noise jitter to avoid banding.
-      - Thickness support with inner-layer phase shift.
+    Advanced border with HSL rainbow and neon pulse.
     """
 
     def __init__(
         self,
         speed: float = 0.05,
         *,
-        base_color: str | None = None,           # API compat
-        highlight_color: str | None = None,      # API compat
+        base_color: str | None = None,
+        highlight_color: str | None = None,
         style: str = "rounded",
         console: Console | None = None,
         theme: str = "pride",
@@ -298,19 +272,17 @@ class NeonPulseBorder(RainbowBorder):
 
     def _generate_layer_palette(self, width: int, height: int, layer: int, offset: int) -> List[str]:
         n = self._perimeter_len(width, height, layer)
-        phase = self._phase + layer * 0.33  # inner layers lag slightly
+        phase = self._phase + layer * 0.33
         colors: List[str] = []
         for i in range(n):
-            t = (i + offset) / max(1, n)  # 0..1 along perimeter
+            t = (i + offset) / max(1, n)
             hue = (t + phase * 0.07) % 1.0
             sat = self.saturation
             lum = self.lightness
 
-            # specular ridge for neon pop
-            ridge = (math.sin(phase * 2.2 + i * 0.045) + 1.0) * 0.5  # 0..1
+            ridge = (math.sin(phase * 2.2 + i * 0.045) + 1.0) * 0.5
             lum += self.glow_strength * (ridge ** 3)
 
-            # tiny noise to break banding
             lum += (self._rng.random() - 0.5) * 0.02
             sat += (self._rng.random() - 0.5) * 0.01
 
@@ -324,9 +296,8 @@ class NeonPulseBorder(RainbowBorder):
         self._last_size = (width, height)
 
         with _console_lock_ctx(self.console):
-            self.console.file.write("\x1b7")  # save cursor
+            self.console.file.write("\x1b7")
 
-            # Draw each thickness layer with its own palette
             base_offset = offset
             for layer in range(self.thickness):
                 w = width - layer * 2
@@ -337,21 +308,18 @@ class NeonPulseBorder(RainbowBorder):
                 palette = self._generate_layer_palette(width, height, layer, base_offset)
                 n = len(palette)
 
-                # top
                 top = Text(("╭" if layer == 0 else " ") + ("─" * (w - 2)) + ("╮" if layer == 0 else " "))
                 for i in range(w):
                     top.stylize(palette[(i) % n], i, i + 1)
                 self.console.control(Control.move_to(layer, layer))
                 self.console.print(top, end="")
 
-                # bottom
                 bottom = Text(("╰" if layer == 0 else " ") + ("─" * (w - 2)) + ("╯" if layer == 0 else " "))
                 for i in range(w):
                     bottom.stylize(palette[(hgt + i) % n], i, i + 1)
                 self.console.control(Control.move_to(layer, layer + hgt - 1))
                 self.console.print(bottom, end="")
 
-                # sides
                 for row in range(1, hgt - 1):
                     left_style = palette[(w + row) % n]
                     right_style = palette[(w + hgt + row) % n]
@@ -360,9 +328,9 @@ class NeonPulseBorder(RainbowBorder):
                     self.console.control(Control.move_to(layer + w - 1, layer + row))
                     self.console.print(Text("│", style=right_style), end="")
 
-            self.console.file.write("\x1b8")  # restore cursor
+            self.console.file.write("\x1b8")
             self.console.file.flush()
- 
+
     @staticmethod
     def _blend(c1: str, c2: str, t: float) -> str:
         c1 = c1.lstrip("#")
@@ -381,7 +349,7 @@ class NeonPulseBorder(RainbowBorder):
     def _generate_colors(self, width: int, height: int) -> List[str]:
         perimeter = max(1, 2 * width + 2 * height - 4)
         colors: List[str] = []
-        pulse = (math.sin(self._phase) + 1.0) * 0.5  # 0..1
+        pulse = (math.sin(self._phase) + 1.0) * 0.5
         same = self.base_color.lower() == self.highlight_color.lower()
         for i in range(perimeter):
             pos = (i / perimeter + (pulse * 0.25 if not same else 0.0)) % 1.0
@@ -406,4 +374,3 @@ class NeonPulseBorder(RainbowBorder):
             if sleep_for > 0:
                 time.sleep(sleep_for)
             offset += 1
-
