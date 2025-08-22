@@ -157,10 +157,7 @@ class RainbowBorder:
     def stop(self) -> None:
         self._stop.set()
         if self._thread is not None:
-            # Joining without a timeout can hang the main thread if the
-            # animation thread misbehaves.  Use a small timeout so setup
-            # never gets stuck waiting for the rainbow border to finish.
-            self._thread.join(timeout=1.0)
+            self._thread.join()
             self._thread = None
             self._clear()
             with _console_lock_ctx(self.console):
