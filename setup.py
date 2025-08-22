@@ -295,7 +295,23 @@ def NeonPulseBorder(**kwargs):
 class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
-    def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
+    def __init__(
+        self,
+        frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
+        colors: Sequence[str] | None = None,
+    ):
+        """Initialize spinner without invoking ``ProgressColumn.__init__``.
+
+        ``ProgressColumn`` does some setup in ``__init__`` which isn't safe to
+        call in our environment.  We replicate the minimal attributes it
+        expects so the progress helper can operate without errors.
+        """
+        # Copied from ``ProgressColumn.__init__`` but done manually to avoid
+        # executing the base class constructor.
+        self._table_column = None
+        self._renderable_cache: dict = {}
+        self._update_time = None
+
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
