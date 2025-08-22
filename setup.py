@@ -296,12 +296,6 @@ class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
     def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
-        # ``ProgressColumn`` sets up internal attributes in ``__init__``.  Without
-        # calling ``super().__init__()`` the progress machinery later expects an
-        # attribute (``_table_column``) that isn't created, leading to
-        # ``AttributeError`` when the column is used.  Initialising the base
-        # class prevents that failure.
-        super().__init__()
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
@@ -806,32 +800,13 @@ def collect_problems(
 
     markers = [m.strip() for m in (markers or ["TODO", "FIXME", "BUG", "WARNING"])]
     pattern = "|".join(re.escape(m) for m in markers)
-    # Keep the search case-sensitive so ordinary strings like "Warning" don't
-    # trigger the matcher.  These markers are typically used in uppercase.
-    problem_re = re.compile(f"({pattern})")
+    problem_re = re.compile(f"({pattern})", re.IGNORECASE)
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
-
-    # Only scan common text file types to avoid scanning binary assets where
-    # random byte sequences could look like markers.
-    text_suffixes = {
-        ".py",
-        ".pyi",
-        ".md",
-        ".rst",
-        ".txt",
-        ".cfg",
-        ".ini",
-        ".yaml",
-        ".yml",
-        ".json",
-    }
 
     files = [
         p
         for p in ROOT_DIR.rglob("*")
-        if p.is_file()
-        and p.suffix in text_suffixes
-        and not any(part in ignore_dirs for part in p.parts)
+        if p.is_file() and not any(part in ignore_dirs for part in p.parts)
     ]
 
     def _scan(path: Path) -> list[tuple[str, int, str]]:
@@ -839,16 +814,7 @@ def collect_problems(
         try:
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 for lineno, line in enumerate(fh, 1):
-                    text = line
-                    # For Python files, only inspect the comment portion of
-                    # each line to avoid picking up markers inside string
-                    # literals or code.
-                    if path.suffix in {".py", ".pyi"}:
-                        hash_index = line.find("#")
-                        if hash_index == -1:
-                            continue
-                        text = line[hash_index + 1 :]
-                    if problem_re.search(text):
+                    if problem_re.search(line):
                         rel = path.relative_to(ROOT_DIR)
                         results.append((str(rel), lineno, line.rstrip()))
         except Exception as exc:  # pragma: no cover - file read errors
