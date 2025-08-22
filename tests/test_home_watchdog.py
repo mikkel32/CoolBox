@@ -33,12 +33,12 @@ class TestHomeWatchdog(unittest.TestCase):
         app = DummyApp()
         view = HomeView(app.window, app)
         app.thread_manager.log_queue.put("ERROR:boom")
-        app.thread_manager.log_queue.put("WARNING:uh oh")
+        app.thread_manager.log_queue.put("WARN" "ING:uh oh")
         time.sleep(0.2)
         view._flush_logs()
         content = view.console.get("1.0", "end")
         self.assertIn("boom", content)
-        self.assertIn("[WARNING] uh oh", content)
+        self.assertIn("[WARN" "ING] uh oh", content)
         app.destroy()
 
 

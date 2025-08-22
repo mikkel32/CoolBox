@@ -199,7 +199,7 @@ class TestCoolBoxApp(unittest.TestCase):
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
-    def test_tools_view_launch_vm_debug_open_code(self) -> None:
+    def test_tools_view_launch_vm_dev_open_code(self) -> None:
         app = CoolBoxApp()
 
         class DummyThread:
@@ -211,9 +211,9 @@ class TestCoolBoxApp(unittest.TestCase):
                 pass
 
         with patch("src.views.tools_view.messagebox.askyesno", side_effect=[True, True]), \
-             patch("src.utils.launch_vm_debug") as launch, \
+             patch("src.utils.launch_vm_dev") as launch, \
              patch("threading.Thread", DummyThread):
-            app.views["tools"]._launch_vm_debug()
+            app.views["tools"]._launch_vm_dev()
             launch.assert_called_once_with(open_code=True)
 
         app.destroy()

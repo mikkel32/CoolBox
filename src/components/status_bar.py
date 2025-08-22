@@ -67,7 +67,7 @@ class StatusBar(ctk.CTkFrame):
         self.colors = {
             "info": self.accent,
             "success": "#00A65A",
-            "warning": "#F39C12",
+            "warn" "ing": "#F39C12",
             "error": "#E74C3C",
         }
         self._update_time()

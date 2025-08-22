@@ -5,4 +5,4 @@ if ! command -v vagrant >/dev/null 2>&1; then
     exit 1
 fi
 vagrant up
-vagrant ssh -c "cd /vagrant && ./scripts/run_debug.sh"
+vagrant ssh -c "cd /vagrant && ./scripts/run_dev.sh"

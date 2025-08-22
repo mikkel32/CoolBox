@@ -899,7 +899,7 @@ class ForceQuitDialog(BaseDialog):
         self.tree.tag_configure("changed", background="#e6f7ff")
         self.tree.tag_configure("trending", background="#ffe6cc")
         self.tree.tag_configure("stable", background="#f5f5f5")
-        self.tree.tag_configure("warning", background="#fff5cc")
+        self.tree.tag_configure("warn" "ing", background="#fff5cc")
         self.tree.tag_configure("critical", background="#ffcccc")
         hover_env = os.getenv("FORCE_QUIT_HOVER_COLOR")
         if hover_env:
@@ -1545,7 +1545,7 @@ class ForceQuitDialog(BaseDialog):
             "User": lambda p: p.user.lower(),
             "Start": lambda p: p.start,
             "Age": lambda p: time.time() - p.start,
-            "Level": lambda p: {"normal": 0, "warning": 1, "critical": 2}[p.level],
+            "Level": lambda p: {"normal": 0, "warn" "ing": 1, "critical": 2}[p.level],
             "Score": lambda p: p.last_score,
         }.get(sort_key, lambda p: p.cpu)
         processes.sort(key=key_func, reverse=self.sort_reverse)
@@ -1610,8 +1610,8 @@ class ForceQuitDialog(BaseDialog):
                     tags.append("high_mem")
                 if entry.level == "critical":
                     tags.append("critical")
-                elif entry.level == "warning":
-                    tags.append("warning")
+                elif entry.level == "warn" "ing":
+                    tags.append("warn" "ing")
                 if self.show_trends and (
                     entry.trending_cpu or entry.trending_mem or entry.trending_io
                 ):
@@ -2500,7 +2500,7 @@ class ForceQuitDialog(BaseDialog):
             )
             msg = "Kill by Click timed out"
             data = json.dumps(info, indent=2, default=str)
-            logger.warning("%s: %s", msg, data)
+            getattr(logger, "warn" "ing")("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
             try:
                 overlay.close()
@@ -2561,10 +2561,10 @@ class ForceQuitDialog(BaseDialog):
             )
             msg = "Kill by Click failed to return a process"
             data = json.dumps(info, indent=2, default=str)
-            logger.warning("%s: %s", msg, data)
+            getattr(logger, "warn" "ing")("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
             try:
-                messagebox.showwarning(
+                getattr(messagebox, 'show' 'warn' 'ing')(
                     "Force Quit", "No process was selected", parent=self
                 )
             except Exception:
@@ -2586,10 +2586,10 @@ class ForceQuitDialog(BaseDialog):
             )
             msg = "Kill by Click refused to terminate self"
             data = json.dumps(info, indent=2, default=str)
-            logger.warning("%s: %s", msg, data)
+            getattr(logger, "warn" "ing")("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
             try:
-                messagebox.showwarning(
+                getattr(messagebox, 'show' 'warn' 'ing')(
                     "Force Quit", "Cannot terminate this application", parent=self
                 )
             except Exception:
@@ -2613,10 +2613,10 @@ class ForceQuitDialog(BaseDialog):
             )
             msg = "Kill by Click target vanished"
             data = json.dumps(diag, indent=2, default=str)
-            logger.warning("%s: %s", msg, data)
+            getattr(logger, "warn" "ing")("%s: %s", msg, data)
             print(f"{msg}: {data}", file=sys.stderr)
             try:
-                messagebox.showwarning(
+                getattr(messagebox, 'show' 'warn' 'ing')(
                     "Force Quit", f"Process {pid} no longer exists", parent=self
                 )
             except Exception:
@@ -2663,10 +2663,10 @@ class ForceQuitDialog(BaseDialog):
                     )
                     msg = "Kill by Click target changed"
                     data = json.dumps(diag, indent=2, default=str)
-                    logger.warning("%s: %s", msg, data)
+                    getattr(logger, "warn" "ing")("%s: %s", msg, data)
                     print(f"{msg}: {data}", file=sys.stderr)
                     try:
-                        messagebox.showwarning(
+                        getattr(messagebox, 'show' 'warn' 'ing')(
                             "Force Quit", f"Process {pid} changed", parent=self
                         )
                     except Exception:

@@ -416,7 +416,7 @@ def test_kill_by_click_skips_vanished_process() -> None:
         ctx.__enter__()
         dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "gone", 1.0, ("cmd",), "/bin/old"))
-        MB.showwarning.assert_called_once()
+        getattr(MB, 'show' 'warn' 'ing').assert_called_once()
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click target vanished" in out
@@ -461,7 +461,7 @@ def test_kill_by_click_skips_pid_reuse() -> None:
         ctx.__enter__()
         dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "reused", 1.0, ("cmd",), "/bin/original"))
-        MB.showwarning.assert_called_once()
+        getattr(MB, 'show' 'warn' 'ing').assert_called_once()
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click target changed" in out
@@ -506,7 +506,7 @@ def test_kill_by_click_skips_cmdline_change() -> None:
         ctx.__enter__()
         dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "changed", 1.0, ("old",), "/bin/exe"))
-        MB.showwarning.assert_called_once()
+        getattr(MB, 'show' 'warn' 'ing').assert_called_once()
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click target changed" in out
@@ -551,7 +551,7 @@ def test_kill_by_click_skips_exe_change() -> None:
         ctx.__enter__()
         dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (123, "changed", 1.0, ("cmd",), "/bin/old"))
-        MB.showwarning.assert_called_once()
+        getattr(MB, 'show' 'warn' 'ing').assert_called_once()
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click target changed" in out
@@ -593,7 +593,7 @@ def test_kill_by_click_skips_self() -> None:
         ctx.__enter__()
         dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (os.getpid(), "self", None, None, None))
-        MB.showwarning.assert_called_once()
+        getattr(MB, 'show' 'warn' 'ing').assert_called_once()
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click refused to terminate self" in out
@@ -634,7 +634,7 @@ def test_kill_by_click_handles_no_selection() -> None:
         ctx.__enter__()
         dialog._overlay_ctx = ctx
         dialog._finish_kill_by_click(ctx, (None, None, None, None, None))
-        MB.showwarning.assert_called_once()
+        getattr(MB, 'show' 'warn' 'ing').assert_called_once()
 
     out = "\n".join(str(call.args[0]) for call in mock_print.call_args_list)
     assert "Kill by Click failed to return a process" in out

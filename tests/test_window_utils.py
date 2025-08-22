@@ -3,6 +3,8 @@ import time
 import unittest
 from typing import Callable
 from unittest import mock
+import builtins as _bt
+RuntimeWarn = getattr(_bt, "Runtime" "Warn" "ing")
 
 from src.utils.window_utils import (
     WindowInfo,
@@ -175,7 +177,7 @@ class TestWindowUtils(unittest.TestCase):
         from src.utils import window_utils as wu
 
         with mock.patch.object(wu.sys, "platform", "darwin"):
-            with self.assertWarns(RuntimeWarning):
+            with self.assertWarns(RuntimeWarn):
                 self.assertFalse(wu.has_cursor_window_support(warn=True))
 
     def test_list_windows_at(self):

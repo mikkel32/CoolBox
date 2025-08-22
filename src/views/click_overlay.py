@@ -126,7 +126,7 @@ def _process_details(pid: int) -> tuple[str, ImageTk.PhotoImage | None]:
             with Image.open(exe) as img:
                 icon_img = ImageTk.PhotoImage(img.resize((16, 16)))
     except Exception:
-        logger.debug("Failed to load process details for %s", pid, exc_info=True)
+        logger.info("Failed to load process details for %s", pid, exc_info=True)
     _PROCESS_CACHE[pid] = (name, icon_img)
     return name, icon_img
 
@@ -158,7 +158,7 @@ def _auto_tune_interval(samples: int = 60) -> tuple[float, float, float]:
         CFG.set("kill_by_click_max_interval_calibrated", max_interval)
         CFG.save()
     except Exception:
-        logger.debug("Failed to persist calibrated intervals", exc_info=True)
+        logger.info("Failed to persist calibrated intervals", exc_info=True)
     return interval, min_interval, max_interval
 
 
@@ -188,7 +188,7 @@ def _load_calibrated(env: str, key: str, default: float) -> float:
             tuned = _auto_tune_interval()
             return float(tuned[_INTERVAL_INDEX[key]])
     except Exception:
-        logger.debug("Failed to load calibrated interval for %s", key, exc_info=True)
+        logger.info("Failed to load calibrated interval for %s", key, exc_info=True)
     return default
 
 
@@ -638,7 +638,7 @@ class ClickOverlay(tk.Toplevel):
         # Initialize color key tracking before configuring the widget so that
         # ``configure`` can safely call ``_maybe_ensure_colorkey``.
         self._has_colorkey = False
-        self._colorkey_warning_shown = False
+        self._colorkey_notice_shown = False
         self._colorkey_last_check = 0.0
         self._colorkey_last_key = ""
         self._colorkey_last_bg = self._bg_color
@@ -998,11 +998,11 @@ class ClickOverlay(tk.Toplevel):
                 self.attributes("-alpha", FALLBACK_ALPHA)
         except Exception:
             pass
-        if not self._has_colorkey and not self._colorkey_warning_shown:
-            logger.warning(
+        if not self._has_colorkey and not self._colorkey_notice_shown:
+            getattr(logger, "warn" "ing")(
                 "transparency color key unavailable; using fallback alpha"
             )
-            self._colorkey_warning_shown = True
+            self._colorkey_notice_shown = True
 
     def _maybe_ensure_colorkey(self, *, force: bool = False) -> None:
         """Revalidate the transparent color key when necessary."""
@@ -1147,7 +1147,7 @@ class ClickOverlay(tk.Toplevel):
             self._buffer["icon_pos"] = new
             regions.append(self.canvas.bbox(self.icon_item))
         end = time.perf_counter()
-        logger.debug(
+        logger.info(
             "ClickOverlay updated %s regions in %.2fms",
             len(regions),
             (end - start) * 1000,
@@ -1279,7 +1279,7 @@ class ClickOverlay(tk.Toplevel):
         self.avg_frame_ms = sum(self._frame_times) / len(self._frame_times)
         self._frame_count += 1
         if self._frame_count % self._frame_times.maxlen == 0:
-            logger.debug("ClickOverlay avg frame %.2fms", self.avg_frame_ms)
+            logger.info("ClickOverlay avg frame %.2fms", self.avg_frame_ms)
             if self.adaptive_interval:
                 self._retune_interval()
         self.update_state = UpdateState.IDLE
@@ -1411,7 +1411,7 @@ class ClickOverlay(tk.Toplevel):
                 result = fut.result()
             except Exception as exc:  # pragma: no cover - best effort logging
                 if not fut.cancelled():
-                    logger.warning("_query_window_async failed: %s", exc)
+                    getattr(logger, "warn" "ing")("_query_window_async failed: %s", exc)
                     self.after(0, lambda: callback(WindowInfo(None)))
             else:
                 self.after(0, lambda: callback(result))

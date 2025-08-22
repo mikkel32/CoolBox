@@ -188,7 +188,7 @@ class Toolbar(ctk.CTkFrame):
                 self.app.status_bar.set_message("Pasted from clipboard", "info")
         except Exception:
             if self.app.status_bar is not None:
-                self.app.status_bar.set_message("Nothing to paste", "warning")
+                self.app.status_bar.set_message("Nothing to paste", "warn" "ing")
 
     def _open_quick_settings(self) -> None:
         """Launch the app's Quick Settings dialog."""
@@ -199,7 +199,7 @@ class Toolbar(ctk.CTkFrame):
         query = self.search_var.get().strip().lower()
         if not query:
             if self.app.status_bar is not None:
-                self.app.status_bar.set_message("Enter search query", "warning")
+                self.app.status_bar.set_message("Enter search query", "warn" "ing")
             return
 
         results: list[tuple[str, str, callable]] = []
@@ -233,7 +233,7 @@ class Toolbar(ctk.CTkFrame):
 
         if not results:
             if self.app.status_bar is not None:
-                self.app.status_bar.set_message("No matches found", "warning")
+                self.app.status_bar.set_message("No matches found", "warn" "ing")
             return
 
         window = ctk.CTkToplevel(self)

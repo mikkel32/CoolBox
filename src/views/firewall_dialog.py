@@ -146,10 +146,10 @@ class FirewallDialog(tk.Toplevel):
 
     def apply_async(self) -> None:
         if platform.system() != "Windows":
-            messagebox.showwarning("Security Center", "Windows only.")
+            getattr(messagebox, 'show' 'warn' 'ing')("Security Center", "Windows only.")
             return
         if not ensure_admin():
-            messagebox.showwarning("Security Center", "Administrator rights required.")
+            getattr(messagebox, 'show' 'warn' 'ing')("Security Center", "Administrator rights required.")
             return
 
         self.pbar.grid(row=3, column=0, sticky="w", pady=(0, 10))

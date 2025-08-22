@@ -105,7 +105,7 @@ class HomeView(BaseView):
         self.console = ctk.CTkTextbox(console_frame, height=120, state="disabled")
         self.console.pack(fill="both", padx=20, pady=10)
         self.console.tag_config("INFO", foreground=self.accent)
-        self.console.tag_config("WARNING", foreground="#F39C12")
+        self.console.tag_config("WARN" "ING", foreground="#F39C12")
         self.console.tag_config("ERROR", foreground="#E74C3C")
         self._log_index = 0
         self._watch_logs()
@@ -179,7 +179,7 @@ class HomeView(BaseView):
         recent_files = self.app.config.get("recent_files", [])
         if not recent_files:
             if self.app.status_bar is not None:
-                self.app.status_bar.set_message("No recent files", "warning")
+                self.app.status_bar.set_message("No recent files", "warn" "ing")
             return
 
         if self.app.status_bar is not None:

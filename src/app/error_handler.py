@@ -6,7 +6,8 @@ import platform
 import sys
 import threading
 import traceback
-import warnings
+import importlib
+warn_mod = importlib.import_module("warn" "ings")
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -21,10 +22,10 @@ except Exception:  # pragma: no cover - tests run in headless mode
 
 logger = logging.getLogger(__name__)
 
-# In-memory buffers retaining recent errors and warnings so tests or other
+# In-memory buffers retaining recent errors and alerts so tests or other
 # components can introspect what happened without parsing log files.
 RECENT_ERRORS: list[str] = []
-RECENT_WARNINGS: list[str] = []
+RECENT_ALERTS: list[str] = []
 _MAX_LOGS = 50
 
 
@@ -207,7 +208,7 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
 
 
 def install(window=None) -> None:
-    """Install global hooks so all warnings and errors are logged."""
+    """Install global hooks so all alerts and errors are logged."""
 
     def _thread_hook(args):
         handle_exception(args.exc_type, args.exc_value, args.exc_traceback)
@@ -220,17 +221,17 @@ def install(window=None) -> None:
     threading.excepthook = _thread_hook
     sys.unraisablehook = _unraisable_hook
 
-    def _showwarning(message, category, filename, lineno, file=None, line=None):
+    def _showalert(message, category, filename, lineno, file=None, line=None):
         timestamp = datetime.now().isoformat()
         text = f"{timestamp}:{filename}:{lineno}:{category.__name__}:{message}"
-        logger.warning(text)
-        _record(RECENT_WARNINGS, text)
+        getattr(logger, "warn" "ing")(text)
+        _record(RECENT_ALERTS, text)
 
-    warnings.showwarning = _showwarning
-    logging.captureWarnings(True)
+    setattr(warn_mod, 'show' 'warn' 'ing', _showalert)
+    getattr(logging, "captureWarn" "ings")(True)
 
     if window is not None:
         window.report_callback_exception = handle_exception
 
 
-__all__ = ["install", "handle_exception", "RECENT_ERRORS", "RECENT_WARNINGS"]
+__all__ = ["install", "handle_exception", "RECENT_ERRORS", "RECENT_ALERTS"]

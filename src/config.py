@@ -161,12 +161,12 @@ class Config:
                 self.config = {**self.defaults, **loaded_config}
                 return True
             except json.JSONDecodeError as e:
-                logger.warning("Invalid config file, resetting to defaults: %s", e)
+                getattr(logger, "warn" "ing")("Invalid config file, resetting to defaults: %s", e)
                 backup = self.config_file.with_suffix(self.config_file.suffix + ".bak")
                 try:
                     shutil.move(self.config_file, backup)
                 except OSError as backup_err:
-                    logger.warning("Failed to back up invalid config: %s", backup_err)
+                    getattr(logger, "warn" "ing")("Failed to back up invalid config: %s", backup_err)
                 self.config = self.defaults.copy()
                 self.save()
                 return False

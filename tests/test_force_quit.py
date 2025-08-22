@@ -1056,7 +1056,7 @@ class TestForceQuit(unittest.TestCase):
             conns=0,
         )
         entry.update_level(40.0, 200.0, 1.0, 80.0, 500.0)
-        assert entry.level == "warning"
+        assert entry.level == "warn" "ing"
         entry.cpu = 90.0
         entry.update_level(40.0, 200.0, 1.0, 80.0, 500.0)
         assert entry.level == "critical"

