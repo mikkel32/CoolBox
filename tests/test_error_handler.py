@@ -4,6 +4,7 @@ import threading
 import warnings
 import subprocess
 import json
+import pytest
 from types import SimpleNamespace
 
 from src.app import error_handler as eh
@@ -141,6 +142,7 @@ def test_dialog_failure_is_recorded(monkeypatch):
 
 
 def test_uninstall_restores_hooks():
+    eh.uninstall()  # ensure a clean slate if another test installed it
     orig_excepthook = sys.excepthook
     orig_showwarning = warnings.showwarning
     orig_unraisable = getattr(sys, "unraisablehook", None)
@@ -178,3 +180,99 @@ def test_cli_trigger_error_invokes_handler():
     assert "test error from trigger_test_error" in proc.stderr
     data = json.loads(proc.stdout.strip().splitlines()[-1])
     assert data["installed"] is True
+
+
+def test_cli_simulate_handler_failure():
+    env = os.environ.copy()
+    env["COOLBOX_LIGHTWEIGHT"] = "1"
+    cmd = [
+        sys.executable,
+        "-m",
+        "src.app.error_handler",
+        "--trigger-error",
+        "--simulate-handler-failure",
+        "--uninstall",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0
+    assert "Critical failure in error handler" in proc.stderr
+
+
+def test_cli_diagnose_ui_reports_headless():
+    env = os.environ.copy()
+    env["COOLBOX_LIGHTWEIGHT"] = "1"
+    cmd = [
+        sys.executable,
+        "-m",
+        "src.app.error_handler",
+        "--diagnose-ui",
+        "--uninstall",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0
+    data = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert data["ui"]["headless"] is True
+
+
+def test_safe_handle_exception_fallback(monkeypatch, capsys):
+    """``safe_handle_exception`` should report if ``handle_exception`` fails."""
+
+    def boom(exc, value, tb):  # pragma: no cover - injected failure
+        raise RuntimeError("handler exploded")
+
+    monkeypatch.setattr(eh, "handle_exception", boom)
+
+    eh.safe_handle_exception(RuntimeError, RuntimeError("boom"), None)
+
+    captured = capsys.readouterr()
+    assert "Critical failure" in captured.err
+    assert "handler exploded" in captured.err
+
+
+def test_last_resort_report_creates_file(monkeypatch):
+    """Fallback reporter should write details to a temporary file when logging fails."""
+
+    def boom(exc, value, tb):  # pragma: no cover - injected failure
+        raise RuntimeError("handler exploded")
+
+    monkeypatch.setattr(eh, "handle_exception", boom)
+
+    def bad_error(*a, **k):  # pragma: no cover - injected failure
+        raise RuntimeError("logging exploded")
+
+    monkeypatch.setattr(eh.logger, "error", bad_error)
+
+    # Redirect stderr so we can inspect the message
+    import io, re, os
+
+    buf = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", buf)
+    monkeypatch.setattr(sys, "__stderr__", buf, raising=False)
+
+    eh.safe_handle_exception(RuntimeError, RuntimeError("boom"), None)
+
+    out = buf.getvalue()
+    match = re.search(r"/[^\s]*error_handler_\w+\.log", out)
+    assert match, out
+    path = match.group(0)
+    assert os.path.exists(path)
+    try:
+        with open(path) as fh:
+            data = fh.read()
+        assert "handler exploded" in data
+    finally:
+        os.remove(path)
+
+
+def test_error_boundary_context_manager():
+    """Exceptions inside ``error_boundary`` are handled and recorded."""
+
+    eh.RECENT_ERRORS.clear()
+    with eh.error_boundary():
+        raise RuntimeError("boundary boom")
+
+    assert any("boundary boom" in e for e in eh.RECENT_ERRORS)
+
+    with pytest.raises(RuntimeError):
+        with eh.error_boundary(reraise=True):
+            raise RuntimeError("boom again")

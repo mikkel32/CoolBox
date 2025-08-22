@@ -16,11 +16,13 @@ import warnings
 import webbrowser
 import argparse
 import json
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, Type, TypeVar
 import weakref
+import contextlib
 
 # ---- typing-only tkinter alias so Pylance accepts annotations even if tk is None
 if TYPE_CHECKING:
@@ -29,10 +31,24 @@ if TYPE_CHECKING:
 else:
     TkRoot = Any  # runtime placeholder
 
-try:  # GUI is optional
-    import tkinter as tk
-    from tkinter import messagebox, scrolledtext, ttk
-except Exception:
+# Determine if a graphical environment is available.  Tk can import even when
+# no display is present (e.g. on headless CI machines) which would later cause
+# ``_tkinter.TclError`` when a window is created.  Treat such cases as
+# headless up front so the handler can fall back to console logging.
+_HEADLESS = os.getenv("COOLBOX_LIGHTWEIGHT") == "1"
+if not _HEADLESS and sys.platform.startswith("linux"):
+    _HEADLESS = not bool(os.getenv("DISPLAY"))
+
+if not _HEADLESS:
+    try:  # GUI is optional
+        import tkinter as tk  # type: ignore
+        from tkinter import messagebox, scrolledtext, ttk  # type: ignore
+    except Exception:
+        tk = None  # type: ignore[assignment]
+        messagebox = None  # type: ignore[assignment]
+        scrolledtext = None  # type: ignore[assignment]
+        ttk = None  # type: ignore[assignment]
+else:
     tk = None  # type: ignore[assignment]
     messagebox = None  # type: ignore[assignment]
     scrolledtext = None  # type: ignore[assignment]
@@ -166,14 +182,25 @@ def _show_error_dialog(message: str, details: str) -> None:
 
     # Headless or tests
     if tk is None:
+        diag = diagnose_ui()
         if messagebox is not None:
             try:
                 messagebox.showerror("Unexpected Error", f"{message}\n\n{details}")
             except Exception:
                 logger.exception("Failed to display error dialog (headless)")
-                logger.error("Unhandled exception: %s\n%s", message, details)
+                logger.error(
+                    "Unhandled exception: %s\n%s\nUI diagnostics: %s",
+                    message,
+                    details,
+                    diag,
+                )
         else:
-            logger.error("Unhandled exception: %s\n%s", message, details)
+            logger.error(
+                "Unhandled exception: %s\n%s\nUI diagnostics: %s",
+                message,
+                details,
+                diag,
+            )
         return
 
     try:
@@ -247,17 +274,35 @@ def _show_error_dialog(message: str, details: str) -> None:
     except Exception as dialog_error:
         logger.exception("Failed to display error dialog")
         try:
-            tb = "".join(traceback.format_exception(type(dialog_error), dialog_error, dialog_error.__traceback__))
-            _record(RECENT_ERRORS, f"{datetime.now().isoformat()}:DialogError:show_error_dialog:{dialog_error}\n{tb}")
+            tb = "".join(
+                traceback.format_exception(
+                    type(dialog_error), dialog_error, dialog_error.__traceback__
+                )
+            )
+            _record(
+                RECENT_ERRORS,
+                f"{datetime.now().isoformat()}:DialogError:show_error_dialog:{dialog_error}\n{tb}",
+            )
         except Exception:
             logger.debug("Failed to record dialog error", exc_info=True)
+        diag = diagnose_ui()
         if messagebox is not None:
             try:
                 messagebox.showerror("Unexpected Error", f"{message}\n\n{details}")
             except Exception:
-                logger.error("Unhandled exception: %s\n%s", message, details)
+                logger.error(
+                    "Unhandled exception: %s\n%s\nUI diagnostics: %s",
+                    message,
+                    details,
+                    diag,
+                )
         else:
-            logger.error("Unhandled exception: %s\n%s", message, details)
+            logger.error(
+                "Unhandled exception: %s\n%s\nUI diagnostics: %s",
+                message,
+                details,
+                diag,
+            )
 
 
 # -------------------------------------------------------------------------------------------------
@@ -298,6 +343,105 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
         tb_str,
     ])
     _show_error_dialog(msg, details)
+
+
+def _last_resort_report(
+    exc: Type[BaseException],
+    value: BaseException,
+    tb,
+    handler_error: BaseException,
+    log_error: BaseException | None = None,
+) -> None:
+    """Final fallback when the main handler or logger fails.
+
+    The original exception and any secondary failures are written to a
+    temporary file and a short message is emitted to stderr/``__stderr__``.
+    """
+
+    try:
+        details = "".join(traceback.format_exception(exc, value, tb))
+        details += "\nHandlerError:\n" + "".join(
+            traceback.format_exception(type(handler_error), handler_error, handler_error.__traceback__)
+        )
+        if log_error is not None:
+            details += "\nLoggingError:\n" + "".join(
+                traceback.format_exception(type(log_error), log_error, log_error.__traceback__)
+            )
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".log", prefix="error_handler_") as tmp:
+            tmp.write(details)
+            path = tmp.name
+    except Exception:
+        path = None
+    msg = (
+        f"Critical failure in error handler: {handler_error}. "
+        f"Original {exc.__name__}: {value}."
+    )
+    if path:
+        msg += f" Details written to {path}."
+    msg += "\n"
+    streams = {sys.stderr, getattr(sys, "__stderr__", sys.stderr)}
+    for s in streams:
+        try:
+            s.write(msg)
+            s.flush()
+        except Exception:
+            pass
+
+
+def safe_handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None:
+    """Robust wrapper around :func:`handle_exception`.
+
+    ``handle_exception`` itself is quite defensive, but if it ever raises an
+    unexpected error this helper ensures the original exception details are
+    still surfaced.  It first attempts to delegate to ``handle_exception`` and
+    if that fails, logs the failure and prints a last-resort report to stderr.
+    """
+
+    try:
+        handle_exception(exc, value, tb)
+    except Exception as handler_error:  # pragma: no cover - exceptional path
+        log_error: BaseException | None = None
+        try:
+            logger.error("Error handler failed: %s", handler_error, exc_info=True)
+        except Exception as le:  # pragma: no cover - logging failure
+            log_error = le
+        _last_resort_report(exc, value, tb, handler_error, log_error)
+
+
+T = TypeVar("T")
+
+
+def guard(func: Callable[..., T], *args, **kwargs) -> Optional[T]:
+    """Execute ``func`` and route exceptions through ``safe_handle_exception``.
+
+    The return value of ``func`` is returned if successful.  If ``func`` raises
+    an exception, it is handled and ``None`` is returned instead.
+    """
+
+    try:
+        return func(*args, **kwargs)
+    except Exception as exc:  # pragma: no cover - logic straightforward
+        safe_handle_exception(type(exc), exc, exc.__traceback__)
+        return None
+
+
+@contextlib.contextmanager
+def error_boundary(*, reraise: bool = False):
+    """Context manager variant of :func:`guard`.
+
+    Any exception raised within the managed block is routed through
+    :func:`safe_handle_exception`.  By default the exception is swallowed so
+    execution can continue.  If ``reraise`` is ``True`` the original exception
+    is re-raised after being handled, allowing callers to decide whether a
+    failure should abort the surrounding workflow.
+    """
+
+    try:
+        yield
+    except Exception as exc:  # pragma: no cover - logic straightforward
+        safe_handle_exception(type(exc), exc, exc.__traceback__)
+        if reraise:
+            raise
 
 
 # -------------------------------------------------------------------------------------------------
@@ -524,7 +668,39 @@ def health() -> dict[str, bool]:
         "warnings_chained": warnings.showwarning is _chain_showwarning,
         "ui_pump_running": _PUMP_STARTED,
         "has_tk": tk is not None,
+        "headless": _HEADLESS,
     }
+
+
+def diagnose_ui() -> dict[str, Any]:
+    """Best-effort diagnostics about GUI availability.
+
+    Returns a dictionary with information that may explain why dialogs are not
+    shown.  The function is intentionally defensive and never raises so it can
+    be used within exception handlers.
+    """
+
+    info: dict[str, Any] = {
+        "headless": _HEADLESS,
+        "tk_available": tk is not None,
+        "display": os.getenv("DISPLAY"),
+    }
+    if _HEADLESS:
+        info["reason"] = "headless environment"
+        return info
+
+    try:
+        _tk = tk
+        if _tk is None:
+            import tkinter as _tk  # type: ignore
+            info["tk_available"] = True
+        r = _tk.Tk()  # type: ignore[call-arg]
+        r.withdraw()
+        r.destroy()
+        info["can_init_tk"] = True
+    except Exception as exc:  # pragma: no cover - environment dependent
+        info["reason"] = f"tk init failed: {exc}"
+    return info
 
 
 def trigger_test_error() -> None:
@@ -539,9 +715,13 @@ __all__ = [
     "install",
     "uninstall",
     "handle_exception",
+    "safe_handle_exception",
+    "guard",
+    "error_boundary",
     "RECENT_ERRORS",
     "RECENT_WARNINGS",
     "health",
+    "diagnose_ui",
     "trigger_test_error",
     "trigger_test_warning",
 ]
@@ -553,20 +733,35 @@ def _cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="Install handler and print health")
     parser.add_argument("--trigger-error", action="store_true", help="Emit a test exception")
     parser.add_argument("--trigger-warning", action="store_true", help="Emit a test warning")
+    parser.add_argument(
+        "--simulate-handler-failure",
+        action="store_true",
+        help="Force the handler to raise to test last-resort fallback",
+    )
+    parser.add_argument(
+        "--diagnose-ui",
+        action="store_true",
+        help="Include GUI availability diagnostics in output",
+    )
     parser.add_argument("--uninstall", action="store_true", help="Uninstall before exiting")
     args = parser.parse_args(argv)
 
     install()
+    if args.simulate_handler_failure:
+        def _broken_handler(exc, value, tb):  # pragma: no cover - CLI aid
+            raise RuntimeError("simulated handler failure")
+
+        globals()["handle_exception"] = _broken_handler
     if args.trigger_error:
-        try:
+        with error_boundary():
             trigger_test_error()
-        except RuntimeError:
-            # Simulate an unhandled exception so the hook displays its dialog
-            handle_exception(*sys.exc_info())
     if args.trigger_warning:
-        trigger_test_warning()
+        with error_boundary():
+            trigger_test_warning()
 
     info = health()
+    if args.diagnose_ui:
+        info["ui"] = diagnose_ui()
     # Always report current health so the CLI can be used for smoke tests
     print(json.dumps(info))
 
