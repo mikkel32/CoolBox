@@ -50,23 +50,15 @@ class ThreadManager:
             t.join(timeout=1)
 
     def post_exception(self, window, exc: BaseException) -> None:
-        """Report *exc* via the window's ``report_callback_exception`` hook.
+        """Report *exc* on the Tk main thread using ``window.after``.
 
-        If called from a background thread the exception is marshalled to the
-        Tk main loop using ``window.after``.  When already on the main thread we
-        invoke the handler directly so errors are surfaced immediately.  Any
-        failure to schedule the callback falls back to a direct invocation to
-        ensure the error handler still sees the exception.
+        The window's ``report_callback_exception`` hook is invoked so all
+        dialogs and logging are handled by the global error handler.
+        If the window no longer exists or cannot schedule the callback,
+        fall back to invoking the handler directly so errors are still
+        surfaced.
         """
         tb = exc.__traceback__
-        if threading.current_thread() is threading.main_thread():
-            try:
-                window.report_callback_exception(type(exc), exc, tb)
-            except Exception:
-                logging.getLogger(__name__).debug(
-                    "failed to report exception", exc_info=True
-                )
-            return
         try:
             window.after(
                 0,
@@ -89,110 +81,69 @@ class ThreadManager:
         *,
         window,
         status_bar: Any | None = None,
-        run_on_main: bool = False,
     ) -> None:
-        """Execute *func* and surface exceptions.
-
-        Parameters
-        ----------
-        name:
-            Friendly name for logging.
-        func:
-            Callable to execute.
-        window:
-            Tk root window for scheduling callbacks.
-        status_bar:
-            Optional status bar for user facing messages.
-        run_on_main:
-            When ``True`` the callable is executed on the Tk main thread via
-            ``window.after``.  This is required for functions that perform GUI
-            operations.  The surrounding logging and error handling still runs
-            in a background thread so the UI remains responsive.
+        """Execute *func* in a daemon thread and surface exceptions.
 
         Any raised exception is logged with a full traceback and reported via
         ``status_bar`` and the application's global error handler.  Successful
-        completion also emits a log and optional status message.  All UI
-        interactions are marshalled back to the Tk main thread via
-        ``window.after`` so failures never crash the Home view.
+        completion also emits a log and optional status message.  All UI interactions are
+        marshalled back to the Tk main thread via ``window.after`` so failures
+        never crash the Home view.
         """
 
         import traceback
         import warnings
-        from queue import SimpleQueue
 
         def runner() -> None:
             self.log_queue.put(f"INFO:Starting {name}")
             start = time.time()
-
-            def call_func():
-                with warnings.catch_warnings(record=True) as captured:
-                    warnings.simplefilter("default")
-                    try:
-                        func()
-                    except Exception as exc:  # pragma: no cover - best effort
-                        return captured, exc
-                    else:
-                        return captured, None
-
-            if run_on_main:
-                q: SimpleQueue[Any] = SimpleQueue()
-
-                def on_main() -> None:
-                    q.put(call_func())
-
+            with warnings.catch_warnings(record=True) as captured:
+                warnings.simplefilter("default")
                 try:
-                    window.after(0, on_main)
-                except Exception:  # pragma: no cover - best effort
-                    on_main()
-                captured, exc = q.get()
-            else:
-                captured, exc = call_func()
-
-            if exc is not None:
-                msg = f"{name} failed: {exc}"
-                self.log_queue.put(f"ERROR:{msg}")
-                for line in traceback.format_exception(type(exc), exc, exc.__traceback__):
-                    for l in line.rstrip().splitlines():
-                        self.log_queue.put(f"ERROR:{l}")
-                for warn in captured:
-                    self.log_queue.put(
-                        "WARNING:{category}:{filename}:{lineno}:{message}".format(
-                            category=warn.category.__name__,
-                            filename=warn.filename,
-                            lineno=warn.lineno,
-                            message=warn.message,
+                    func()
+                except Exception as exc:  # pragma: no cover - best effort
+                    msg = f"{name} failed: {exc}"
+                    self.log_queue.put(f"ERROR:{msg}")
+                    for line in traceback.format_exc().splitlines():
+                        self.log_queue.put(f"ERROR:{line}")
+                    for warn in captured:
+                        self.log_queue.put(
+                            "WARNING:{category}:{filename}:{lineno}:{message}".format(
+                                category=warn.category.__name__,
+                                filename=warn.filename,
+                                lineno=warn.lineno,
+                                message=warn.message,
+                            )
                         )
-                    )
-                if status_bar is not None:
-                    window.after(0, lambda: status_bar.set_message(msg, "error"))
-                self.post_exception(window, exc)
-            else:
-                for warn in captured:
-                    self.log_queue.put(
-                        "WARNING:{category}:{filename}:{lineno}:{message}".format(
-                            category=warn.category.__name__,
-                            filename=warn.filename,
-                            lineno=warn.lineno,
-                            message=warn.message,
+                    if status_bar is not None:
+                        window.after(0, lambda: status_bar.set_message(msg, "error"))
+                    self.post_exception(window, exc)
+                else:
+                    for warn in captured:
+                        self.log_queue.put(
+                            "WARNING:{category}:{filename}:{lineno}:{message}".format(
+                                category=warn.category.__name__,
+                                filename=warn.filename,
+                                lineno=warn.lineno,
+                                message=warn.message,
+                            )
                         )
-                    )
-                self.log_queue.put(f"INFO:{name} completed")
-                if status_bar is not None:
-                    if captured:
-                        window.after(
-                            0,
-                            lambda: status_bar.set_message(
-                                f"{name} completed with warnings", "warning"
-                            ),
-                        )
-                    else:
-                        window.after(
-                            0,
-                            lambda: status_bar.set_message(
-                                f"{name} completed", "success"
-                            ),
-                        )
-
+                    self.log_queue.put(f"INFO:{name} completed")
+                    if status_bar is not None:
+                        if captured:
+                            window.after(
+                                0,
+                                lambda: status_bar.set_message(
+                                    f"{name} completed with warnings", "warning"
+                                ),
+                            )
+                        else:
+                            window.after(
+                                0,
+                                lambda: status_bar.set_message(
+                                    f"{name} completed", "success"
+                                ),
+                            )
             duration = time.time() - start
             self.log_queue.put(f"INFO:{name} finished in {duration:.2f}s")
 
