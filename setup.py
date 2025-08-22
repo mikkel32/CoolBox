@@ -783,19 +783,44 @@ def clean_pyc() -> None:
     log(f"Removed {n} __pycache__ folders.")
 
 
-def collect_problems(output: Path | None = None) -> None:
-    """Scan project files for TODO/FIXME/BUG markers."""
-    problem_re = re.compile(r"(TODO|FIXME|BUG)")
+def collect_problems(
+    output: Path | None = None,
+    patterns: Sequence[str] | None = None,
+) -> None:
+    """Scan project files for common problem markers.
+
+    Parameters
+    ----------
+    output:
+        Optional file to write matches to.
+    patterns:
+        Additional string patterns (regex words) to search for. Defaults to
+        ``["TODO", "FIXME", "BUG", "WARNING"]``.
+    """
+
+    if not patterns:
+        patterns = ["TODO", "FIXME", "BUG", "WARNING"]
+    problem_re = re.compile("|".join(re.escape(p) for p in patterns), re.IGNORECASE)
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
 
-    files = [
+    def _is_text_file(path: Path) -> bool:
+        try:
+            with path.open("rb") as fh:
+                chunk = fh.read(1024)
+            return b"\0" not in chunk
+        except OSError:
+            return False
+
+    files = (
         p
         for p in ROOT_DIR.rglob("*")
         if p.is_file() and not any(part in ignore_dirs for part in p.parts)
-    ]
+    )
 
-    def _scan(path: Path) -> list[str]:
+    def _scan(path: Path) -> tuple[Path, list[str]]:
         results: list[str] = []
+        if not _is_text_file(path):
+            return path, results
         try:
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 for lineno, line in enumerate(fh, 1):
@@ -804,20 +829,24 @@ def collect_problems(output: Path | None = None) -> None:
                         results.append(f"{rel}:{lineno}: {line.rstrip()}")
         except Exception as exc:  # pragma: no cover - file read errors
             SUMMARY.add_warning(f"Could not read {path}: {exc}")
-        return results
+        return path, results
 
-    matches: list[str] = []
+    matches: dict[Path, list[str]] = {}
     with ThreadPoolExecutor() as ex:
-        for res in ex.map(_scan, files):
-            matches.extend(res)
+        for path, res in ex.map(_scan, files):
+            if res:
+                matches[path] = res
 
+    total = sum(len(v) for v in matches.values())
     if output:
-        output.write_text("\n".join(matches))
-        log(f"Wrote {len(matches)} problem lines to {output}")
+        lines = [line for lines in matches.values() for line in lines]
+        output.write_text("\n".join(lines))
+        log(f"Wrote {total} problem lines to {output}")
     else:
-        for line in matches:
-            log(line)
-        log(f"Found {len(matches)} problem lines.")
+        for lines in matches.values():
+            for line in lines:
+                log(line)
+        log(f"Found {total} problem lines across {len(matches)} files.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
@@ -966,8 +995,17 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
     sub.add_parser("clean-pyc", help="Remove __pycache__ folders")
 
-    p_prob = sub.add_parser("problems", help="Scan project for TODO/FIXME/BUG comments")
+    p_prob = sub.add_parser(
+        "problems",
+        help="Scan project for TODO/FIXME/BUG/WARNING markers",
+    )
     p_prob.add_argument("--output", type=Path, default=None, help="Write results to file")
+    p_prob.add_argument(
+        "--patterns",
+        nargs="+",
+        default=None,
+        help="Extra problem marker patterns (regex)",
+    )
 
     p_test = sub.add_parser("test", help="Run pytest")
     p_test.add_argument("extra", nargs="*", default=[])
@@ -1034,7 +1072,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         elif cmd == "clean-pyc":
             clean_pyc()
         elif cmd == "problems":
-            collect_problems(output=getattr(args, "output", None))
+            collect_problems(
+                output=getattr(args, "output", None),
+                patterns=getattr(args, "patterns", None),
+            )
         elif cmd == "test":
             run_tests(args.extra)
         elif cmd == "update":
