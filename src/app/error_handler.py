@@ -42,8 +42,10 @@ if not _HEADLESS and sys.platform.startswith("linux"):
 
 # Auto-install defaults ON. Set COOLBOX_AUTO_INSTALL=0 to disable.
 _AUTO_INSTALL = os.getenv("COOLBOX_AUTO_INSTALL", "1") == "1"
-# Keep hidden root unless disabled.
-_FORCE_GUI = os.getenv("COOLBOX_ERROR_UI_FORCE", "1") == "1"
+# Keep a persistent hidden root only when explicitly requested.  By default we
+# create temporary roots so they can be destroyed after use which avoids stray
+# Tk instances and matches test expectations.
+_FORCE_GUI = os.getenv("COOLBOX_ERROR_UI_FORCE", "0") == "1"
 
 if not _HEADLESS:
     try:
@@ -217,10 +219,16 @@ def _native_error_dialog(title: str, body: str) -> None:
             ctypes.windll.user32.MessageBoxW(None, body, title, MB_OK | MB_SYSTEMMODAL | MB_TOPMOST | MB_ICONERROR)  # type: ignore[attr-defined]
             return
         if sys.platform == "darwin":
-            subprocess.run(
-                ["osascript", "-e", f'display alert "{title}" message "{body[:900].replace("\"","\\\"")}" as critical'],
-                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+            # ``osascript`` uses double quotes for arguments.  Construct the
+            # command in a safer way to avoid backslash escapes inside the
+            # f-string expression which are not permitted.
+            escaped_body = body[:900].replace("\"", r"\\\"")
+            cmd = [
+                "osascript",
+                "-e",
+                f'display alert "{title}" message "{escaped_body}" as critical',
+            ]
+            subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return
         for cmd in (["zenity", "--error", "--no-wrap", "--title", title, "--text", body[:2000]],
                     ["kdialog", "--error", f"{title}\n\n{body[:2000]}"]):
@@ -241,6 +249,13 @@ def _start_ui_pump(root: TkRoot) -> None:
     except Exception:
         _root_ref = None
     _PUMP_STARTED = False
+
+    # Tkinter must only be accessed from the main thread.  If the error handler
+    # is invoked from a worker thread we simply skip starting the pump; the
+    # native fallback dialog will still be available.
+    if tk is None or threading.current_thread() is not threading.main_thread():
+        logger.debug("Skipping UI pump; not in main thread")
+        return
 
     def _poll() -> None:
         global _PUMP_STARTED, _last_pump_activity
@@ -318,7 +333,7 @@ def _kick_ui(kind: str, message: str, details: str) -> None:
 # hidden root
 def _ensure_hidden_root(persistent: bool) -> TkRoot | None:
     global _persistent_root
-    if tk is None:
+    if tk is None or threading.current_thread() is not threading.main_thread():
         return None
     r = _current_root()
     if _root_alive(r):
@@ -357,24 +372,29 @@ def _show_error_dialog(message: str, details: str) -> None:
         logger.error("Unhandled exception: %s\n%s\nUI diagnostics: %s", message, details, diag)
         return
 
-    if not _should_popup(f"E:{message.splitlines()[0][:200]}"):
-        logger.error("Suppressed popup: %s\n%s", message, details)
-        return
-
-    root = _current_root()
-    if not _root_alive(root):
-        root = _ensure_hidden_root(persistent=_want_persistent_root)
-    if not _root_alive(root):
-        title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
-        _native_error_dialog(title, body); _spawn_popup_subprocess(title, body); return
-
+    key = f"E:{message.splitlines()[0][:200]}"
+    root: Any | None = None
     try:
+        root = _current_root()
+        if not _root_alive(root):
+            root = _ensure_hidden_root(persistent=_want_persistent_root)
+        if not _root_alive(root):
+            title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
+            _native_error_dialog(title, body)
+            _spawn_popup_subprocess(title, body)
+            return
+
+        if not _should_popup(key):
+            logger.error("Suppressed popup: %s\n%s", message, details)
+            return
+
         # Prefer modern dialog
         try:
             import customtkinter as ctk  # type: ignore
             from src.components.modern_error_dialog import ModernErrorDialog  # type: ignore
             dialog = ModernErrorDialog(root, message, details, _get_log_file())
-            root.wait_window(dialog); return
+            root.wait_window(dialog)
+            return
         except Exception:
             pass
 
@@ -412,7 +432,20 @@ def _show_error_dialog(message: str, details: str) -> None:
         except Exception:
             logger.debug("Failed to record dialog error", exc_info=True)
         title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
-        _native_error_dialog(title, body); _spawn_popup_subprocess(title, body)
+        _native_error_dialog(title, body)
+        _spawn_popup_subprocess(title, body)
+    finally:
+        if root is not None and not getattr(root, "_cbx_err_persistent", False):
+            global _root_ref, _persistent_root
+            try:
+                root.destroy()
+            except Exception:
+                logger.debug("Failed to destroy temporary root", exc_info=True)
+            finally:
+                if _root_ref and _root_ref() is root:
+                    _root_ref = None
+                if _persistent_root is root:
+                    _persistent_root = None
 
 # -------------------------------------------------------------------------------------------------
 # exception handling
@@ -630,9 +663,15 @@ def install(window: TkRoot | None = None, *, warn_popups: Optional[bool] = None,
         _want_persistent_root = bool(ensure_root)
 
         if _installed:
+            # The handler may have been installed previously but ``warnings`` or
+            # other hooks could have been overwritten by code such as
+            # ``logging.captureWarnings``.  Ensure our hooks are active again.
+            _rechain_showwarning_if_stomped()
             if tk is not None and window is not None:
-                try: window.report_callback_exception = handle_exception  # type: ignore[attr-defined]
-                except Exception: logger.debug("Failed to hook report_callback_exception", exc_info=True)
+                try:
+                    window.report_callback_exception = handle_exception  # type: ignore[attr-defined]
+                except Exception:
+                    logger.debug("Failed to hook report_callback_exception", exc_info=True)
                 _start_ui_pump(window)
             return
 
@@ -733,6 +772,7 @@ def _cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-dialog", action="store_true", help="Show a forced dialog now")
     parser.add_argument("--diagnose-ui", action="store_true", help="Include GUI diagnostics")
     parser.add_argument("--ensure-root", action="store_true", help="Create hidden root if none exists")
+    parser.add_argument("--simulate-handler-failure", action="store_true", help="Simulate a failure inside the handler")
     parser.add_argument("--uninstall", action="store_true", help="Uninstall before exiting")
     args = parser.parse_args(argv)
 
@@ -742,8 +782,20 @@ def _cli(argv: list[str] | None = None) -> int:
         force_test_dialog("CLI forced dialog")
 
     if args.trigger_error:
-        with error_boundary():
-            trigger_test_error()
+        if args.simulate_handler_failure:
+            def boom(exc, value, tb):  # pragma: no cover - injected failure
+                raise RuntimeError("handler exploded")
+            global handle_exception
+            orig = handle_exception
+            handle_exception = boom  # type: ignore[assignment]
+            try:
+                with error_boundary():
+                    trigger_test_error()
+            finally:
+                handle_exception = orig  # type: ignore[assignment]
+        else:
+            with error_boundary():
+                trigger_test_error()
     if args.trigger_warning:
         with error_boundary():
             trigger_test_warning()
@@ -765,7 +817,9 @@ def _auto_bootstrap() -> None:
     if not _AUTO_INSTALL:
         return
     try:
-        install(ensure_root=True)
+        # Only keep a persistent root when explicitly requested via the
+        # environment variable; otherwise create roots on demand.
+        install(ensure_root=_FORCE_GUI)
     except Exception:
         # never crash caller due to handler init
         try: logger.debug("auto-install failed", exc_info=True)
