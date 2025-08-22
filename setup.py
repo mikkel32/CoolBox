@@ -782,6 +782,53 @@ def clean_pyc() -> None:
     log(f"Removed {n} __pycache__ folders.")
 
 
+def collect_problems(
+    *,
+    output: Path | None = None,
+    root: Path | None = None,
+) -> list[tuple[Path, int, str]]:
+    """Scan project files for TODO or FIXME markers.
+
+    Parameters
+    ----------
+    output:
+        Optional file path to write results to.
+    root:
+        Directory to scan. Defaults to the project root.
+
+    Returns
+    -------
+    list[tuple[Path, int, str]]
+        A list of ``(path, line_number, line_text)`` entries for each problem.
+    """
+
+    root = root or get_root()
+    problems: list[tuple[Path, int, str]] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        # Skip common virtualenv and git directories
+        if any(part in {".git", ".venv"} for part in path.parts):
+            continue
+        try:
+            with path.open("r", encoding="utf-8", errors="ignore") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if "TODO" in line or "FIXME" in line:
+                        problems.append((path.relative_to(root), lineno, line.rstrip()))
+        except OSError:
+            continue
+
+    if output:
+        try:
+            with output.open("w", encoding="utf-8") as f:
+                for rel, lineno, text in problems:
+                    f.write(f"{rel}:{lineno}: {text}\n")
+        except OSError as exc:  # pragma: no cover - best effort
+            SUMMARY.add_warning(f"Failed to write problems file: {exc}")
+
+    return problems
+
+
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
     """Assemble pip commands needed for installation."""
     planned: list[tuple[str, list[str], bool]] = []
@@ -928,6 +975,9 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
     sub.add_parser("clean-pyc", help="Remove __pycache__ folders")
 
+    p_prob = sub.add_parser("problems", help="List TODO/FIXME markers")
+    p_prob.add_argument("--output", type=Path, default=None)
+
     p_test = sub.add_parser("test", help="Run pytest")
     p_test.add_argument("extra", nargs="*", default=[])
 
@@ -992,6 +1042,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             log("Virtualenv ready.")
         elif cmd == "clean-pyc":
             clean_pyc()
+        elif cmd == "problems":
+            issues = collect_problems(output=getattr(args, "output", None))
+            for rel, lineno, text in issues:
+                log(f"{rel}:{lineno}: {text}")
         elif cmd == "test":
             run_tests(args.extra)
         elif cmd == "update":

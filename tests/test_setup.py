@@ -96,6 +96,15 @@ def test_venv_python_platform(monkeypatch, tmp_path, platform, expected):
     assert path == (tmp_path / expected).resolve()
 
 
+def test_collect_problems(tmp_path):
+    f1 = tmp_path / "a.py"
+    f1.write_text("print('hi')\n# TODO: fix later\n")
+    f2 = tmp_path / "b.txt"
+    f2.write_text("ok\n")
+    problems = setup.collect_problems(root=tmp_path)
+    assert (Path("a.py"), 2, "# TODO: fix later") in problems
+
+
 def test_setup_run_speed():
     start = time.perf_counter()
     subprocess.run(
