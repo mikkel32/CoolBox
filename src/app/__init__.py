@@ -221,6 +221,12 @@ class CoolBoxApp:
             self.force_quit_window.bind(
                 "<Destroy>", lambda _e: setattr(self, "force_quit_window", None)
             )
+        except RuntimeError as exc:
+            if "main thread is not in main loop" in str(exc):
+                raise
+            logger.warning("Failed to create ForceQuitDialog: %s", exc)
+            messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
+            self.force_quit_window = None
         except Exception as exc:  # pragma: no cover - runtime init error
             logger.warning("Failed to create ForceQuitDialog: %s", exc)
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
