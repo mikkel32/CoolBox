@@ -828,9 +828,10 @@ def collect_problems(
     for f, n, t in matches:
         SUMMARY.warnings.append(f"{f}:{n}: {t}")
 
+    count = len(matches)
     if output:
         output.write_text("\n".join(f"{f}:{n}: {t}" for f, n, t in matches))
-        log(f"Wrote {len(matches)} problem lines to {output}")
+        log(f"Wrote {count} problem line{'s' if count != 1 else ''} to {output}")
     else:
         if RICH_AVAILABLE:
             table = Table(box=box.SIMPLE_HEAVY)
@@ -839,11 +840,13 @@ def collect_problems(
             table.add_column("Text")
             for f, n, t in matches:
                 table.add_row(f, str(n), t)
-            console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
+            console.print(Panel(table, title=f"Problems ({count})", box=box.ROUNDED))
+            problem_word = "problem" if count == 1 else "problems"
+            console.print(f"[bold]{count} {problem_word} found.[/]")
         else:
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
-            log(f"Found {len(matches)} problem lines.")
+            log(f"Found {count} problem line{'s' if count != 1 else ''}.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
