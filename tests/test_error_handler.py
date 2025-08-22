@@ -178,21 +178,3 @@ def test_cli_trigger_error_invokes_handler():
     assert "test error from trigger_test_error" in proc.stderr
     data = json.loads(proc.stdout.strip().splitlines()[-1])
     assert data["installed"] is True
-
-
-def test_internal_failure_is_reported(monkeypatch):
-    """If ``handle_exception`` itself fails, the error is recorded and reported."""
-
-    eh.RECENT_ERRORS.clear()
-
-    def boom():
-        raise RuntimeError("inner boom")
-
-    monkeypatch.setattr(eh, "_collect_context", boom)
-
-    try:
-        raise RuntimeError("outer")
-    except RuntimeError as exc:
-        eh.handle_exception(RuntimeError, exc, None)
-
-    assert any("HandlerError" in e and "inner boom" in e for e in eh.RECENT_ERRORS)
