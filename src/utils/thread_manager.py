@@ -81,18 +81,14 @@ class ThreadManager:
         *,
         window,
         status_bar: Any | None = None,
-        use_thread: bool = True,
     ) -> None:
-        """Execute *func* and surface exceptions.
+        """Execute *func* in a daemon thread and surface exceptions.
 
-        If *use_thread* is ``True`` (the default) the function is executed in a
-        background daemon thread. When ``False`` the function is scheduled on
-        the Tk main loop using ``window.after`` so it can safely interact with
-        the UI. Any raised exception is logged with a full traceback and
-        reported via ``status_bar`` and the application's global error handler.
-        Successful completion also emits a log and optional status message.
-        All UI interactions are marshalled back to the Tk main thread via
-        ``window.after`` so failures never crash the Home view.
+        Any raised exception is logged with a full traceback and reported via
+        ``status_bar`` and the application's global error handler.  Successful
+        completion also emits a log and optional status message.  All UI interactions are
+        marshalled back to the Tk main thread via ``window.after`` so failures
+        never crash the Home view.
         """
 
         import traceback
@@ -151,13 +147,7 @@ class ThreadManager:
             duration = time.time() - start
             self.log_queue.put(f"INFO:{name} finished in {duration:.2f}s")
 
-        if use_thread:
-            threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
-        else:
-            try:
-                window.after(0, runner)
-            except Exception:  # pragma: no cover - best effort
-                runner()
+        threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
 
     def _logger_loop(self) -> None:
         while not self.shutdown.is_set():
