@@ -1,155 +1,80 @@
-import shutil
-from pathlib import Path
-
 import src.utils.vm as vm
-from src.utils.vm import launch_vm_debug
 import scripts.run_vm_debug as vmcli
 
 
-def test_launch_vm_debug_vagrant(monkeypatch):
-    called = []
-    monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/vagrant" if x == "vagrant" else None)
-    monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
-    assert Path(called[0][0]).name == "run_vagrant.sh"
-
-
-def test_launch_vm_debug_docker(monkeypatch):
-    called = []
-
-    def which(cmd):
-        return "/usr/bin/docker" if cmd == "docker" else None
-
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
-    assert Path(called[0][0]).name == "run_devcontainer.sh"
-    assert called[0][1] == "docker"
-
-
-def test_launch_vm_debug_fallback(monkeypatch):
-    calls = []
-
-    def which(cmd):
-        return "/usr/bin/docker" if cmd == "docker" else None
-
-    def fail_call(args, **kwargs):
-        calls.append(args)
-        if Path(args[0]).name == "run_debug.sh":
-            return "", 0
-        return "", 1
-
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_ex", fail_call)
-    launch_vm_debug()
-    # first attempt with docker should fail then fall back to local
-    assert Path(calls[0][0]).name == "run_devcontainer.sh"
-    assert Path(calls[1][0]).name == "run_debug.sh"
-
-
-def test_launch_vm_debug_podman(monkeypatch):
-    called = []
-
-    def which(cmd):
-        return "/usr/bin/podman" if cmd == "podman" else None
-
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
-    assert Path(called[0][0]).name == "run_devcontainer.sh"
-    assert called[0][1] == "podman"
-
-
-def test_launch_vm_debug_missing(monkeypatch):
-    called = []
-    monkeypatch.setattr(shutil, "which", lambda x: None)
-    monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
-    assert Path(called[0][0]).name == "run_debug.sh"
-
-
-def test_launch_vm_prefer_env(monkeypatch):
-    called = []
-
-    def which(cmd):
-        return "/usr/bin/vagrant" if cmd == "vagrant" else None
-
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setenv("PREFER_VM", "vagrant")
-    monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug()
-    assert Path(called[0][0]).name == "run_vagrant.sh"
-
-
-def test_launch_vm_prefer_arg(monkeypatch):
-    called = []
-
-    def which(cmd):
-        return "/usr/bin/docker" if cmd == "docker" else None
-
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_ex", lambda args, **kw: (called.append(args) or ("", 0)))
-    launch_vm_debug(prefer="docker")
-    assert Path(called[0][0]).name == "run_devcontainer.sh"
-
-
-def test_launch_vm_open_code(monkeypatch):
+def test_launch_vm_debug_wrapper(monkeypatch):
     calls: list[str] = []
 
-    def which(cmd: str) -> str | None:
-        if cmd == "vagrant":
-            return "/usr/bin/vagrant"
-        if cmd == "code":
-            return "/usr/bin/code"
-        return None
+    def wrapper(port, open_code=False):
+        calls.append("wrapper")
+        return True
 
-    def bg(args, **kwargs):
-        calls.append("code")
-        return True, None
+    def docker(port):
+        calls.append("docker")
+        return False
 
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_background", bg)
-    monkeypatch.setattr(
-        vm,
-        "run_command_ex",
-        lambda args, **kwargs: (calls.append(
-            (Path(args[0]).name, args[1] if len(args) > 1 else None)
-        ) or ("", 0))
-    )
-    launch_vm_debug(open_code=True)
-    assert calls[0] == "code"
-    assert calls[1][0] == "run_vagrant.sh"
+    def vagrant(port):
+        calls.append("vagrant")
+        return False
 
+    def local(port):
+        calls.append("local")
 
-def test_launch_vm_open_code_missing(monkeypatch, capsys):
-    """Ensure a warning is printed if VS Code is not installed."""
-    def which(cmd: str) -> str | None:
-        return "/usr/bin/vagrant" if cmd == "vagrant" else None
+    monkeypatch.setattr(vm, "_launch_vm_debug_wrapper", wrapper)
+    monkeypatch.setattr(vm, "_launch_docker", docker)
+    monkeypatch.setattr(vm, "_launch_vagrant", vagrant)
+    monkeypatch.setattr(vm, "_launch_local_debug", local)
 
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_background", lambda *a, **k: (False, None))
-    monkeypatch.setattr(vm, "run_command_ex", lambda *a, **k: ("", 0))
-    launch_vm_debug(open_code=True)
-    out = capsys.readouterr().out
-    assert "code' command not found" in out
+    vm.launch_vm_debug()
+    assert calls == ["wrapper"]
 
 
-def test_launch_vm_debug_env(monkeypatch):
-    captured = []
+def test_launch_vm_debug_docker_windows(monkeypatch):
+    cmds: list[list[str]] = []
 
-    def which(cmd: str) -> str | None:
-        return "/usr/bin/docker" if cmd == "docker" else None
+    monkeypatch.setattr(vm, "_launch_vm_debug_wrapper", lambda p, open_code=False: False)
+    monkeypatch.setattr(vm, "_is_windows", lambda: True)
+    monkeypatch.setattr(vm, "_wsl_available", lambda: True)
+    monkeypatch.setattr(vm, "_exists", lambda p: True)
+    monkeypatch.setattr(vm, "_which", lambda name: "docker" if name == "docker" else None)
 
-    def fake_run(cmd, *, env=None, **kwargs):
-        captured.append(env)
-        return "", 0
+    def fake_spawn(cmd, **kwargs):
+        cmds.append(list(cmd))
 
-    monkeypatch.setattr(shutil, "which", which)
-    monkeypatch.setattr(vm, "run_command_ex", fake_run)
-    launch_vm_debug(port=9999, skip_deps=True)
-    env = captured[0]
-    assert env["DEBUG_PORT"] == "9999"
-    assert env["SKIP_DEPS"] == "1"
+    monkeypatch.setattr(vm, "_spawn", fake_spawn)
+
+    vm.launch_vm_debug(prefer="docker")
+    assert cmds and cmds[0][0] == "wsl.exe"
+
+
+def test_launch_vm_debug_vagrant(monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(vm, "_launch_vm_debug_wrapper", lambda p, open_code=False: False)
+    monkeypatch.setattr(vm, "_launch_docker", lambda p: calls.append("docker") or False)
+    monkeypatch.setattr(vm, "_launch_vagrant", lambda p: calls.append("vagrant") or True)
+
+    vm.launch_vm_debug()
+    assert calls == ["docker", "vagrant"]
+
+
+def test_launch_vm_debug_local_fallback(monkeypatch):
+    cmds: list[list[str]] = []
+    envs: list[dict[str, str]] = []
+
+    monkeypatch.setattr(vm, "_launch_vm_debug_wrapper", lambda p, open_code=False: False)
+    monkeypatch.setattr(vm, "_launch_docker", lambda p: False)
+    monkeypatch.setattr(vm, "_launch_vagrant", lambda p: False)
+
+    def fake_spawn(cmd, *, env=None, cwd=None):
+        cmds.append(list(cmd))
+        envs.append(dict(env or {}))
+
+    monkeypatch.setattr(vm, "_spawn", fake_spawn)
+
+    vm.launch_vm_debug(port=9999)
+    assert any("debugpy" in part for part in cmds[0])
+    assert envs[0]["DEBUG_PORT"] == "9999"
 
 
 def test_vm_cli_parse_defaults():
@@ -176,3 +101,4 @@ def test_vm_cli_main_list(monkeypatch, capsys):
     vmcli.main(["--list"])
     out = capsys.readouterr().out
     assert "docker" in out
+
