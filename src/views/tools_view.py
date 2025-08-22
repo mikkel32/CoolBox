@@ -255,13 +255,21 @@ class ToolsView(BaseView):
         )
 
     def _safe_launch(self, name: str, func: callable) -> None:
-        """Run *func* in a background thread and surface errors gracefully."""
+        """Execute *func* and surface errors gracefully.
+
+        Many tool callbacks create Tk dialogs or interact with other GUI
+        elements.  Those operations must run on the Tk main thread, so we
+        explicitly disable background threading and marshal execution through
+        ``window.after``.  The thread manager still handles logging and error
+        reporting for consistent behaviour.
+        """
 
         self.app.thread_manager.run_tool(
             name,
             func,
             window=self.app.window,
             status_bar=self.app.status_bar,
+            use_thread=False,
         )
 
     # Tool implementations
