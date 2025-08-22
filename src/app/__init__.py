@@ -54,10 +54,6 @@ class CoolBoxApp:
 
         # Create main window
         self.window = ctk.CTk()
-        # Register window with thread manager so background threads can marshal
-        # callbacks safely to the Tk main thread without hitting
-        # ``RuntimeError: main thread is not in main loop``.
-        self.thread_manager.bind_window(self.window)
         self.window.title("CoolBox - Modern Desktop App")
         self.window.geometry(
             f"{self.config.get('window_width', 1200)}x{self.config.get('window_height', 1000)}"
