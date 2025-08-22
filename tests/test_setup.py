@@ -122,3 +122,19 @@ def test_config_file_overrides(monkeypatch, tmp_path):
     import importlib
     importlib.reload(setup)
     assert setup.CONFIG.no_anim is True
+
+
+def test_collect_problems_reports_total(monkeypatch, tmp_path):
+    (tmp_path / "sample.py").write_text("# TODO: fix\n")
+    monkeypatch.setattr(setup, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(setup, "RICH_AVAILABLE", True)
+    from io import StringIO
+    from rich.console import Console
+
+    buf = StringIO()
+    cap_console = Console(file=buf, force_terminal=True, color_system=None, width=80)
+    monkeypatch.setattr(setup, "console", cap_console)
+    setup.SUMMARY.warnings.clear()
+    setup.collect_problems()
+    output = buf.getvalue()
+    assert "Total problems: 1" in output
