@@ -24,7 +24,6 @@ import socket
 import logging
 import json
 import re
-from collections import Counter
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
@@ -785,9 +784,8 @@ def clean_pyc() -> None:
 
 
 def collect_problems(output: Path | None = None) -> None:
-    """Scan project files for common warning markers and report them."""
-    patterns = ["TODO", "FIXME", "BUG", "XXX", "HACK", "WARNING"]
-    problem_re = re.compile("|".join(patterns))
+    """Scan project files for TODO/FIXME/BUG markers."""
+    problem_re = re.compile(r"(TODO|FIXME|BUG)")
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
 
     files = [
@@ -796,50 +794,30 @@ def collect_problems(output: Path | None = None) -> None:
         if p.is_file() and not any(part in ignore_dirs for part in p.parts)
     ]
 
-    def _scan(path: Path) -> list[tuple[str, str, int, str]]:
-        results: list[tuple[str, str, int, str]] = []
+    def _scan(path: Path) -> list[str]:
+        results: list[str] = []
         try:
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 for lineno, line in enumerate(fh, 1):
-                    m = problem_re.search(line)
-                    if m:
+                    if problem_re.search(line):
                         rel = path.relative_to(ROOT_DIR)
-                        results.append((m.group(0), str(rel), lineno, line.rstrip()))
+                        results.append(f"{rel}:{lineno}: {line.rstrip()}")
         except Exception as exc:  # pragma: no cover - file read errors
             SUMMARY.add_warning(f"Could not read {path}: {exc}")
         return results
 
-    matches: list[tuple[str, str, int, str]] = []
+    matches: list[str] = []
     with ThreadPoolExecutor() as ex:
         for res in ex.map(_scan, files):
             matches.extend(res)
 
     if output:
-        output.write_text(
-            "\n".join(f"{typ}:{loc}:{lineno}:{text}" for typ, loc, lineno, text in matches)
-        )
+        output.write_text("\n".join(matches))
         log(f"Wrote {len(matches)} problem lines to {output}")
-        return
-
-    if RICH_AVAILABLE:
-        table = Table(title="Problem markers", box=box.SIMPLE_HEAVY)
-        table.add_column("Type", style="yellow", no_wrap=True)
-        table.add_column("Location", no_wrap=True)
-        table.add_column("Text", overflow="fold")
-        for typ, loc, lineno, text in matches:
-            table.add_row(typ, f"{loc}:{lineno}", text)
-        console.print(table)
     else:
-        for typ, loc, lineno, text in matches:
-            log(f"{typ}: {loc}:{lineno}: {text}")
-
-    if matches:
-        counts = Counter(typ for typ, *_ in matches)
-        for typ, cnt in counts.items():
-            log(f"{typ}: {cnt} occurrences")
-        SUMMARY.add_warning(f"Found {len(matches)} problem lines")
-    else:
-        log("No problem markers found.")
+        for line in matches:
+            log(line)
+        log(f"Found {len(matches)} problem lines.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
