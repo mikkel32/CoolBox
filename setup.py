@@ -296,6 +296,7 @@ class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
     def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
+        super().__init__()
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
@@ -803,10 +804,21 @@ def collect_problems(
     problem_re = re.compile(f"({pattern})", re.IGNORECASE)
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
 
+    def _is_text_file(path: Path) -> bool:
+        """Return True if *path* appears to be a text file."""
+        try:
+            with path.open("rb") as fh:
+                chunk = fh.read(1024)
+            return b"\0" not in chunk
+        except Exception:
+            return False
+
     files = [
         p
         for p in ROOT_DIR.rglob("*")
-        if p.is_file() and not any(part in ignore_dirs for part in p.parts)
+        if p.is_file()
+        and _is_text_file(p)
+        and not any(part in ignore_dirs for part in p.parts)
     ]
 
     def _scan(path: Path) -> list[tuple[str, int, str]]:
@@ -814,9 +826,13 @@ def collect_problems(
         try:
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 for lineno, line in enumerate(fh, 1):
-                    if problem_re.search(line):
+                    comment_pos = line.find("#")
+                    if comment_pos == -1:
+                        continue
+                    comment = line[comment_pos + 1 :]
+                    if problem_re.search(comment):
                         rel = path.relative_to(ROOT_DIR)
-                        results.append((str(rel), lineno, line.rstrip()))
+                        results.append((str(rel), lineno, comment.rstrip()))
         except Exception as exc:  # pragma: no cover - file read errors
             SUMMARY.add_warning(f"Could not read {path}: {exc}")
         return results
