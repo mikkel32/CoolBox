@@ -782,36 +782,6 @@ def clean_pyc() -> None:
     log(f"Removed {n} __pycache__ folders.")
 
 
-def collect_problems(tags: Sequence[str] | None = None, *, output: Path | None = None) -> None:
-    """Scan project files for comment tags and write them to *output*."""
-    search_tags = list(tags or ["TODO", "FIXME", "BUG", "HACK"])
-    out_path = output or (ROOT_DIR / "PROBLEMS.md")
-    issues: list[str] = []
-
-    def _scan_file(path: Path) -> list[str]:
-        found: list[str] = []
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        except Exception as e:  # pragma: no cover - I/O errors
-            SUMMARY.add_warning(f"Scan failed for {path}: {e}")
-            return found
-        for idx, line in enumerate(text, 1):
-            if "#" in line:
-                comment = line.split("#", 1)[1]
-                if any(tag in comment for tag in search_tags):
-                    rel = path.relative_to(ROOT_DIR)
-                    found.append(f"{rel}:{idx}: {line.strip()}")
-        return found
-
-    files = [p for p in ROOT_DIR.rglob("*.py") if p.is_file()]
-    with ThreadPoolExecutor() as ex:
-        for result in ex.map(_scan_file, files):
-            issues.extend(result)
-
-    out_path.write_text("\n".join(issues) + ("\n" if issues else ""), encoding="utf-8")
-    log(f"Recorded {len(issues)} problem lines to {out_path}")
-
-
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
     """Assemble pip commands needed for installation."""
     planned: list[tuple[str, list[str], bool]] = []
@@ -958,10 +928,6 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
     sub.add_parser("clean-pyc", help="Remove __pycache__ folders")
 
-    p_prob = sub.add_parser("problems", help="Scan source files for problem markers")
-    p_prob.add_argument("--tags", nargs="*", default=None)
-    p_prob.add_argument("--output", type=Path, default=None)
-
     p_test = sub.add_parser("test", help="Run pytest")
     p_test.add_argument("extra", nargs="*", default=[])
 
@@ -1026,8 +992,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             log("Virtualenv ready.")
         elif cmd == "clean-pyc":
             clean_pyc()
-        elif cmd == "problems":
-            collect_problems(tags=getattr(args, "tags", None), output=getattr(args, "output", None))
         elif cmd == "test":
             run_tests(args.extra)
         elif cmd == "update":
