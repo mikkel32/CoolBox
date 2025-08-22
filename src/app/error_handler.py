@@ -217,10 +217,9 @@ def _native_error_dialog(title: str, body: str) -> None:
             ctypes.windll.user32.MessageBoxW(None, body, title, MB_OK | MB_SYSTEMMODAL | MB_TOPMOST | MB_ICONERROR)  # type: ignore[attr-defined]
             return
         if sys.platform == "darwin":
-            safe_body = body[:900].replace('"', '\\"')
             subprocess.run(
-                ["osascript", "-e", f'display alert "{title}" message "{safe_body}" as critical'],
-                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                ["osascript", "-e", f'display alert "{title}" message "{body[:900].replace("\"","\\\"")}" as critical'],
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             return
         for cmd in (["zenity", "--error", "--no-wrap", "--title", title, "--text", body[:2000]],
@@ -431,17 +430,7 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
 
     desc = f"I/O error: {value}" if isinstance(value, OSError) else (f"Invalid value: {value}" if isinstance(value, ValueError) else str(value))
     msg = f"{desc} (at {location} on {ts})"
-    details = "\n".join(
-        [
-            f"Exception: {exc.__name__}",
-            f"Message: {value}",
-            f"Location: {location}",
-            f"Time: {ts}",
-            f"Context: {context}",
-            "Traceback:",
-            tb_str,
-        ]
-    )
+    details = "\n".join([f"Exception: {exc.__name__}", f"Message: {value}", f"Location: {location}", f"Time: {ts}", f"Context: {context}", "Traceback:", tb_str])
     _show_error_dialog(msg, details)
 
 def _last_resort_report(exc: Type[BaseException], value: BaseException, tb, handler_error: BaseException, log_error: BaseException | None = None) -> None:
