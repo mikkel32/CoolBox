@@ -783,9 +783,18 @@ def clean_pyc() -> None:
     log(f"Removed {n} __pycache__ folders.")
 
 
-def collect_problems(output: Path | None = None) -> None:
-    """Scan project files for TODO/FIXME/BUG markers."""
-    problem_re = re.compile(r"(TODO|FIXME|BUG)")
+def collect_problems(
+    output: Path | None = None, markers: Sequence[str] | None = None
+) -> None:
+    """Scan project files for common problem markers.
+
+    By default this searches for TODO, FIXME, BUG and WARNING comments, but a
+    custom list of *markers* can be provided.
+    """
+
+    markers = [m.strip() for m in (markers or ["TODO", "FIXME", "BUG", "WARNING"])]
+    pattern = "|".join(re.escape(m) for m in markers)
+    problem_re = re.compile(f"({pattern})", re.IGNORECASE)
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
 
     files = [
@@ -794,30 +803,41 @@ def collect_problems(output: Path | None = None) -> None:
         if p.is_file() and not any(part in ignore_dirs for part in p.parts)
     ]
 
-    def _scan(path: Path) -> list[str]:
-        results: list[str] = []
+    def _scan(path: Path) -> list[tuple[str, int, str]]:
+        results: list[tuple[str, int, str]] = []
         try:
             with path.open("r", encoding="utf-8", errors="ignore") as fh:
                 for lineno, line in enumerate(fh, 1):
                     if problem_re.search(line):
                         rel = path.relative_to(ROOT_DIR)
-                        results.append(f"{rel}:{lineno}: {line.rstrip()}")
+                        results.append((str(rel), lineno, line.rstrip()))
         except Exception as exc:  # pragma: no cover - file read errors
             SUMMARY.add_warning(f"Could not read {path}: {exc}")
         return results
 
-    matches: list[str] = []
+    matches: list[tuple[str, int, str]] = []
     with ThreadPoolExecutor() as ex:
         for res in ex.map(_scan, files):
             matches.extend(res)
 
+    matches.sort()
+
     if output:
-        output.write_text("\n".join(matches))
+        output.write_text("\n".join(f"{f}:{n}: {t}" for f, n, t in matches))
         log(f"Wrote {len(matches)} problem lines to {output}")
     else:
-        for line in matches:
-            log(line)
-        log(f"Found {len(matches)} problem lines.")
+        if RICH_AVAILABLE:
+            table = Table(box=box.SIMPLE_HEAVY)
+            table.add_column("File", overflow="fold")
+            table.add_column("Line", justify="right")
+            table.add_column("Text")
+            for f, n, t in matches:
+                table.add_row(f, str(n), t)
+            console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
+        else:
+            for f, n, t in matches:
+                log(f"{f}:{n}: {t}")
+            log(f"Found {len(matches)} problem lines.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
@@ -966,8 +986,14 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
     sub.add_parser("clean-pyc", help="Remove __pycache__ folders")
 
-    p_prob = sub.add_parser("problems", help="Scan project for TODO/FIXME/BUG comments")
+    p_prob = sub.add_parser("problems", help="Scan project for problem markers")
     p_prob.add_argument("--output", type=Path, default=None, help="Write results to file")
+    p_prob.add_argument(
+        "--markers",
+        type=str,
+        default=None,
+        help="Comma separated markers (default: TODO,FIXME,BUG,WARNING)",
+    )
 
     p_test = sub.add_parser("test", help="Run pytest")
     p_test.add_argument("extra", nargs="*", default=[])
@@ -1034,7 +1060,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         elif cmd == "clean-pyc":
             clean_pyc()
         elif cmd == "problems":
-            collect_problems(output=getattr(args, "output", None))
+            markers = getattr(args, "markers", None)
+            collect_problems(
+                output=getattr(args, "output", None),
+                markers=[m.strip() for m in markers.split(",")] if markers else None,
+            )
         elif cmd == "test":
             run_tests(args.extra)
         elif cmd == "update":
