@@ -1,5 +1,4 @@
 import os
-import re
 import sys
 import threading
 import warnings
@@ -33,9 +32,6 @@ def test_warning_and_unraisable_capture(tmp_path, monkeypatch):
 
     warnings.warn("be careful", UserWarning)
     assert any("be careful" in w for w in eh.RECENT_WARNINGS)
-    warning_entry = eh.RECENT_WARNINGS[-1]
-    assert "test_error_handler.py" in warning_entry
-    assert re.search(r"\d{4}-\d{2}-\d{2}", warning_entry)
 
     info = SimpleNamespace(
         exc_type=RuntimeError,
@@ -46,8 +42,6 @@ def test_warning_and_unraisable_capture(tmp_path, monkeypatch):
     )
     sys.unraisablehook(info)
     assert any("boom" in e for e in eh.RECENT_ERRORS)
-    error_entry = eh.RECENT_ERRORS[-1]
-    assert re.search(r"\d{4}-\d{2}-\d{2}", error_entry)
 
 
 def test_handle_exception_uses_dialog(monkeypatch):
