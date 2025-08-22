@@ -36,7 +36,7 @@ def set_app_icon(window):
     temp_icon: str | None = None
     try:
         image = Image.open(icon_path)
-        photo = ImageTk.PhotoImage(image, master=window)
+        photo = ImageTk.PhotoImage(image)
         window.iconphoto(True, photo)
 
         if sys.platform.startswith("win"):
