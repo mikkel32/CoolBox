@@ -264,8 +264,13 @@ def install(window=None) -> None:
         logger.warning(text)
         _record(RECENT_WARNINGS, text)
 
-    warnings.showwarning = _showwarning
+    # ``logging.captureWarnings(True)`` installs its own ``warnings.showwarning``
+    # handler.  If called *after* assigning our custom hook it would overwrite
+    # it, preventing warnings from being recorded.  Capture warnings first and
+    # then restore our hook so warnings are both logged and stored in
+    # ``RECENT_WARNINGS``.
     logging.captureWarnings(True)
+    warnings.showwarning = _showwarning
 
     if window is not None:
         window.report_callback_exception = handle_exception
