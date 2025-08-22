@@ -822,6 +822,10 @@ def collect_problems(
 
     matches.sort()
 
+    # surface each problem in the final run summary for easy review
+    for f, n, t in matches:
+        SUMMARY.add_warning(f"{f}:{n}: {t}")
+
     if output:
         output.write_text("\n".join(f"{f}:{n}: {t}" for f, n, t in matches))
         log(f"Wrote {len(matches)} problem lines to {output}")
@@ -838,6 +842,9 @@ def collect_problems(
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
             log(f"Found {len(matches)} problem lines.")
+
+    if not matches:
+        log("No problem markers found.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
