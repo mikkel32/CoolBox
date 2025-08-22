@@ -40,9 +40,13 @@ class Tooltip(ctk.CTkToplevel):
 
     def _on_destroy(self, _event=None) -> None:
         """Remove tooltip from CustomTkinter's scaling tracker."""
-        scaling_tracker.ScalingTracker.remove_window(self._set_scaling, self)
-        scaling_tracker.ScalingTracker.window_widgets_dict.pop(self, None)
-        scaling_tracker.ScalingTracker.window_dpi_scaling_dict.pop(self, None)
+        tracker = scaling_tracker.ScalingTracker
+        # Clean up any lingering registry entries first so the scaling
+        # tracker doesn't attempt to access a missing window and raise a
+        # ``KeyError`` during its periodic DPI check.
+        tracker.window_widgets_dict.pop(self, None)
+        tracker.window_dpi_scaling_dict.pop(self, None)
+        tracker.remove_window(self._set_scaling, self)
 
     def destroy(self) -> None:  # type: ignore[override]
         """Destroy tooltip and deregister from scaling tracker."""
