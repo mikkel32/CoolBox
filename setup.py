@@ -295,23 +295,7 @@ def NeonPulseBorder(**kwargs):
 class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
-    def __init__(
-        self,
-        frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏",
-        colors: Sequence[str] | None = None,
-    ):
-        """Initialize spinner without invoking ``ProgressColumn.__init__``.
-
-        ``ProgressColumn`` does some setup in ``__init__`` which isn't safe to
-        call in our environment.  We replicate the minimal attributes it
-        expects so the progress helper can operate without errors.
-        """
-        # Copied from ``ProgressColumn.__init__`` but done manually to avoid
-        # executing the base class constructor.
-        self._table_column = None
-        self._renderable_cache: dict = {}
-        self._update_time = None
-
+    def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
@@ -516,10 +500,6 @@ class RunSummary:
         for e in self.errors:
             table.add_row("[red]Error[/]", e)
         console.print(Panel(table, title="Summary", box=box.ROUNDED))
-        total = len(self.warnings) + len(self.errors)
-        console.print(
-            f"[bold]Total problems: {total} (Warnings: {len(self.warnings)}, Errors: {len(self.errors)})[/]"
-        )
 
 
 SUMMARY = RunSummary()
@@ -848,10 +828,9 @@ def collect_problems(
     for f, n, t in matches:
         SUMMARY.warnings.append(f"{f}:{n}: {t}")
 
-    count = len(matches)
     if output:
         output.write_text("\n".join(f"{f}:{n}: {t}" for f, n, t in matches))
-        log(f"Wrote {count} problem line{'s' if count != 1 else ''} to {output}")
+        log(f"Wrote {len(matches)} problem lines to {output}")
     else:
         if RICH_AVAILABLE:
             table = Table(box=box.SIMPLE_HEAVY)
@@ -860,13 +839,11 @@ def collect_problems(
             table.add_column("Text")
             for f, n, t in matches:
                 table.add_row(f, str(n), t)
-            console.print(Panel(table, title=f"Problems ({count})", box=box.ROUNDED))
-            problem_word = "problem" if count == 1 else "problems"
-            console.print(f"[bold]{count} {problem_word} found.[/]")
+            console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
         else:
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
-            log(f"Found {count} problem line{'s' if count != 1 else ''}.")
+            log(f"Found {len(matches)} problem lines.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
