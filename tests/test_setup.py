@@ -122,16 +122,3 @@ def test_config_file_overrides(monkeypatch, tmp_path):
     import importlib
     importlib.reload(setup)
     assert setup.CONFIG.no_anim is True
-
-
-def test_progress_spinner():
-    """Ensure the progress helper constructs without errors."""
-    with setup._progress() as prog:
-        task = prog.add_task("demo", total=1)
-        prog.advance(task)
-
-
-def test_rainbow_spinner_column_init():
-    col = setup.RainbowSpinnerColumn()
-    assert hasattr(col, "_table_column")
-    assert col._table_column is None

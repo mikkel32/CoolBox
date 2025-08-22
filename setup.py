@@ -296,11 +296,9 @@ class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
     def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
-        """Initialize the spinner and prepare ProgressColumn internals."""
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
-        self._table_column = None  # ProgressColumn normally sets this in __init__
 
     def render(self, task):  # type: ignore[override]
         char = self.frames[self._index % len(self.frames)]
