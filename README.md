@@ -30,6 +30,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Stylish Setup**: Dependency installation is wrapped in a pulsing neon border
   with a dynamic spinner and live output for extra flair, even when triggered
   automatically on first launch.
+- **Smart Problem Scanner**: The setup utility can scan project files for tags like
+  TODO or FIXME and record them in `PROBLEMS.md` for easy review.
   It also includes an advanced Force Quit utility with a searchable process
   list, automatic refresh, sort options, and multi-select termination. It can
   kill processes by name, command line pattern, port, host, open file, executable path
