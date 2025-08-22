@@ -135,9 +135,7 @@ def _should_popup(key: str) -> bool:
 
 def _root_alive(r: Any | None) -> bool:
     try:
-        if not r or getattr(r, "destroyed", False):
-            return False
-        return getattr(r, "winfo_exists", lambda: False)()
+        return bool(r) and getattr(r, "winfo_exists", lambda: False)()
     except Exception:
         return False
 
@@ -219,10 +217,9 @@ def _native_error_dialog(title: str, body: str) -> None:
             ctypes.windll.user32.MessageBoxW(None, body, title, MB_OK | MB_SYSTEMMODAL | MB_TOPMOST | MB_ICONERROR)  # type: ignore[attr-defined]
             return
         if sys.platform == "darwin":
-            safe_body = body[:900].replace('"', '\\"')
             subprocess.run(
-                ["osascript", "-e", f'display alert "{title}" message "{safe_body}" as critical'],
-                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                ["osascript", "-e", f'display alert "{title}" message "{body[:900].replace("\"","\\\"")}" as critical'],
+                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             return
         for cmd in (["zenity", "--error", "--no-wrap", "--title", title, "--text", body[:2000]],
@@ -360,38 +357,16 @@ def _show_error_dialog(message: str, details: str) -> None:
         logger.error("Unhandled exception: %s\n%s\nUI diagnostics: %s", message, details, diag)
         return
 
-    try:
-        root = _current_root()
-    except Exception as exc:
-        logger.exception("Failed to access Tk root")
-        try:
-            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-            _record(
-                RECENT_ERRORS,
-                f"{datetime.now().isoformat()}:DialogError:show_error_dialog:{exc}\n{tb}",
-            )
-        except Exception:
-            logger.debug("Failed to record dialog error", exc_info=True)
+    if not _should_popup(f"E:{message.splitlines()[0][:200]}"):
+        logger.error("Suppressed popup: %s\n%s", message, details)
         return
 
-    created_temp = False
+    root = _current_root()
     if not _root_alive(root):
-        root = _ensure_hidden_root(persistent=False)
-        created_temp = True
+        root = _ensure_hidden_root(persistent=_want_persistent_root)
     if not _root_alive(root):
         title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
         _native_error_dialog(title, body); _spawn_popup_subprocess(title, body); return
-
-    key = f"E:{message.splitlines()[0][:200]}"
-    _LAST_POPUP_AT.pop(key, None)
-    if not _should_popup(key):
-        logger.error("Suppressed popup: %s\n%s", message, details)
-        if created_temp and _root_alive(root):
-            try:
-                root.destroy()
-            except Exception:
-                pass
-        return
 
     try:
         # Prefer modern dialog
@@ -399,8 +374,7 @@ def _show_error_dialog(message: str, details: str) -> None:
             import customtkinter as ctk  # type: ignore
             from src.components.modern_error_dialog import ModernErrorDialog  # type: ignore
             dialog = ModernErrorDialog(root, message, details, _get_log_file())
-            root.wait_window(dialog)
-            return
+            root.wait_window(dialog); return
         except Exception:
             pass
 
@@ -439,12 +413,6 @@ def _show_error_dialog(message: str, details: str) -> None:
             logger.debug("Failed to record dialog error", exc_info=True)
         title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
         _native_error_dialog(title, body); _spawn_popup_subprocess(title, body)
-    finally:
-        if created_temp and _root_alive(root):
-            try:
-                root.destroy()
-            except Exception:
-                pass
 
 # -------------------------------------------------------------------------------------------------
 # exception handling
@@ -662,13 +630,9 @@ def install(window: TkRoot | None = None, *, warn_popups: Optional[bool] = None,
         _want_persistent_root = bool(ensure_root)
 
         if _installed:
-            # Re-apply hooks in case downstream code replaced them.
-            _apply_hooks()
             if tk is not None and window is not None:
-                try:
-                    window.report_callback_exception = handle_exception  # type: ignore[attr-defined]
-                except Exception:
-                    logger.debug("Failed to hook report_callback_exception", exc_info=True)
+                try: window.report_callback_exception = handle_exception  # type: ignore[attr-defined]
+                except Exception: logger.debug("Failed to hook report_callback_exception", exc_info=True)
                 _start_ui_pump(window)
             return
 
@@ -769,20 +733,10 @@ def _cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--force-dialog", action="store_true", help="Show a forced dialog now")
     parser.add_argument("--diagnose-ui", action="store_true", help="Include GUI diagnostics")
     parser.add_argument("--ensure-root", action="store_true", help="Create hidden root if none exists")
-    parser.add_argument(
-        "--simulate-handler-failure",
-        action="store_true",
-        help="Reserved for testing handler failure scenarios",
-    )
     parser.add_argument("--uninstall", action="store_true", help="Uninstall before exiting")
     args = parser.parse_args(argv)
 
     install(ensure_root=args.ensure_root if args.ensure_root is not None else None)
-
-    if args.simulate_handler_failure:
-        def _fail(*a, **kw):
-            raise RuntimeError("simulated handler failure")
-        globals()["handle_exception"] = _fail  # type: ignore[assignment]
 
     if args.force_dialog:
         force_test_dialog("CLI forced dialog")
