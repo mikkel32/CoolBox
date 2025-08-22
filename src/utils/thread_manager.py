@@ -50,23 +50,15 @@ class ThreadManager:
             t.join(timeout=1)
 
     def post_exception(self, window, exc: BaseException) -> None:
-        """Report *exc* via the window's ``report_callback_exception`` hook.
+        """Report *exc* on the Tk main thread using ``window.after``.
 
-        If called from a background thread the exception is marshalled to the
-        Tk main loop using ``window.after``.  When already on the main thread we
-        invoke the handler directly so errors are surfaced immediately.  Any
-        failure to schedule the callback falls back to a direct invocation to
-        ensure the error handler still sees the exception.
+        The window's ``report_callback_exception`` hook is invoked so all
+        dialogs and logging are handled by the global error handler.
+        If the window no longer exists or cannot schedule the callback,
+        fall back to invoking the handler directly so errors are still
+        surfaced.
         """
         tb = exc.__traceback__
-        if threading.current_thread() is threading.main_thread():
-            try:
-                window.report_callback_exception(type(exc), exc, tb)
-            except Exception:
-                logging.getLogger(__name__).debug(
-                    "failed to report exception", exc_info=True
-                )
-            return
         try:
             window.after(
                 0,
@@ -89,33 +81,14 @@ class ThreadManager:
         *,
         window,
         status_bar: Any | None = None,
-        use_thread: bool = True,
     ) -> None:
-        """Execute *func* and surface exceptions.
-
-        Parameters
-        ----------
-        name:
-            Friendly name for logging.
-        func:
-            Callable to execute.
-        window:
-            Tk root window for scheduling callbacks.
-        status_bar:
-            Optional status bar for user facing messages.
-        use_thread:
-            When ``True`` (the default) ``func`` runs in a background daemon
-            thread.  If ``False`` the callable is executed on the Tk main
-            thread via ``window.after`` which is required for any function that
-            performs GUI operations.  When running in a background thread and a
-            ``RuntimeError`` indicates the Tk main loop is required, the
-            manager automatically retries on the main thread.
+        """Execute *func* in a daemon thread and surface exceptions.
 
         Any raised exception is logged with a full traceback and reported via
         ``status_bar`` and the application's global error handler.  Successful
-        completion also emits a log and optional status message.  All UI
-        interactions are marshalled back to the Tk main thread via
-        ``window.after`` so failures never crash the Home view.
+        completion also emits a log and optional status message.  All UI interactions are
+        marshalled back to the Tk main thread via ``window.after`` so failures
+        never crash the Home view.
         """
 
         import traceback
@@ -129,25 +102,6 @@ class ThreadManager:
                 try:
                     func()
                 except Exception as exc:  # pragma: no cover - best effort
-                    if (
-                        use_thread
-                        and isinstance(exc, RuntimeError)
-                        and "main thread is not in main loop" in str(exc)
-                    ):
-                        self.log_queue.put(
-                            f"WARNING:{name} requires Tk main loop; retrying on main thread"
-                        )
-                        window.after(
-                            0,
-                            lambda: self.run_tool(
-                                name,
-                                func,
-                                window=window,
-                                status_bar=status_bar,
-                                use_thread=False,
-                            ),
-                        )
-                        return
                     msg = f"{name} failed: {exc}"
                     self.log_queue.put(f"ERROR:{msg}")
                     for line in traceback.format_exc().splitlines():
@@ -193,10 +147,7 @@ class ThreadManager:
             duration = time.time() - start
             self.log_queue.put(f"INFO:{name} finished in {duration:.2f}s")
 
-        if use_thread:
-            threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
-        else:
-            window.after(0, runner)
+        threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
 
     def _logger_loop(self) -> None:
         while not self.shutdown.is_set():
