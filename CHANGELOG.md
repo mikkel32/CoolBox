@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Fix:** Retry tools on the UI thread when background execution raises
+  "main thread is not in main loop" so dialogs launch reliably.
+- **Fix:** Always create the Force Quit dialog on the main Tk loop to avoid
+  "main thread is not in main loop" warnings.
+
 ## 1.3.76 - 2025-08-08
 
 - **Fix:** Ensure Kill by Click overlay closes when no process is selected to prevent UI lockups.
