@@ -833,13 +833,23 @@ def collect_problems(
         log(f"Wrote {len(matches)} problem lines to {output}")
     else:
         if RICH_AVAILABLE:
-            table = Table(box=box.SIMPLE_HEAVY)
+            # Display problem matches in a table with a footer showing the total
+            total = len(matches)
+            table = Table(box=box.SIMPLE_HEAVY, show_footer=True)
             table.add_column("File", overflow="fold")
             table.add_column("Line", justify="right")
             table.add_column("Text")
             for f, n, t in matches:
                 table.add_row(f, str(n), t)
-            console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
+
+            # Highlight the total at the bottom of the table for quick visibility
+            color = "bold green" if total == 0 else "bold red"
+            table.columns[0].footer = Text("Total", style="bold")
+            table.columns[1].footer = ""
+            table.columns[2].footer = Text(str(total), style=color)
+
+            console.print(Panel(table, title="Problems", box=box.ROUNDED))
+            console.print(Text(f"Total problems: {total}", style=color))
         else:
             for f, n, t in matches:
                 log(f"{f}:{n}: {t}")
