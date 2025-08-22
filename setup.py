@@ -786,22 +786,13 @@ def clean_pyc() -> None:
 def collect_problems(
     output: Path | None = None, markers: Sequence[str] | None = None
 ) -> None:
-    """Scan project files for common problem markers and record them.
+    """Scan project files for common problem markers.
 
-    The scan walks the project directory and looks for comment markers such as
-    ``TODO`` or ``FIXME`` as well as calls to ``warnings.warn``.  Matches are
-    added to the run :class:`RunSummary` so they are displayed in the final
-    summary.  A custom list of ``markers`` may be provided to override the
-    defaults.
+    By default this searches for TODO, FIXME, BUG and WARNING comments, but a
+    custom list of *markers* can be provided.
     """
 
-    markers = [
-        m.strip()
-        for m in (
-            markers
-            or ["TODO", "FIXME", "BUG", "WARNING", "warnings.warn"]
-        )
-    ]
+    markers = [m.strip() for m in (markers or ["TODO", "FIXME", "BUG", "WARNING"])]
     pattern = "|".join(re.escape(m) for m in markers)
     problem_re = re.compile(f"({pattern})", re.IGNORECASE)
     ignore_dirs = {".git", ".venv", "venv", "__pycache__"}
@@ -831,25 +822,22 @@ def collect_problems(
 
     matches.sort()
 
-    if matches:
-        for f, n, t in matches:
-            SUMMARY.add_warning(f"{f}:{n}: {t}")
-    else:
-        log("No problem markers found.")
-
     if output:
         output.write_text("\n".join(f"{f}:{n}: {t}" for f, n, t in matches))
         log(f"Wrote {len(matches)} problem lines to {output}")
-    elif RICH_AVAILABLE:
-        table = Table(box=box.SIMPLE_HEAVY)
-        table.add_column("File", overflow="fold")
-        table.add_column("Line", justify="right")
-        table.add_column("Text")
-        for f, n, t in matches:
-            table.add_row(f, str(n), t)
-        console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
     else:
-        log(f"Found {len(matches)} problem lines.")
+        if RICH_AVAILABLE:
+            table = Table(box=box.SIMPLE_HEAVY)
+            table.add_column("File", overflow="fold")
+            table.add_column("Line", justify="right")
+            table.add_column("Text")
+            for f, n, t in matches:
+                table.add_row(f, str(n), t)
+            console.print(Panel(table, title=f"Problems ({len(matches)})", box=box.ROUNDED))
+        else:
+            for f, n, t in matches:
+                log(f"{f}:{n}: {t}")
+            log(f"Found {len(matches)} problem lines.")
 
 
 def _build_install_plan(req_path: Path, dev: bool, upgrade: bool) -> list[tuple[str, list[str], bool]]:
