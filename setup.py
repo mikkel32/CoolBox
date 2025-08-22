@@ -368,6 +368,29 @@ def show_setup_banner() -> None:
     content = Text.assemble(banner, "\n", path)
     console.print(Panel(content, box=box.ROUNDED, expand=False))
 
+
+def check_python_version(min_version: tuple[int, int] = (3, 8)) -> None:
+    """Ensure the running Python meets the minimum required version.
+
+    Parameters
+    ----------
+    min_version:
+        A ``(major, minor)`` tuple representing the minimum supported
+        Python version. Defaults to ``(3, 8)``.
+
+    Raises
+    ------
+    RuntimeError
+        If the current interpreter is older than ``min_version``.
+    """
+
+    if sys.version_info < min_version:
+        required = ".".join(map(str, min_version))
+        current = sys.version.split()[0]
+        msg = f"Python {required}+ is required, but {current} is running"
+        logger.error(msg)
+        raise RuntimeError(msg)
+
 # ---------- summary ----------
 class RunSummary:
     def __init__(self) -> None:
