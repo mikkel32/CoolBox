@@ -208,24 +208,8 @@ class ToolsView(BaseView):
         for name, desc, func in tools:
             self._create_tool_item(body, name, desc, func)
 
-    def _create_tool_item(
-        self,
-        parent,
-        name: str,
-        description: str,
-        command,
-        *,
-        use_thread: bool = True,
-    ) -> None:
-        """Create a tool item.
-
-        Parameters
-        ----------
-        use_thread:
-            When ``True`` (default) the tool callback is executed in a background
-            thread. ``False`` runs it on the Tk main thread which is required for
-            callbacks that create or interact with GUI elements.
-        """
+    def _create_tool_item(self, parent, name: str, description: str, command):
+        """Create a tool item"""
         # Tool frame
         tool_frame = ctk.CTkFrame(parent)
         tool_frame.pack(fill="x", padx=20, pady=5)
@@ -250,9 +234,7 @@ class ToolsView(BaseView):
         button = self.grid_button(
             tool_frame,
             "Launch",
-            lambda cmd=command, name=name, use_thread=use_thread: self._safe_launch(
-                name, cmd, use_thread
-            ),
+            lambda cmd=command, name=name: self._safe_launch(name, cmd),
             0,
             column=1,
             columnspan=1,
@@ -272,22 +254,14 @@ class ToolsView(BaseView):
             )
         )
 
-    def _safe_launch(self, name: str, func: callable, use_thread: bool = True) -> None:
-        """Execute *func* and surface errors gracefully.
-
-        Many tool callbacks create Tk dialogs or interact with other GUI
-        elements.  Those operations must run on the Tk main thread, so callers
-        can disable background threading by passing ``use_thread=False``. The
-        thread manager still handles logging and error reporting for consistent
-        behaviour.
-        """
+    def _safe_launch(self, name: str, func: callable) -> None:
+        """Run *func* in a background thread and surface errors gracefully."""
 
         self.app.thread_manager.run_tool(
             name,
             func,
             window=self.app.window,
             status_bar=self.app.status_bar,
-            use_thread=use_thread,
         )
 
     # Tool implementations
@@ -555,8 +529,7 @@ class ToolsView(BaseView):
         """Open the enhanced System Info dialog."""
         from .system_info_dialog import SystemInfoDialog
 
-        # Launch the dialog on the Tk main thread
-        self.app.window.after(0, lambda: SystemInfoDialog(self.app))
+        SystemInfoDialog(self.app)
 
     def _process_manager(self):
         """Display a simple cross-platform process manager."""
