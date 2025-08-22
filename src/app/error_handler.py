@@ -8,6 +8,7 @@ import threading
 import traceback
 import warnings
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import Type
 
@@ -162,20 +163,19 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
     This function is used for ``sys.excepthook`` and Tk's
     ``report_callback_exception`` so any uncaught exceptions are routed here.
     """
-    logger.error("Unhandled exception", exc_info=(exc, value, tb))
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    frame = traceback.extract_tb(tb)[-1] if tb else None
+    location = ""
+    if frame is not None:
+        location = f"{os.path.basename(frame.filename)}:{frame.lineno} in {frame.name}"
+    formatted = f"{timestamp} {location} - {exc.__name__}: {value}".strip()
+    logger.error(formatted, exc_info=(exc, value, tb))
 
     tb_str = "".join(traceback.format_exception(exc, value, tb))
     context = _collect_context()
-    _record(RECENT_ERRORS, f"{exc.__name__}:{value}\n{context}\n{tb_str}")
+    _record(RECENT_ERRORS, f"{formatted}\n{context}\n{tb_str}")
 
-    if isinstance(value, IOError):
-        msg = f"An I/O error occurred: {value}"
-    elif isinstance(value, ValueError):
-        msg = f"Invalid value: {value}"
-    else:
-        msg = str(value)
-
-    _show_error_dialog(msg, tb_str)
+    _show_error_dialog(formatted, tb_str)
 
 
 def install(window=None) -> None:
@@ -193,7 +193,8 @@ def install(window=None) -> None:
     sys.unraisablehook = _unraisable_hook
 
     def _showwarning(message, category, filename, lineno, file=None, line=None):
-        text = f"{filename}:{lineno}:{category.__name__}:{message}"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        text = f"{timestamp} {filename}:{lineno}:{category.__name__}:{message}"
         logger.warning(text)
         _record(RECENT_WARNINGS, text)
 
