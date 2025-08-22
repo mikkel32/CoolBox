@@ -50,33 +50,29 @@ class ThreadManager:
             t.join(timeout=1)
 
     def post_exception(self, window, exc: BaseException) -> None:
-        """Report *exc* via ``window.report_callback_exception``.
+        """Report *exc* on the Tk main thread using ``window.after``.
 
-        When called from a background thread the exception is marshalled
-        onto the Tk main loop using ``window.after``.  If already on the
-        main thread (such as when ``run_tool`` executes synchronously) the
-        handler is invoked immediately so tests that do not drive the Tk
-        event loop still surface failures.  Any scheduling or reporting
-        errors fall back to a best-effort direct invocation and emit a debug
-        log if that too fails.
+        The window's ``report_callback_exception`` hook is invoked so all
+        dialogs and logging are handled by the global error handler.
+        If the window no longer exists or cannot schedule the callback,
+        fall back to invoking the handler directly so errors are still
+        surfaced.
         """
         tb = exc.__traceback__
-
-        def _report() -> None:
+        try:
+            window.after(
+                0,
+                lambda exc=exc, tb=tb: window.report_callback_exception(
+                    type(exc), exc, tb
+                ),
+            )
+        except Exception:  # pragma: no cover - best effort
             try:
                 window.report_callback_exception(type(exc), exc, tb)
             except Exception:
                 logging.getLogger(__name__).debug(
                     "failed to report exception", exc_info=True
                 )
-
-        if threading.current_thread() is threading.main_thread():
-            _report()
-            return
-        try:
-            window.after(0, _report)
-        except Exception:  # pragma: no cover - best effort
-            _report()
 
     def run_tool(
         self,
@@ -85,31 +81,14 @@ class ThreadManager:
         *,
         window,
         status_bar: Any | None = None,
-        use_thread: bool = True,
     ) -> None:
-        """Execute *func* and surface exceptions.
-
-        Parameters
-        ----------
-        name:
-            Friendly name for logging.
-        func:
-            Callable to execute.
-        window:
-            Tk root window for scheduling callbacks.
-        status_bar:
-            Optional status bar for user facing messages.
-        use_thread:
-            When ``True`` (the default) ``func`` runs in a background daemon
-            thread.  If ``False`` the callable is executed on the Tk main
-            thread via ``window.after`` which is required for any function that
-            performs GUI operations.
+        """Execute *func* in a daemon thread and surface exceptions.
 
         Any raised exception is logged with a full traceback and reported via
         ``status_bar`` and the application's global error handler.  Successful
-        completion also emits a log and optional status message.  All UI
-        interactions are marshalled back to the Tk main thread via
-        ``window.after`` so failures never crash the Home view.
+        completion also emits a log and optional status message.  All UI interactions are
+        marshalled back to the Tk main thread via ``window.after`` so failures
+        never crash the Home view.
         """
 
         import traceback
@@ -168,10 +147,7 @@ class ThreadManager:
             duration = time.time() - start
             self.log_queue.put(f"INFO:{name} finished in {duration:.2f}s")
 
-        if use_thread:
-            threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
-        else:
-            window.after(0, runner)
+        threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
 
     def _logger_loop(self) -> None:
         while not self.shutdown.is_set():
