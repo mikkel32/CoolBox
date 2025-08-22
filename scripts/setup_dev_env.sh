@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
+trap 'echo "Error on line $LINENO: $BASH_COMMAND" >&2' ERR
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
