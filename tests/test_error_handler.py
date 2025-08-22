@@ -120,6 +120,41 @@ def test_error_dialog_creates_root_when_default_destroyed(monkeypatch):
     assert new_root.destroyed
 
 
+def test_modern_dialog_failure_is_logged(monkeypatch):
+    """Failures in the modern dialog should be logged and recorded."""
+
+    eh.RECENT_ERRORS.clear()
+
+    class DummyRoot:
+        def withdraw(self):
+            pass
+
+    monkeypatch.setattr(eh, "_get_log_file", lambda: None)
+
+    ctk_mod = SimpleNamespace(CTk=lambda: DummyRoot())
+    monkeypatch.setitem(sys.modules, "customtkinter", ctk_mod)
+
+    class FailingDialog:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    mod = SimpleNamespace(ModernErrorDialog=FailingDialog)
+    monkeypatch.setitem(sys.modules, "src.components.modern_error_dialog", mod)
+
+    class BadTk(SimpleNamespace):
+        def Tk(self):
+            raise RuntimeError("bad tk")
+
+    monkeypatch.setattr(eh, "tk", BadTk(_default_root=None), raising=False)
+    monkeypatch.setattr(eh, "messagebox", None, raising=False)
+
+    eh._show_error_dialog("oops", "details")
+
+    assert any(
+        "ModernErrorDialog" in e and "boom" in e for e in eh.RECENT_ERRORS
+    )
+
+
 def test_dialog_failure_is_recorded(monkeypatch):
     """If showing the dialog fails the error should be logged and recorded."""
 

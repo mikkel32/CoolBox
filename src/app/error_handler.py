@@ -94,8 +94,22 @@ def _show_error_dialog(message: str, details: str) -> None:
             if created_root:
                 root.destroy()
             return
-        except Exception:
-            pass
+        except Exception as dialog_error:
+            logger.exception("Failed to show modern error dialog")
+            try:
+                tb = "".join(
+                    traceback.format_exception(
+                        type(dialog_error), dialog_error, dialog_error.__traceback__
+                    )
+                )
+                _record(
+                    RECENT_ERRORS,
+                    f"{datetime.now().isoformat()}:DialogError:ModernErrorDialog:{dialog_error}\\n{tb}",
+                )
+            except Exception:  # pragma: no cover - best effort
+                logger.debug(
+                    "Failed to record modern dialog error", exc_info=True
+                )
 
         root = tk._default_root
         created_root = False
