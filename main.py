@@ -124,13 +124,33 @@ def _run_setup_if_needed(root: Path | None = None) -> None:
             # resulting in ``AttributeError: 'NoneType' object has no attribute
             # '__dict__'`` when ``setup.py`` defines dataclasses.
             sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
-            module.show_setup_banner()
-            module.check_python_version()
-            missing = _missing_requirements(requirements)
-            if missing:
-                logger.info("Installing missing requirements: %s", ", ".join(missing))
-            module.install(skip_update=True)
+
+            # Disable animated UI when running auto-setup to avoid hanging
+            # threads or interactive prompts in non-interactive environments.
+            prev_anim = os.environ.get("COOLBOX_NO_ANIM")
+            prev_border = os.environ.get("COOLBOX_BORDER")
+            os.environ["COOLBOX_NO_ANIM"] = "1"
+            os.environ["COOLBOX_BORDER"] = "0"
+            try:
+                spec.loader.exec_module(module)
+                module.show_setup_banner()
+                module.check_python_version()
+                missing = _missing_requirements(requirements)
+                if missing:
+                    logger.info(
+                        "Installing missing requirements: %s",
+                        ", ".join(missing),
+                    )
+                module.install(skip_update=True)
+            finally:
+                if prev_anim is None:
+                    os.environ.pop("COOLBOX_NO_ANIM", None)
+                else:
+                    os.environ["COOLBOX_NO_ANIM"] = prev_anim
+                if prev_border is None:
+                    os.environ.pop("COOLBOX_BORDER", None)
+                else:
+                    os.environ["COOLBOX_BORDER"] = prev_border
         if requirements.is_file():
             sentinel.write_text(current)
     except Exception as exc:  # pragma: no cover - best effort setup
