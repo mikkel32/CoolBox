@@ -296,12 +296,6 @@ class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
     def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
-        # Ensure ProgressColumn is initialised so Rich can access internal
-        # attributes such as ``_table_column``. Rich 14+ requires custom
-        # progress columns to call ``super().__init__`` to set these up
-        # correctly, otherwise an ``AttributeError`` is raised during
-        # rendering.
-        super().__init__()
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
