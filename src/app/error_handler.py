@@ -111,31 +111,6 @@ def _get_log_file() -> Path | None:
     return None
 
 
-def _fail_safe(name: str, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-    """Execute ``func`` and ensure any failure is reported and recorded.
-
-    ``name`` is a human readable label used for logging.  If ``func`` raises an
-    exception we log the error, append a ``HandlerError`` entry to
-    ``RECENT_ERRORS`` and print a concise message to ``stderr`` so automated
-    tools or a user running headless still sees that something went wrong.
-    """
-
-    try:
-        return func(*args, **kwargs)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.exception("%s failed", name)
-        try:
-            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-            _record(RECENT_ERRORS, f"{datetime.now().isoformat()}:HandlerError:{name}:{exc}\n{tb}")
-        except Exception:
-            logger.debug("Failed to record handler error", exc_info=True)
-        try:
-            sys.stderr.write(f"[CoolBox error handler] {name} failed: {exc}\n")
-        except Exception:
-            pass
-        return None
-
-
 # -------------------------------------------------------------------------------------------------
 # UI pump
 # -------------------------------------------------------------------------------------------------
@@ -289,43 +264,40 @@ def _show_error_dialog(message: str, details: str) -> None:
 # Exception handling
 # -------------------------------------------------------------------------------------------------
 def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None:
-    def _impl() -> None:
-        timestamp = datetime.now().isoformat()
-        if tb is not None:
-            last = traceback.extract_tb(tb)[-1]
-            location = f"{last.filename}:{last.lineno}"
-        else:
-            location = "unknown location"
+    timestamp = datetime.now().isoformat()
+    if tb is not None:
+        last = traceback.extract_tb(tb)[-1]
+        location = f"{last.filename}:{last.lineno}"
+    else:
+        location = "unknown location"
 
-        logger.error(
-            "Unhandled exception %s at %s on %s", exc.__name__, location, timestamp,
-            exc_info=(exc, value, tb),
-        )
+    logger.error(
+        "Unhandled exception %s at %s on %s", exc.__name__, location, timestamp,
+        exc_info=(exc, value, tb),
+    )
 
-        tb_str = "".join(traceback.format_exception(exc, value, tb))
-        context = _collect_context()
-        _record(RECENT_ERRORS, f"{timestamp}:{exc.__name__}:{location}:{value}\n{context}\n{tb_str}")
+    tb_str = "".join(traceback.format_exception(exc, value, tb))
+    context = _collect_context()
+    _record(RECENT_ERRORS, f"{timestamp}:{exc.__name__}:{location}:{value}\n{context}\n{tb_str}")
 
-        if isinstance(value, OSError):
-            desc = f"I/O error: {value}"
-        elif isinstance(value, ValueError):
-            desc = f"Invalid value: {value}"
-        else:
-            desc = str(value)
+    if isinstance(value, OSError):
+        desc = f"I/O error: {value}"
+    elif isinstance(value, ValueError):
+        desc = f"Invalid value: {value}"
+    else:
+        desc = str(value)
 
-        msg = f"{desc} (at {location} on {timestamp})"
-        details = "\n".join([
-            f"Exception: {exc.__name__}",
-            f"Message: {value}",
-            f"Location: {location}",
-            f"Time: {timestamp}",
-            f"Context: {context}",
-            "Traceback:",
-            tb_str,
-        ])
-        _fail_safe("show_error_dialog", _show_error_dialog, msg, details)
-
-    _fail_safe("handle_exception", _impl)
+    msg = f"{desc} (at {location} on {timestamp})"
+    details = "\n".join([
+        f"Exception: {exc.__name__}",
+        f"Message: {value}",
+        f"Location: {location}",
+        f"Time: {timestamp}",
+        f"Context: {context}",
+        "Traceback:",
+        tb_str,
+    ])
+    _show_error_dialog(msg, details)
 
 
 # -------------------------------------------------------------------------------------------------
