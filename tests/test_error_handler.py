@@ -4,8 +4,6 @@ import threading
 import warnings
 from types import SimpleNamespace
 
-import pytest
-
 from src.app import error_handler as eh
 from src.utils.logging_config import setup_logging
 
@@ -121,3 +119,20 @@ def test_error_dialog_creates_root_when_default_destroyed(monkeypatch):
     assert created["called"]
     assert new_root.destroyed
 
+
+def test_dialog_failure_is_recorded(monkeypatch):
+    """If showing the dialog fails the error should be logged and recorded."""
+
+    eh.RECENT_ERRORS.clear()
+
+    class BadTk:
+        @property
+        def _default_root(self):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(eh, "tk", BadTk(), raising=False)
+    monkeypatch.setattr(eh, "messagebox", None, raising=False)
+
+    eh._show_error_dialog("oops", "details")
+
+    assert any("DialogError" in e and "boom" in e for e in eh.RECENT_ERRORS)
