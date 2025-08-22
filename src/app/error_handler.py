@@ -94,8 +94,16 @@ def _show_error_dialog(message: str, details: str) -> None:
             if created_root:
                 root.destroy()
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            # Provide visibility into why the fancy dialog failed so callers
+            # aren't left wondering what went wrong.  This is intentionally
+            # light-touch: we log the issue and continue with a simpler
+            # fallback dialog rather than raising another exception.
+            logger.warning("Modern error dialog unavailable: %s", exc, exc_info=True)
+            _record(
+                RECENT_ERRORS,
+                f"{datetime.now().isoformat()}:ModernErrorDialog:{exc}\n{traceback.format_exc()}",
+            )
 
         root = tk._default_root
         created_root = False
