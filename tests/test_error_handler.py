@@ -65,3 +65,41 @@ def test_handle_exception_uses_dialog(monkeypatch):
     assert "Location:" in called["details"]
     assert "Traceback:" in called["details"]
 
+
+def test_thread_errors_schedule_on_main_thread(monkeypatch):
+    class DummyWindow:
+        def __init__(self):
+            self.scheduled = None
+
+        def after(self, delay, func, *args):
+            self.scheduled = lambda: func(*args)
+
+    called = {}
+
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+    monkeypatch.setattr(warnings, "showwarning", warnings.showwarning)
+    monkeypatch.setattr(sys, "unraisablehook", sys.unraisablehook)
+
+    dummy = DummyWindow()
+    eh.install(dummy)
+
+    def fake_dialog(msg: str, details: str) -> None:
+        called["thread"] = threading.current_thread()
+
+    monkeypatch.setattr(eh, "_show_error_dialog", fake_dialog)
+
+    def boom():
+        raise RuntimeError("boom")
+
+    t = threading.Thread(target=boom)
+    t.start()
+    t.join()
+
+    assert dummy.scheduled is not None
+    assert "thread" not in called
+
+    dummy.scheduled()
+
+    assert called["thread"] is threading.main_thread()
+
