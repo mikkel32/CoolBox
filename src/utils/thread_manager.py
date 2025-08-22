@@ -60,12 +60,15 @@ class ThreadManager:
         """
         tb = exc.__traceback__
         try:
-            window.after(
-                0,
-                lambda exc=exc, tb=tb: window.report_callback_exception(
-                    type(exc), exc, tb
-                ),
-            )
+            if threading.current_thread() is threading.main_thread():
+                window.report_callback_exception(type(exc), exc, tb)
+            else:
+                window.after(
+                    0,
+                    lambda exc=exc, tb=tb: window.report_callback_exception(
+                        type(exc), exc, tb
+                    ),
+                )
         except Exception:  # pragma: no cover - best effort
             try:
                 window.report_callback_exception(type(exc), exc, tb)
@@ -81,14 +84,31 @@ class ThreadManager:
         *,
         window,
         status_bar: Any | None = None,
+        use_thread: bool = True,
     ) -> None:
-        """Execute *func* in a daemon thread and surface exceptions.
+        """Execute *func* and surface exceptions.
+
+        Parameters
+        ----------
+        name:
+            Friendly name for logging.
+        func:
+            Callable to execute.
+        window:
+            Tk root window for scheduling callbacks.
+        status_bar:
+            Optional status bar for user facing messages.
+        use_thread:
+            When ``True`` (the default) ``func`` runs in a background daemon
+            thread.  If ``False`` the callable is executed on the Tk main
+            thread via ``window.after`` which is required for any function that
+            performs GUI operations.
 
         Any raised exception is logged with a full traceback and reported via
         ``status_bar`` and the application's global error handler.  Successful
-        completion also emits a log and optional status message.  All UI interactions are
-        marshalled back to the Tk main thread via ``window.after`` so failures
-        never crash the Home view.
+        completion also emits a log and optional status message.  All UI
+        interactions are marshalled back to the Tk main thread via
+        ``window.after`` so failures never crash the Home view.
         """
 
         import traceback
@@ -147,7 +167,10 @@ class ThreadManager:
             duration = time.time() - start
             self.log_queue.put(f"INFO:{name} finished in {duration:.2f}s")
 
-        threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
+        if use_thread:
+            threading.Thread(target=runner, name=f"tool-{name}", daemon=True).start()
+        else:
+            window.after(0, runner)
 
     def _logger_loop(self) -> None:
         while not self.shutdown.is_set():
