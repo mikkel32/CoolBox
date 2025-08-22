@@ -8,6 +8,7 @@ import threading
 import traceback
 import warnings
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import Type
 
@@ -162,19 +163,36 @@ def handle_exception(exc: Type[BaseException], value: BaseException, tb) -> None
     This function is used for ``sys.excepthook`` and Tk's
     ``report_callback_exception`` so any uncaught exceptions are routed here.
     """
-    logger.error("Unhandled exception", exc_info=(exc, value, tb))
+    timestamp = datetime.now().isoformat()
+    if tb is not None:
+        last = traceback.extract_tb(tb)[-1]
+        location = f"{last.filename}:{last.lineno}"
+    else:
+        location = "unknown location"
+
+    logger.error(
+        "Unhandled exception %s at %s on %s",
+        exc.__name__,
+        location,
+        timestamp,
+        exc_info=(exc, value, tb),
+    )
 
     tb_str = "".join(traceback.format_exception(exc, value, tb))
     context = _collect_context()
-    _record(RECENT_ERRORS, f"{exc.__name__}:{value}\n{context}\n{tb_str}")
+    _record(
+        RECENT_ERRORS,
+        f"{timestamp}:{exc.__name__}:{location}:{value}\n{context}\n{tb_str}",
+    )
 
     if isinstance(value, IOError):
-        msg = f"An I/O error occurred: {value}"
+        desc = f"An I/O error occurred: {value}"
     elif isinstance(value, ValueError):
-        msg = f"Invalid value: {value}"
+        desc = f"Invalid value: {value}"
     else:
-        msg = str(value)
+        desc = str(value)
 
+    msg = f"{desc} (at {location} on {timestamp})"
     _show_error_dialog(msg, tb_str)
 
 
@@ -193,7 +211,8 @@ def install(window=None) -> None:
     sys.unraisablehook = _unraisable_hook
 
     def _showwarning(message, category, filename, lineno, file=None, line=None):
-        text = f"{filename}:{lineno}:{category.__name__}:{message}"
+        timestamp = datetime.now().isoformat()
+        text = f"{timestamp}:{filename}:{lineno}:{category.__name__}:{message}"
         logger.warning(text)
         _record(RECENT_WARNINGS, text)
 
