@@ -296,6 +296,7 @@ class RainbowSpinnerColumn(ProgressColumn):
     """Spinner that cycles through a rainbow of colors."""
 
     def __init__(self, frames: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏", colors: Sequence[str] | None = None):
+        super().__init__()
         self.frames = frames
         self.colors = list(colors or RAINBOW_COLORS)
         self._index = 0
@@ -380,7 +381,7 @@ _OFFLINE_AUTO: bool | None = None
 def set_offline(value: bool) -> None:
     global _OFFLINE_FORCED, _OFFLINE_AUTO
     _OFFLINE_FORCED = value
-    _OFFLINE_AUTO = True if value else None
+    _OFFLINE_AUTO = value if value else False
     if value:
         os.environ["COOLBOX_OFFLINE"] = "1"
         BASE_ENV["COOLBOX_OFFLINE"] = "1"
