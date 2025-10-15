@@ -24,11 +24,12 @@ import weakref
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple, Type, TypeVar, cast
 
 # -------- tkinter import (optional)
 if TYPE_CHECKING:
     import tkinter as tkt
+
     TkRoot = tkt.Misc  # type: ignore[valid-type]
 else:
     TkRoot = Any
@@ -84,9 +85,9 @@ _warn_popups = os.getenv("COOLBOX_WARNINGS_POPUP", "0") == "1"
 _log_warnings = True
 _tls = threading.local()
 
-_UI_QUEUE: "queue.Queue[Tuple[str, str, str]]" = queue.Queue()
+_UI_QUEUE: queue.Queue[Tuple[str, str, str]] = queue.Queue()
 _PUMP_STARTED = False
-_root_ref: "weakref.ReferenceType[Any] | None" = None
+_root_ref: weakref.ReferenceType[Any] | None = None
 _persistent_root: Any | None = None
 _want_persistent_root = _FORCE_GUI
 _last_pump_activity = 0.0
@@ -259,11 +260,9 @@ def _start_ui_pump(root: TkRoot) -> None:
 
     def _poll() -> None:
         global _PUMP_STARTED, _last_pump_activity
-        drained = False
         try:
             while True:
                 kind, message, details = _UI_QUEUE.get_nowait()
-                drained = True
                 _last_pump_activity = time.monotonic()
                 try:
                     if kind == "error":
@@ -275,19 +274,21 @@ def _start_ui_pump(root: TkRoot) -> None:
         except queue.Empty:
             pass
 
-        r = _current_root()
-        if _root_alive(r):
-            try:
-                r.after(200, _poll)
-                _PUMP_STARTED = True
-                if drained:
-                    _last_pump_activity = time.monotonic()
-            except Exception:
-                _PUMP_STARTED = False
-        else:
+    r = _current_root()
+    if r is not None and _root_alive(r):
+        try:
+            r.after(200, _poll)
+            _PUMP_STARTED = True
+        except Exception:
             _PUMP_STARTED = False
+    else:
+        _PUMP_STARTED = False
 
     r = _current_root() or root
+    if r is None:
+        logger.debug("No root available to start UI pump")
+        _PUMP_STARTED = False
+        return
     try:
         r.after(200, _poll)
         _PUMP_STARTED = True
@@ -313,8 +314,8 @@ def _kick_ui(kind: str, message: str, details: str) -> None:
     r = _current_root()
     if not _root_alive(r) and _want_persistent_root:
         r = _ensure_hidden_root(persistent=True)
-    if _root_alive(r) and not _PUMP_STARTED:
-        _start_ui_pump(r)
+    if r is not None and _root_alive(r) and not _PUMP_STARTED:
+        _start_ui_pump(cast(TkRoot, r))
 
     enqueue_ts = time.monotonic()
 
@@ -373,16 +374,18 @@ def _show_error_dialog(message: str, details: str) -> None:
         return
 
     key = f"E:{message.splitlines()[0][:200]}"
-    root: Any | None = None
+    root: TkRoot | None = None
     try:
-        root = _current_root()
-        if not _root_alive(root):
-            root = _ensure_hidden_root(persistent=_want_persistent_root)
-        if not _root_alive(root):
+        current = _current_root()
+        if not _root_alive(current):
+            current = _ensure_hidden_root(persistent=_want_persistent_root)
+        if not _root_alive(current):
             title = "Unexpected Error"; body = f"{message}\n\n{details[:2000]}"
             _native_error_dialog(title, body)
             _spawn_popup_subprocess(title, body)
             return
+
+        root = cast(TkRoot, current)
 
         if not _should_popup(key):
             logger.error("Suppressed popup: %s\n%s", message, details)
@@ -392,7 +395,7 @@ def _show_error_dialog(message: str, details: str) -> None:
         try:
             import customtkinter as ctk  # type: ignore
             from src.components.modern_error_dialog import ModernErrorDialog  # type: ignore
-            dialog = ModernErrorDialog(root, message, details, _get_log_file())
+            dialog = ModernErrorDialog(cast("Any", root), message, details, _get_log_file())
             root.wait_window(dialog)
             return
         except Exception:
@@ -423,7 +426,7 @@ def _show_error_dialog(message: str, details: str) -> None:
             ttk.Button(dialog, text="Open Log", command=open_log).pack(pady=(0, 5))  # type: ignore[attr-defined]
 
         ttk.Button(dialog, text="OK", command=dialog.destroy).pack(pady=(0, 10))  # type: ignore[attr-defined]
-        dialog.transient(root); dialog.grab_set(); root.wait_window(dialog)
+        dialog.transient(cast("tk.Misc", root)); dialog.grab_set(); root.wait_window(dialog)
     except Exception as dialog_error:
         logger.exception("Failed to display error dialog")
         try:
@@ -721,7 +724,7 @@ def _drain_queue_at_exit() -> None:
 
 # -------------------------------------------------------------------------------------------------
 # health + diagnostics
-def health() -> dict[str, bool]:
+def health() -> dict[str, object]:
     return {
         "installed": _installed,
         "warnings_chained": warnings.showwarning is _chain_showwarning,

@@ -2,10 +2,22 @@
 """Launch CoolBox in a VM or container for debugging."""
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from typing import Callable
+from typing import Protocol
 from importlib.util import module_from_spec, spec_from_file_location
 
 import sys
+
+
+class _LaunchVMDebug(Protocol):
+    def __call__(
+        self,
+        *,
+        prefer: str | None = ...,  # noqa: D401 - keyword-only mirror of API
+        open_code: bool = ...,  # noqa: D401 - keyword-only mirror of API
+        port: int = ...,  # noqa: D401 - keyword-only mirror of API
+        skip_deps: bool = ...,  # noqa: D401 - keyword-only mirror of API
+    ) -> None:
+        """Protocol describing the :func:`launch_vm_debug` callable."""
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -22,7 +34,7 @@ def available_backends() -> list[str]:
     return getattr(module, "available_backends")()
 
 
-def _load_launch() -> 'Callable[[str | None, bool, int, bool], None]':
+def _load_launch() -> _LaunchVMDebug:
     """Load :func:`launch_vm_debug` without importing heavy deps."""
     vm_path = ROOT / "src" / "utils" / "vm.py"
     spec = spec_from_file_location("_coolbox_vm", vm_path)

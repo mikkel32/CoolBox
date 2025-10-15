@@ -10,7 +10,9 @@ def test_firewall_service_error(monkeypatch):
         firewall, "_services_ok", lambda: (False, "BFE not running")
     )
     ok, err = firewall.set_firewall_enabled(True)
-    assert ok is False and "BFE not running" in err
+    assert ok is False
+    assert isinstance(err, str)
+    assert "BFE not running" in err
 
 
 def test_defender_service_error(monkeypatch):
@@ -22,5 +24,7 @@ def test_defender_service_error(monkeypatch):
     )
     monkeypatch.setattr(defender, "_third_party_av_present", lambda: False)
     ok, err = defender.set_defender_enabled(True)
-    assert ok is False and "WinDefend not running" in err
+    assert ok is False
+    assert isinstance(err, str)
+    assert "WinDefend not running" in err
 

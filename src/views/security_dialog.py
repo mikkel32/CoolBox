@@ -11,7 +11,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from typing import Callable, Type
+from typing import Callable, Type, cast
 
 from src.utils import security
 from .firewall_dialog import FirewallDialog
@@ -19,11 +19,15 @@ from .defender_dialog import DefenderDialog
 
 
 class SecurityDialog(ttk.Frame):
-    def __init__(self, master: tk.Tk):
+    def __init__(self, master: tk.Misc):
         super().__init__(master, padding=16)
-        self.master.title("Security Center")
-        self.master.geometry("480x240")
-        self.master.resizable(False, False)
+        window = self.winfo_toplevel()
+        if not isinstance(window, (tk.Tk, tk.Toplevel)):
+            raise TypeError("SecurityDialog requires a Tk or Toplevel master")
+        self._window: tk.Toplevel | tk.Tk = cast("tk.Toplevel | tk.Tk", window)
+        self._window.title("Security Center")
+        self._window.geometry("480x240")
+        self._window.resizable(False, False)
 
         self._fw_var = tk.BooleanVar(value=False)
         self._rt_var = tk.BooleanVar(value=False)
@@ -35,10 +39,10 @@ class SecurityDialog(ttk.Frame):
         # Track which side the child windows should use when stacking.
         # "right"/"left" for horizontal layouts, "below"/"above" for vertical.
         self._child_side = "right"
-        self.master.bind("<Configure>", self._reposition_children)
+        self._window.bind("<Configure>", self._reposition_children)
 
         # Shared styles for status labels
-        style = ttk.Style(self.master)
+        style = ttk.Style(self._window)
         style.configure("Good.TLabel", foreground="#0a7d0a")
         style.configure("Bad.TLabel", foreground="#a61e1e")
         style.configure("Warn.TLabel", foreground="#ad5a00")
@@ -136,7 +140,7 @@ class SecurityDialog(ttk.Frame):
         When the dialog is closed, it smoothly slides out and the remaining
         dialogs stay neatly arranged around the main window.
         """
-        dlg = dlg_cls(self.master)
+        dlg = dlg_cls(self._window)
         dlg.update_idletasks()
         self._child_windows.append(dlg)
         # Reposition existing dialogs and decide stacking orientation

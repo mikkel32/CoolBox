@@ -19,7 +19,8 @@ import atexit
 import sys
 import threading
 from contextlib import contextmanager
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, TYPE_CHECKING, Protocol
+from collections.abc import Generator
 
 import logging
 
@@ -32,6 +33,18 @@ def log(message: str) -> None:
 
 _JOIN_TIMEOUT = 0.2  # seconds
 
+
+class _HookThread(Protocol):
+    on_move: Callable[[int, int], None] | None
+    on_click: Callable[[int, int, bool], None] | None
+    on_key: Callable[[int, bool], None] | None
+
+    def is_alive(self) -> bool: ...
+
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
 # -- Optional dependencies -------------------------------------------------
 
 try:  # pragma: no cover - optional dependency may be missing
@@ -41,119 +54,142 @@ except Exception:  # pragma: no cover - dependency not installed
     keyboard = None  # type: ignore
 
 
+if TYPE_CHECKING:
+    from pynput.keyboard import Listener as _KeyboardListener
+    from pynput.mouse import Button as _MouseButton
+    from pynput.mouse import Listener as _MouseListener
+else:  # pragma: no cover - dependency not installed
+    _KeyboardListener = Any
+    _MouseListener = Any
+    _MouseButton = Any
+
+
 # -- Platform specific hook implementations --------------------------------
 
 if sys.platform.startswith("win"):
     import ctypes
     from ctypes import wintypes
 
-    WH_MOUSE_LL = 14
-    WH_KEYBOARD_LL = 13
-    WM_MOUSEMOVE = 0x0200
-    WM_LBUTTONDOWN = 0x0201
-    WM_LBUTTONUP = 0x0202
-    WM_KEYDOWN = 0x0100
-    WM_SYSKEYDOWN = 0x0104
+    _WINFUNCTYPE = getattr(ctypes, "WINFUNCTYPE", None)
+    _windll = getattr(ctypes, "windll", None)
 
-    class POINT(ctypes.Structure):
-        _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
+    if callable(_WINFUNCTYPE) and _windll is not None:
+        WH_MOUSE_LL = 14
+        WH_KEYBOARD_LL = 13
+        WM_MOUSEMOVE = 0x0200
+        WM_LBUTTONDOWN = 0x0201
+        WM_LBUTTONUP = 0x0202
+        WM_KEYDOWN = 0x0100
+        WM_SYSKEYDOWN = 0x0104
 
-    class MSLLHOOKSTRUCT(ctypes.Structure):
-        _fields_ = [
-            ("pt", POINT),
-            ("mouseData", wintypes.DWORD),
-            ("flags", wintypes.DWORD),
-            ("time", wintypes.DWORD),
-            ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-        ]
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
 
-    class KBDLLHOOKSTRUCT(ctypes.Structure):
-        _fields_ = [
-            ("vkCode", wintypes.DWORD),
-            ("scanCode", wintypes.DWORD),
-            ("flags", wintypes.DWORD),
-            ("time", wintypes.DWORD),
-            ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-        ]
+        class MSLLHOOKSTRUCT(ctypes.Structure):
+            _fields_ = [
+                ("pt", POINT),
+                ("mouseData", wintypes.DWORD),
+                ("flags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            ]
 
-    LowLevelMouseProc = ctypes.WINFUNCTYPE(
-        wintypes.LPARAM, wintypes.INT, wintypes.WPARAM, wintypes.LPARAM
-    )
-    LowLevelKeyboardProc = ctypes.WINFUNCTYPE(
-        wintypes.LPARAM, wintypes.INT, wintypes.WPARAM, wintypes.LPARAM
-    )
+        class KBDLLHOOKSTRUCT(ctypes.Structure):
+            _fields_ = [
+                ("vkCode", wintypes.DWORD),
+                ("scanCode", wintypes.DWORD),
+                ("flags", wintypes.DWORD),
+                ("time", wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            ]
 
-    class _WinHook(threading.Thread):
-        def __init__(
-            self,
-            on_move: Callable[[int, int], None] | None,
-            on_click: Callable[[int, int, bool], None] | None,
-            on_key: Callable[[int, bool], None] | None,
-        ) -> None:
-            super().__init__(daemon=True)
-            self.on_move = on_move
-            self.on_click = on_click
-            self.on_key = on_key
-            self._stop = threading.Event()
-            self._user32 = ctypes.windll.user32
-            self._kernel32 = ctypes.windll.kernel32
-            self._mouse_hook = None
-            self._key_hook = None
+        LowLevelMouseProc = _WINFUNCTYPE(  # type: ignore[operator]
+            wintypes.LPARAM, wintypes.INT, wintypes.WPARAM, wintypes.LPARAM
+        )
+        LowLevelKeyboardProc = _WINFUNCTYPE(  # type: ignore[operator]
+            wintypes.LPARAM, wintypes.INT, wintypes.WPARAM, wintypes.LPARAM
+        )
 
-        def run(self) -> None:  # pragma: no cover - platform specific
-            def mouse_proc(nCode, wParam, lParam):
-                if nCode == 0 and lParam and (self.on_move or self.on_click):
-                    info = ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-                    if wParam == WM_MOUSEMOVE and self.on_move:
-                        self.on_move(info.pt.x, info.pt.y)
-                    elif wParam in (WM_LBUTTONDOWN, WM_LBUTTONUP) and self.on_click:
-                        self.on_click(info.pt.x, info.pt.y, wParam == WM_LBUTTONDOWN)
-                return self._user32.CallNextHookEx(None, nCode, wParam, lParam)
+        class _WinHook(threading.Thread):
+            on_move: Callable[[int, int], None] | None
+            on_click: Callable[[int, int, bool], None] | None
+            on_key: Callable[[int, bool], None] | None
 
-            def keyboard_proc(nCode, wParam, lParam):
-                if (
-                    nCode == 0
-                    and lParam
-                    and self.on_key
-                    and wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
+            def __init__(
+                self,
+                on_move: Callable[[int, int], None] | None,
+                on_click: Callable[[int, int, bool], None] | None,
+                on_key: Callable[[int, bool], None] | None,
+            ) -> None:
+                super().__init__(daemon=True)
+                self.on_move = on_move
+                self.on_click = on_click
+                self.on_key = on_key
+                self._stop = threading.Event()
+                self._user32 = _windll.user32
+                self._kernel32 = _windll.kernel32
+                self._mouse_hook = None
+                self._key_hook = None
+
+            def run(self) -> None:  # pragma: no cover - platform specific
+                def mouse_proc(nCode, wParam, lParam):
+                    if nCode == 0 and lParam and (self.on_move or self.on_click):
+                        info = ctypes.cast(lParam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+                        if wParam == WM_MOUSEMOVE and self.on_move:
+                            self.on_move(info.pt.x, info.pt.y)
+                        elif wParam in (WM_LBUTTONDOWN, WM_LBUTTONUP) and self.on_click:
+                            self.on_click(info.pt.x, info.pt.y, wParam == WM_LBUTTONDOWN)
+                    return self._user32.CallNextHookEx(None, nCode, wParam, lParam)
+
+                def keyboard_proc(nCode, wParam, lParam):
+                    if (
+                        nCode == 0
+                        and lParam
+                        and self.on_key
+                        and wParam in (WM_KEYDOWN, WM_SYSKEYDOWN)
+                    ):
+                        info = ctypes.cast(lParam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                        self.on_key(info.vkCode, True)
+                    return self._user32.CallNextHookEx(None, nCode, wParam, lParam)
+
+                self._mouse_proc = LowLevelMouseProc(mouse_proc)
+                self._key_proc = LowLevelKeyboardProc(keyboard_proc)
+
+                if self.on_move or self.on_click:
+                    self._mouse_hook = self._user32.SetWindowsHookExW(
+                        WH_MOUSE_LL,
+                        self._mouse_proc,
+                        self._kernel32.GetModuleHandleW(None),
+                        0,
+                    )
+
+                if self.on_key:
+                    self._key_hook = self._user32.SetWindowsHookExW(
+                        WH_KEYBOARD_LL,
+                        self._key_proc,
+                        self._kernel32.GetModuleHandleW(None),
+                        0,
+                    )
+
+                msg = wintypes.MSG()
+                while (
+                    not self._stop.is_set()
+                    and self._user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0
                 ):
-                    info = ctypes.cast(lParam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-                    self.on_key(info.vkCode, True)
-                return self._user32.CallNextHookEx(None, nCode, wParam, lParam)
+                    self._user32.TranslateMessage(ctypes.byref(msg))
+                    self._user32.DispatchMessageW(ctypes.byref(msg))
 
-            self._mouse_proc = LowLevelMouseProc(mouse_proc)
-            self._key_proc = LowLevelKeyboardProc(keyboard_proc)
+                if self._mouse_hook:
+                    self._user32.UnhookWindowsHookEx(self._mouse_hook)
+                if self._key_hook:
+                    self._user32.UnhookWindowsHookEx(self._key_hook)
 
-            if self.on_move or self.on_click:
-                self._mouse_hook = self._user32.SetWindowsHookExW(
-                    WH_MOUSE_LL,
-                    self._mouse_proc,
-                    self._kernel32.GetModuleHandleW(None),
-                    0,
-                )
-
-            if self.on_key:
-                self._key_hook = self._user32.SetWindowsHookExW(
-                    WH_KEYBOARD_LL,
-                    self._key_proc,
-                    self._kernel32.GetModuleHandleW(None),
-                    0,
-                )
-
-            msg = wintypes.MSG()
-            while not self._stop.is_set() and self._user32.GetMessageW(ctypes.byref(msg), 0, 0, 0) != 0:
-                self._user32.TranslateMessage(ctypes.byref(msg))
-                self._user32.DispatchMessageW(ctypes.byref(msg))
-
-            if self._mouse_hook:
-                self._user32.UnhookWindowsHookEx(self._mouse_hook)
-            if self._key_hook:
-                self._user32.UnhookWindowsHookEx(self._key_hook)
-
-        def stop(self) -> None:  # pragma: no cover - platform specific
-            self._stop.set()
-            if self._user32 is not None:
-                self._user32.PostThreadMessageW(self.ident, 0x0012, 0, 0)  # WM_QUIT
+            def stop(self) -> None:  # pragma: no cover - platform specific
+                self._stop.set()
+                if self._user32 is not None:
+                    self._user32.PostThreadMessageW(self.ident, 0x0012, 0, 0)  # WM_QUIT
+    else:
+        _WinHook = None  # type: ignore[assignment]
 
 elif sys.platform == "darwin":
     try:  # pragma: no cover - optional dependency may be missing
@@ -242,9 +278,9 @@ class GlobalMouseListener:
     """Manage global mouse and keyboard hooks."""
 
     def __init__(self) -> None:
-        self._listener: Optional[threading.Thread] = None
-        self._mouse_listener: Optional[mouse.Listener] = None
-        self._keyboard_listener: Optional[keyboard.Listener] = None
+        self._listener: Optional[_HookThread] = None
+        self._mouse_listener: Optional[_MouseListener] = None
+        self._keyboard_listener: Optional[_KeyboardListener] = None
         self._move_cb: Optional[Callable[[int, int], None]] = None
         self._click_cb: Optional[Callable[[int, int, bool], None]] = None
         self._key_cb: Optional[Callable[[int, bool], None]] = None
@@ -269,7 +305,9 @@ class GlobalMouseListener:
 
         def _on_click(x: int, y: int, button, pressed: bool) -> None:
             try:
-                if button == getattr(mouse, "Button", object()).left:
+                button_cls = getattr(mouse, "Button", None)
+                left_button = getattr(button_cls, "left", None)
+                if left_button is None or button == left_button:
                     cb(x, y, pressed)
             except Exception:
                 logger.exception("click callback error")
@@ -303,7 +341,7 @@ class GlobalMouseListener:
         self._key_cb = on_key
 
         # Native hooks
-        if sys.platform.startswith("win"):
+        if sys.platform.startswith("win") and _WinHook is not None:
             if self._listener is None or not self._listener.is_alive():
                 self._listener = _WinHook(on_move, on_click, on_key)
                 self._listener.start()
@@ -366,13 +404,11 @@ class GlobalMouseListener:
         return running
 
     def _stop_listeners(self) -> None:
-        if self._listener is not None and isinstance(self._listener, threading.Thread):
-            stop = getattr(self._listener, "stop", None)
-            if stop is not None:
-                try:
-                    stop()
-                except Exception:  # pragma: no cover - defensive
-                    pass
+        if self._listener is not None:
+            try:
+                self._listener.stop()
+            except Exception:  # pragma: no cover - defensive
+                pass
             self._listener = None
 
         if self._mouse_listener is not None:
@@ -424,7 +460,7 @@ def capture_mouse(
     on_move: Callable[[int, int], None] | None = None,
     on_click: Callable[[int, int, bool], None] | None = None,
     on_key: Callable[[int, bool], None] | None = None,
-) -> "GlobalMouseListener":
+) -> Generator[GlobalMouseListener | None, None, None]:
     """Context manager to start a global mouse/keyboard listener."""
 
     listener = GlobalMouseListener()

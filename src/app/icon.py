@@ -5,6 +5,7 @@ import sys
 import tempfile
 import ctypes
 import logging
+from typing import TYPE_CHECKING
 
 try:
     from PIL import Image, ImageTk
@@ -14,6 +15,16 @@ except ImportError:  # pragma: no cover - runtime dependency check
     pil = ensure_pillow()
     Image = pil.Image  # type: ignore[attr-defined]
     ImageTk = pil.ImageTk  # type: ignore[attr-defined]
+
+if TYPE_CHECKING:
+    from ctypes import LibraryLoader, WinDLL
+
+_windll: "LibraryLoader[WinDLL] | None"
+try:  # pragma: no cover - attribute missing on non-Windows
+    _windll = getattr(ctypes, "windll")
+except AttributeError:  # pragma: no cover - non-Windows Python build
+    _windll = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +57,8 @@ def set_app_icon(window):
                 tmp.close()
                 window.iconbitmap(tmp.name)
                 try:  # pragma: no cover - best effort
-                    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CoolBox")
+                    if _windll is not None:
+                        _windll.shell32.SetCurrentProcessExplicitAppUserModelID("CoolBox")
                 except Exception:
                     pass
                 temp_icon = tmp.name

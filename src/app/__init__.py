@@ -10,10 +10,11 @@ except ImportError:  # pragma: no cover - runtime dependency check
     from ..ensure_deps import ensure_customtkinter
 
     ctk = ensure_customtkinter()
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING, Protocol, TypeGuard
 from pathlib import Path
 import sys
 import logging
+import tkinter as tk
 from tkinter import messagebox
 
 from ..config import Config
@@ -31,9 +32,30 @@ from .error_handler import install as install_error_handlers
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - used for type hints only
+    from customtkinter import CTkFrame as _CTkFrame
+
     from ..views.quick_settings import QuickSettingsDialog
     from ..views.force_quit_dialog import ForceQuitDialog
     from ..views.security_dialog import SecurityDialog
+    from ..components.sidebar import Sidebar
+else:
+    _CTkFrame = ctk.CTkFrame
+
+
+class _FontsRefreshable(Protocol):
+    def refresh_fonts(self) -> None: ...
+
+
+class _ThemeRefreshable(Protocol):
+    def refresh_theme(self) -> None: ...
+
+
+def _supports_fonts(value: object) -> TypeGuard[_FontsRefreshable]:
+    return hasattr(value, "refresh_fonts")
+
+
+def _supports_theme(value: object) -> TypeGuard[_ThemeRefreshable]:
+    return hasattr(value, "refresh_theme")
 
 
 class CoolBoxApp:
@@ -63,12 +85,14 @@ class CoolBoxApp:
         install_error_handlers(self.window)
 
         # Set application icon
+        self._icon_photo: Any | None = None
+        self._temp_icon: str | None = None
         try:
-            self._icon_photo, self._temp_icon = set_app_icon(self.window)
+            icon_photo, temp_icon = set_app_icon(self.window)
+            self._icon_photo = icon_photo
+            self._temp_icon = temp_icon
         except Exception as exc:  # pragma: no cover - best effort
             logger.warning("Icon setup failed: %s", exc)
-            self._icon_photo = None
-            self._temp_icon = None
 
         # Set minimum window size
         self.window.minsize(
@@ -82,12 +106,19 @@ class CoolBoxApp:
         logger.info("Initialized theme manager")
 
         # Initialize views dict
-        self.views: Dict[str, ctk.CTkFrame] = {}
+        self.main_container: _CTkFrame | None = None
+        self.content_area: _CTkFrame | None = None
+        self.view_container: _CTkFrame | None = None
+        self.sidebar: Sidebar | None = None
+        self.toolbar: Toolbar | None = None
+        self.menu_bar: MenuBar | None = None
+        self.status_bar: StatusBar | None = None
+        self.views: Dict[str, _CTkFrame] = {}
         self.current_view: Optional[str] = None
-        self.quick_settings_window: "QuickSettingsDialog | None" = None
-        self.force_quit_window: "ForceQuitDialog | None" = None
-        self.security_center_window: "SecurityDialog | None" = None
-        self.dialogs: list[object] = []
+        self.quick_settings_window: QuickSettingsDialog | None = None
+        self.force_quit_window: ForceQuitDialog | None = None
+        self.security_center_window: SecurityDialog | None = None
+        self.dialogs: list[tk.Misc] = []
 
         # Setup UI
         try:
@@ -95,6 +126,23 @@ class CoolBoxApp:
         except Exception as exc:  # pragma: no cover - critical failure
             logger.error("UI setup failed: %s", exc)
             raise
+
+        if not all(
+            (
+                self.main_container,
+                self.content_area,
+                self.view_container,
+                self.sidebar,
+                self.views,
+            )
+        ):
+            raise RuntimeError("UI setup failed to initialize layout components")
+
+        # The setup created non-optional widgets; help static type checkers.
+        assert self.main_container is not None
+        assert self.content_area is not None
+        assert self.view_container is not None
+        assert self.sidebar is not None
 
         # Bind events
         self._bind_events()
@@ -108,6 +156,9 @@ class CoolBoxApp:
 
     def update_ui_visibility(self) -> None:
         """Show or hide optional UI elements based on config."""
+        if self.main_container is None:
+            logger.debug("Main container unavailable; skipping UI visibility update")
+            return
         if self.config.get("show_toolbar", True):
             if self.toolbar is None:
                 self.toolbar = Toolbar(self.main_container, self)
@@ -121,7 +172,7 @@ class CoolBoxApp:
                 self.menu_bar = MenuBar(self.window, self)
             self.menu_bar.update_recent_files()
         elif self.menu_bar is not None:
-            self.window.config(menu=None)
+            self.window.configure(menu="")
             self.menu_bar = None
         if self.menu_bar is not None:
             self.menu_bar.refresh_toggles()
@@ -175,7 +226,8 @@ class CoolBoxApp:
         logger.info("Switched view to %s", view_name)
 
         # Update sidebar selection
-        self.sidebar.set_active(view_name)
+        if self.sidebar is not None:
+            self.sidebar.set_active(view_name)
 
         # Update status
         if self.status_bar is not None:
@@ -240,26 +292,24 @@ class CoolBoxApp:
             )
             return
 
-        if (
-            self.security_center_window is not None
-            and self.security_center_window.winfo_exists()
-        ):
-            self.security_center_window.focus()
-            return
+        if self.security_center_window is not None:
+            current_top = self.security_center_window.winfo_toplevel()
+            if current_top.winfo_exists():
+                current_top.focus()
+                return
+            self.security_center_window = None
 
         top = tk.Toplevel(self.window)
-        SecurityDialog(top)
-        self.security_center_window = top
-        self.security_center_window.protocol(
-            "WM_DELETE_WINDOW", self._on_security_center_closed
-        )
+        dialog = SecurityDialog(top)
+        self.security_center_window = dialog
+        top.protocol("WM_DELETE_WINDOW", self._on_security_center_closed)
 
-    def register_dialog(self, dialog) -> None:
+    def register_dialog(self, dialog: tk.Misc) -> None:
         """Track an open dialog for global updates."""
         if dialog not in self.dialogs:
             self.dialogs.append(dialog)
 
-    def unregister_dialog(self, dialog) -> None:
+    def unregister_dialog(self, dialog: tk.Misc) -> None:
         """Remove *dialog* from the tracked list."""
         if dialog in self.dialogs:
             self.dialogs.remove(dialog)
@@ -267,39 +317,41 @@ class CoolBoxApp:
     def update_fonts(self) -> None:
         """Refresh fonts for all views and dialogs."""
         for view in self.views.values():
-            if hasattr(view, "refresh_fonts"):
+            if _supports_fonts(view):
                 view.refresh_fonts()
-        if self.sidebar is not None and hasattr(self.sidebar, "refresh_fonts"):
+        if self.sidebar is not None and _supports_fonts(self.sidebar):
             self.sidebar.refresh_fonts()
-        if self.toolbar is not None and hasattr(self.toolbar, "refresh_fonts"):
+        if self.toolbar is not None and _supports_fonts(self.toolbar):
             self.toolbar.refresh_fonts()
-        if self.status_bar is not None and hasattr(self.status_bar, "refresh_fonts"):
+        if self.status_bar is not None and _supports_fonts(self.status_bar):
             self.status_bar.refresh_fonts()
-        if self.menu_bar is not None and hasattr(self.menu_bar, "refresh_fonts"):
+        if self.menu_bar is not None and _supports_fonts(self.menu_bar):
             self.menu_bar.refresh_fonts()
         for dlg in list(self.dialogs):
             if dlg.winfo_exists():
-                dlg.refresh_fonts()
+                if _supports_fonts(dlg):
+                    dlg.refresh_fonts()
             else:
                 self.dialogs.remove(dlg)
 
     def update_theme(self) -> None:
         """Refresh theme colors across views and dialogs."""
         for view in self.views.values():
-            if hasattr(view, "refresh_theme"):
+            if _supports_theme(view):
                 view.refresh_theme()
-        if self.sidebar is not None and hasattr(self.sidebar, "refresh_theme"):
+        if self.sidebar is not None and _supports_theme(self.sidebar):
             self.sidebar.refresh_theme()
-        if self.toolbar is not None and hasattr(self.toolbar, "refresh_theme"):
+        if self.toolbar is not None and _supports_theme(self.toolbar):
             self.toolbar.refresh_theme()
-        if self.status_bar is not None and hasattr(self.status_bar, "refresh_theme"):
+        if self.status_bar is not None and _supports_theme(self.status_bar):
             self.status_bar.refresh_theme()
-        if self.menu_bar is not None and hasattr(self.menu_bar, "refresh_theme"):
+        if self.menu_bar is not None and _supports_theme(self.menu_bar):
             self.menu_bar.refresh_theme()
         for dlg in list(self.dialogs):
-            if dlg.winfo_exists() and hasattr(dlg, "refresh_theme"):
-                dlg.refresh_theme()
-            elif not dlg.winfo_exists():
+            if dlg.winfo_exists():
+                if _supports_theme(dlg):
+                    dlg.refresh_theme()
+            else:
                 self.dialogs.remove(dlg)
 
     def _on_quick_settings_closed(self) -> None:
@@ -308,8 +360,10 @@ class CoolBoxApp:
         self.quick_settings_window = None
 
     def _on_security_center_closed(self) -> None:
-        if self.security_center_window is not None and self.security_center_window.winfo_exists():
-            self.security_center_window.destroy()
+        if self.security_center_window is not None:
+            top = self.security_center_window.winfo_toplevel()
+            if top.winfo_exists():
+                top.destroy()
         self.security_center_window = None
 
     def _on_closing(self):
@@ -322,7 +376,7 @@ class CoolBoxApp:
 
         logger.info("Application closing")
 
-        if hasattr(self, "_temp_icon"):
+        if self._temp_icon:
             try:
                 Path(self._temp_icon).unlink(missing_ok=True)
             except Exception:

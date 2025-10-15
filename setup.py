@@ -26,40 +26,47 @@ from types import ModuleType
 import urllib.request
 
 if TYPE_CHECKING:
-    from rich.console import Console as ConsoleType
-    from rich.text import Text as TextType
+    from rich.console import Console
+    from rich.table import Table, Column
+    from rich.panel import Panel
+    from rich.progress import (
+        Progress,
+        BarColumn,
+        TimeElapsedColumn,
+        TaskProgressColumn,
+        MofNCompleteColumn,
+        ProgressColumn,
+    )
+    from rich.text import Text
+    from rich import box
+
+    ConsoleType = Console
+    TextType = Text
+    Console = Console
+    Table = Table
+    Panel = Panel
+    Progress = Progress
+    BarColumn = BarColumn
+    TimeElapsedColumn = TimeElapsedColumn
+    TaskProgressColumn = TaskProgressColumn
+    MofNCompleteColumn = MofNCompleteColumn
+    ProgressColumn = ProgressColumn
+    Column = Column
+    Text = Text
+    box = box
+    RICH_AVAILABLE = True
 else:
     ConsoleType: TypeAlias = object
     TextType: TypeAlias = str
 
-# ---------- rich UI ----------
-RICH_AVAILABLE = False
-try:
-    from rich.console import Console as _RichConsole
-    from rich.table import Table as _RichTable, Column as _RichColumn
-    from rich.panel import Panel as _RichPanel
-    from rich.progress import (
-        Progress as _RichProgress,
-        BarColumn as _RichBarColumn,
-        TimeElapsedColumn as _RichTimeElapsedColumn,
-        TaskProgressColumn as _RichTaskProgressColumn,
-        MofNCompleteColumn as _RichMofNCompleteColumn,
-        ProgressColumn as _RichProgressColumn,
-    )
-    from rich.text import Text as _RichText
-    from rich import box as _rich_box
-    from rich.traceback import install as _rich_tb_install
-
-    _rich_tb_install(show_locals=False)
-    RICH_AVAILABLE = True
-except ImportError:
+    # ---------- rich UI ----------
+    _RichConsole = _RichTable = _RichPanel = _RichProgress = None
+    _RichBarColumn = _RichTimeElapsedColumn = _RichTaskProgressColumn = None
+    _RichMofNCompleteColumn = _RichProgressColumn = None
+    _RichColumn = _RichText = None
+    _rich_box = None
+    RICH_AVAILABLE = False
     try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "rich>=13"],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
         from rich.console import Console as _RichConsole
         from rich.table import Table as _RichTable, Column as _RichColumn
         from rich.panel import Panel as _RichPanel
@@ -73,64 +80,103 @@ except ImportError:
         )
         from rich.text import Text as _RichText
         from rich import box as _rich_box
+        from rich.traceback import install as _rich_tb_install
 
+        _rich_tb_install(show_locals=False)
         RICH_AVAILABLE = True
-    except Exception:
-        RICH_AVAILABLE = False
+    except ImportError:
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "rich>=13"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            from rich.console import Console as _RichConsole
+            from rich.table import Table as _RichTable, Column as _RichColumn
+            from rich.panel import Panel as _RichPanel
+            from rich.progress import (
+                Progress as _RichProgress,
+                BarColumn as _RichBarColumn,
+                TimeElapsedColumn as _RichTimeElapsedColumn,
+                TaskProgressColumn as _RichTaskProgressColumn,
+                MofNCompleteColumn as _RichMofNCompleteColumn,
+                ProgressColumn as _RichProgressColumn,
+            )
+            from rich.text import Text as _RichText
+            from rich import box as _rich_box
 
-if RICH_AVAILABLE:
-    Console = _RichConsole
-    Table = _RichTable
-    Panel = _RichPanel
-    Progress = _RichProgress
-    BarColumn = _RichBarColumn
-    TimeElapsedColumn = _RichTimeElapsedColumn
-    TaskProgressColumn = _RichTaskProgressColumn
-    MofNCompleteColumn = _RichMofNCompleteColumn
-    ProgressColumn = _RichProgressColumn
-    Column = _RichColumn
-    Text = _RichText
-    box = _rich_box
-else:
+            RICH_AVAILABLE = True
+        except Exception:
+            RICH_AVAILABLE = False
 
-    class _PlainConsole:
-        def print(self, *args, **kwargs) -> None: print(*args, **kwargs)
-        def log(self, *args, **kwargs) -> None: print(*args, **kwargs)
-        def flush(self) -> None: sys.stdout.flush()
+    if RICH_AVAILABLE:
+        Console = _RichConsole
+        Table = _RichTable
+        Panel = _RichPanel
+        Progress = _RichProgress
+        BarColumn = _RichBarColumn
+        TimeElapsedColumn = _RichTimeElapsedColumn
+        TaskProgressColumn = _RichTaskProgressColumn
+        MofNCompleteColumn = _RichMofNCompleteColumn
+        ProgressColumn = _RichProgressColumn
+        Column = _RichColumn
+        Text = _RichText
+        box = _rich_box
+    else:
 
-    class _PlainTable:
-        def __init__(self, *_, **__): self._rows: list[str] = []
-        def add_column(self, *_, **__) -> None: ...
-        def add_row(self, *args, **__) -> None: self._rows.append(" ".join(str(a) for a in args))
-        def __str__(self) -> str: return "\n".join(self._rows)
+        class _PlainConsole:
+            def print(self, *args, **kwargs) -> None: print(*args, **kwargs)
 
-    class _PlainPanel:
-        def __init__(self, content, **__): self.content = content
-        def __str__(self) -> str: return str(self.content)
+            def log(self, *args, **kwargs) -> None: print(*args, **kwargs)
 
-    class _PlainProgress:
-        def __enter__(self): return self
-        def __exit__(self, *exc): return False
-        def add_task(self, *_, **__): return 0
-        def advance(self, *_, **__): ...
+            def flush(self) -> None: sys.stdout.flush()
 
-    class _PlainText(str):
-        def append(self, ch: str, style: str | None = None) -> None: ...
+        class _PlainTable:
+            def __init__(self, *_, **__): self._rows: list[str] = []
 
-    class _PlainColumn:  # shim
-        def __init__(self, *_, **__): ...
+            def add_column(self, *_, **__) -> None: ...
 
-    Console = _PlainConsole
-    Table = _PlainTable
-    Panel = _PlainPanel
-    Progress = _PlainProgress
-    BarColumn = TimeElapsedColumn = TaskProgressColumn = MofNCompleteColumn = ProgressColumn = object
-    Column = _PlainColumn
-    Text = _PlainText
+            def add_row(self, *args, **__) -> None: self._rows.append(
+                " ".join(str(a) for a in args)
+            )
 
-    class _Box:
-        SIMPLE_HEAVY = ROUNDED = MINIMAL_DOUBLE_HEAD = None
-    box = _Box()
+            def __str__(self) -> str: return "\n".join(self._rows)
+
+        class _PlainPanel:
+            def __init__(self, content, **__): self.content = content
+
+            def __str__(self) -> str: return str(self.content)
+
+        class _PlainProgress:
+            def __enter__(self): return self
+
+            def __exit__(self, *exc): return False
+
+            def add_task(self, *_, **__): return 0
+
+            def advance(self, *_, **__): ...
+
+        class _PlainText(str):
+            def append(self, ch: str, style: str | None = None) -> None: ...
+
+        class _PlainColumn:  # shim
+            def __init__(self, *_, **__): ...
+
+        Console = _PlainConsole
+        Table = _PlainTable
+        Panel = _PlainPanel
+        Progress = _PlainProgress
+        BarColumn = (
+            TimeElapsedColumn
+        ) = TaskProgressColumn = MofNCompleteColumn = ProgressColumn = object
+        Column = _PlainColumn
+        Text = _PlainText
+
+        class _Box:
+            SIMPLE_HEAVY = ROUNDED = MINIMAL_DOUBLE_HEAD = None
+
+        box = _Box()
 
 # ---------- optional project helpers ----------
 try:
@@ -153,8 +199,9 @@ try:
 except Exception as exc:
     print(f"Warning: helper utilities unavailable ({exc}). Using fallbacks.", file=sys.stderr)
     _helper_console = None
-    def get_system_info() -> dict[str, str]:  # type: ignore
-        return {"Python": f"{sys.version.split()[0]} ({sys.executable})", "Platform": sys.platform, "CWD": str(Path.cwd())}
+    def get_system_info() -> str:  # type: ignore
+        python = f"Python {sys.version.split()[0]} ({sys.executable})"
+        return "\n".join([python, f"Platform: {sys.platform}", f"CWD: {Path.cwd()}"])
 
 # ---------- logging ----------
 logger = logging.getLogger("coolbox.setup")

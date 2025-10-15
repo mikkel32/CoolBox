@@ -15,7 +15,7 @@ import re
 import tkinter as tk
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, Future
-from typing import Optional, Callable, Any, Protocol, TYPE_CHECKING
+from typing import Optional, Callable, Any, Protocol, TYPE_CHECKING, TypeGuard, cast
 from enum import Enum, auto
 from threading import Lock
 import atexit
@@ -47,6 +47,18 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional dependency
     QtCore = QtWidgets = QtQuick = QtOpenGL = QtGui = None
 
+_RAW_QT_CORE = QtCore
+_RAW_QT_WIDGETS = QtWidgets
+_RAW_QT_QUICK = QtQuick
+_RAW_QT_OPENGL = QtOpenGL
+_RAW_QT_GUI = QtGui
+
+QtCore = cast(Any, QtCore)
+QtWidgets = cast(Any, QtWidgets)
+QtQuick = cast(Any, QtQuick)
+QtOpenGL = cast(Any, QtOpenGL)
+QtGui = cast(Any, QtGui)
+
 if TYPE_CHECKING:  # pragma: no cover - type hint helpers
     try:
         from PyQt5.QtWidgets import QWidget  # type: ignore[import]
@@ -55,8 +67,13 @@ if TYPE_CHECKING:  # pragma: no cover - type hint helpers
 else:  # pragma: no cover - runtime fallback
     QWidget = Any
 
-QT_AVAILABLE = QtWidgets is not None
-QT_QUICK_AVAILABLE = QtQuick is not None
+QT_AVAILABLE = _RAW_QT_WIDGETS is not None
+QT_QUICK_AVAILABLE = _RAW_QT_QUICK is not None
+
+_QtWidgets: Any | None = None
+_QtCore: Any | None = None
+_QtGui: Any | None = None
+_QtOpenGL: Any | None = None
 
 CFG = Config()
 
@@ -360,6 +377,22 @@ class CanvasAPI(Protocol):
     def bbox(self, item: Any) -> Any: ...  # noqa: E704
 
 
+def _is_rect(update: Any) -> TypeGuard[tuple[int, int, int, int]]:
+    return (
+        isinstance(update, tuple)
+        and len(update) == 4
+        and all(isinstance(val, int) for val in update)
+    )
+
+
+def _is_point(update: Any) -> TypeGuard[tuple[int, int]]:
+    return (
+        isinstance(update, tuple)
+        and len(update) == 2
+        and all(isinstance(val, int) for val in update)
+    )
+
+
 class TkCanvas(CanvasAPI):
     """Adapter exposing ``tk.Canvas`` through ``CanvasAPI``."""
 
@@ -390,21 +423,33 @@ class TkCanvas(CanvasAPI):
         return self._canvas.bbox(item)
 
 
-if QT_AVAILABLE:
+if TYPE_CHECKING:
+
+    class QtCanvas(CanvasAPI):
+        ...
+
+elif QT_AVAILABLE:
+    assert QtWidgets is not None
+    assert QtCore is not None
+    assert QtGui is not None
+    _QtWidgets = cast(Any, _RAW_QT_WIDGETS)
+    _QtCore = cast(Any, _RAW_QT_CORE)
+    _QtGui = cast(Any, _RAW_QT_GUI)
+    _QtOpenGL = cast(Any, _RAW_QT_OPENGL)
 
     class QtCanvas(CanvasAPI):  # pragma: no cover - GUI heavy
         """``CanvasAPI`` implementation using ``QGraphicsScene``."""
 
         def __init__(self, parent: QWidget) -> None:
-            scene = QtWidgets.QGraphicsScene(parent)
-            view = QtWidgets.QGraphicsView(scene, parent)
+            scene = _QtWidgets.QGraphicsScene(parent)
+            view = _QtWidgets.QGraphicsView(scene, parent)
             view.setStyleSheet("background: transparent")
-            view.setFrameShape(QtWidgets.QFrame.NoFrame)
-            view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-            view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-            if QtOpenGL is not None:
+            view.setFrameShape(_QtWidgets.QFrame.NoFrame)
+            view.setHorizontalScrollBarPolicy(_QtCore.Qt.ScrollBarAlwaysOff)
+            view.setVerticalScrollBarPolicy(_QtCore.Qt.ScrollBarAlwaysOff)
+            if _QtOpenGL is not None:
                 try:
-                    view.setViewport(QtOpenGL.QGLWidget())
+                    view.setViewport(_QtOpenGL.QGLWidget())
                 except Exception:
                     pass
             self._view = view
@@ -416,7 +461,7 @@ if QT_AVAILABLE:
         def create_rectangle(
             self, x1: float, y1: float, x2: float, y2: float, *, outline: str = "red", width: int = 1
         ) -> Any:
-            pen = QtGui.QPen(QtGui.QColor(outline))
+            pen = _QtGui.QPen(_QtGui.QColor(outline))
             pen.setWidth(width)
             rect = self._scene.addRect(x1, y1, x2 - x1, y2 - y1, pen)
             return rect
@@ -424,15 +469,15 @@ if QT_AVAILABLE:
         def create_line(
             self, x1: float, y1: float, x2: float, y2: float, *, fill: str = "red", dash: Any | None = None
         ) -> Any:
-            pen = QtGui.QPen(QtGui.QColor(fill))
+            pen = _QtGui.QPen(_QtGui.QColor(fill))
             if dash:
-                pen.setStyle(QtCore.Qt.DashLine)
+                pen.setStyle(_QtCore.Qt.DashLine)
             line = self._scene.addLine(x1, y1, x2, y2, pen)
             return line
 
         def create_text(self, x: float, y: float, *, text: str = "", fill: str = "red", font: Any | None = None, anchor: str | None = None) -> Any:
             item = self._scene.addText(text)
-            item.setDefaultTextColor(QtGui.QColor(fill))
+            item.setDefaultTextColor(_QtGui.QColor(fill))
             item.setPos(x, y)
             return item
 
@@ -452,7 +497,7 @@ if QT_AVAILABLE:
                 pen.setWidth(kwargs["width"])
                 item.setPen(pen)
             if "fill" in kwargs and hasattr(item, "setDefaultTextColor"):
-                item.setDefaultTextColor(QtGui.QColor(kwargs["fill"]))
+                item.setDefaultTextColor(_QtGui.QColor(kwargs["fill"]))
 
         def bbox(self, item: Any) -> Any:
             if hasattr(item, "boundingRect"):
@@ -471,66 +516,6 @@ class OverlayState(Enum):
     INIT = auto()
     HOOKED = auto()
     POLLING = auto()
-
-
-if QT_AVAILABLE:
-    class QtClickOverlay(QtWidgets.QWidget):  # pragma: no cover - GUI heavy
-        """Simple transparent overlay rendered with Qt."""
-
-        def __init__(
-            self,
-            parent=None,
-            *,
-            highlight: str = DEFAULT_HIGHLIGHT,
-            show_label: bool = True,
-            **_: Any,
-        ) -> None:
-            app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-            super().__init__(parent)
-            self.backend = "qt"
-            self._app = app
-            self.setWindowFlag(QtCore.Qt.FramelessWindowHint)
-            self.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint)
-            self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
-            self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
-            self.showFullScreen()
-            self.canvas = QtCanvas(self)
-            self.canvas.widget().setGeometry(self.rect())
-            self.canvas.widget().show()
-            self.rect = self.canvas.create_rectangle(0, 0, 1, 1, outline=highlight, width=2)
-            self.hline = self.canvas.create_line(0, 0, 0, 0, fill=highlight)
-            self.vline = self.canvas.create_line(0, 0, 0, 0, fill=highlight)
-            self.label = None
-            if show_label:
-                self.label = self.canvas.create_text(10, 10, text="", fill=highlight)
-
-        def close(self) -> None:  # pragma: no cover - GUI heavy
-            super().close()
-            if not QtWidgets.QApplication.topLevelWidgets():
-                self._app.quit()
-
-    if QT_QUICK_AVAILABLE:
-
-        class QtQuickClickOverlay(QtClickOverlay):  # pragma: no cover - GUI heavy
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                super().__init__(*args, **kwargs)
-                self.backend = "qtquick"
-
-    else:  # pragma: no cover - Qt optional
-
-        class QtQuickClickOverlay:  # type: ignore
-            def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
-                raise RuntimeError("QtQuick backend not available")
-
-else:  # pragma: no cover - Qt optional
-
-    class QtClickOverlay:  # type: ignore
-        def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
-            raise RuntimeError("Qt backend not available")
-
-    class QtQuickClickOverlay:  # type: ignore
-        def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
-            raise RuntimeError("QtQuick backend not available")
 
 
 class ClickOverlay(tk.Toplevel):
@@ -565,13 +550,13 @@ class ClickOverlay(tk.Toplevel):
         *args: Any,
         backend: str | None = None,
         **kwargs: Any,
-    ) -> "ClickOverlay | QtClickOverlay | QtQuickClickOverlay":
+    ) -> "ClickOverlay":
         selected = (backend or DEFAULT_BACKEND).lower()
         if selected in {"qtquick", "opengl"} and QT_QUICK_AVAILABLE:
-            return QtQuickClickOverlay(parent, *args, **kwargs)
+            return cast("ClickOverlay", QtQuickClickOverlay(parent, *args, **kwargs))
         if selected == "qt" and QT_AVAILABLE:
-            return QtClickOverlay(parent, *args, **kwargs)
-        return super().__new__(cls)
+            return cast("ClickOverlay", QtClickOverlay(parent, *args, **kwargs))
+        return cast("ClickOverlay", super().__new__(cls))
 
     @staticmethod
     def auto_tune_interval(samples: int = 60) -> tuple[float, float, float]:
@@ -776,6 +761,11 @@ class ClickOverlay(tk.Toplevel):
             self._screen_h,
             os.getpid(),
         )
+        # Backwards compatibility for legacy tests that reached into the
+        # ``ScoringEngine`` internals before they were wrapped by
+        # :class:`HoverTracker`.
+        self._tracker = self.engine.tracker
+        self._weighted_choice = self._weighted_confidence
         self._own_pid = os.getpid()
         self._initial_active_pid: int | None = None
         self._velocity = 0.0
@@ -892,7 +882,7 @@ class ClickOverlay(tk.Toplevel):
             cx = self._cursor_x
             cy = self._cursor_y
             vel = self._velocity
-            path = list(self._path_history)
+            path = deque(self._path_history)
             init = self._initial_active_pid
 
         self._score_async(
@@ -920,7 +910,7 @@ class ClickOverlay(tk.Toplevel):
             cx = self._cursor_x
             cy = self._cursor_y
             vel = self._velocity
-            path = list(self._path_history)
+            path = deque(self._path_history)
             init = self._initial_active_pid
 
         future = self._score_async(
@@ -1065,87 +1055,103 @@ class ClickOverlay(tk.Toplevel):
                 y = py - height - 10
         return x, y
 
-    def _apply_updates(self, updates: dict[str, tuple[int, ...] | str]) -> None:
+    def _apply_updates(self, updates: dict[str, object]) -> None:
         """Apply buffered canvas updates and log render duration."""
         if not updates:
             return
         start = time.perf_counter()
         regions = []
         if "hline" in updates and self.hline is not None:
-            new = updates["hline"]
-            old = self._buffer.get("hline")
-            if (
-                old is not None
-                and new[2] - new[0] == old[2] - old[0]
-                and new[3] - new[1] == old[3] - old[1]
-            ):
-                dx = new[0] - old[0]
-                dy = new[1] - old[1]
-                self.canvas.move(self.hline, dx, dy)
-            else:
-                self.canvas.coords(self.hline, *new)
-            self._buffer["hline"] = new
-            regions.append(self.canvas.bbox(self.hline))
+            new_raw = updates["hline"]
+            old_raw = self._buffer.get("hline")
+            new = new_raw if _is_rect(new_raw) else None
+            old = old_raw if _is_rect(old_raw) else None
+            if new is not None:
+                if (
+                    old is not None
+                    and new[2] - new[0] == old[2] - old[0]
+                    and new[3] - new[1] == old[3] - old[1]
+                ):
+                    dx = new[0] - old[0]
+                    dy = new[1] - old[1]
+                    self.canvas.move(self.hline, dx, dy)
+                else:
+                    self.canvas.coords(self.hline, *new)
+                self._buffer["hline"] = new
+                regions.append(self.canvas.bbox(self.hline))
         if "vline" in updates and self.vline is not None:
-            new = updates["vline"]
-            old = self._buffer.get("vline")
-            if (
-                old is not None
-                and new[2] - new[0] == old[2] - old[0]
-                and new[3] - new[1] == old[3] - old[1]
-            ):
-                dx = new[0] - old[0]
-                dy = new[1] - old[1]
-                self.canvas.move(self.vline, dx, dy)
-            else:
-                self.canvas.coords(self.vline, *new)
-            self._buffer["vline"] = new
-            regions.append(self.canvas.bbox(self.vline))
+            new_raw = updates["vline"]
+            old_raw = self._buffer.get("vline")
+            new = new_raw if _is_rect(new_raw) else None
+            old = old_raw if _is_rect(old_raw) else None
+            if new is not None:
+                if (
+                    old is not None
+                    and new[2] - new[0] == old[2] - old[0]
+                    and new[3] - new[1] == old[3] - old[1]
+                ):
+                    dx = new[0] - old[0]
+                    dy = new[1] - old[1]
+                    self.canvas.move(self.vline, dx, dy)
+                else:
+                    self.canvas.coords(self.vline, *new)
+                self._buffer["vline"] = new
+                regions.append(self.canvas.bbox(self.vline))
         if "rect" in updates:
-            new = updates["rect"]
-            old = self._buffer["rect"]
-            if (
-                new[2] - new[0] == old[2] - old[0]
-                and new[3] - new[1] == old[3] - old[1]
-            ):
-                dx = new[0] - old[0]
-                dy = new[1] - old[1]
-                self.canvas.move(self.rect, dx, dy)
-            else:
-                self.canvas.coords(self.rect, *new)
-            regions.append(self.canvas.bbox(self.rect))
+            new_raw = updates["rect"]
+            old_raw = self._buffer["rect"]
+            new = new_raw if _is_rect(new_raw) else None
+            old = old_raw if _is_rect(old_raw) else None
+            if new is not None and old is not None:
+                if (
+                    new[2] - new[0] == old[2] - old[0]
+                    and new[3] - new[1] == old[3] - old[1]
+                ):
+                    dx = new[0] - old[0]
+                    dy = new[1] - old[1]
+                    self.canvas.move(self.rect, dx, dy)
+                else:
+                    self.canvas.coords(self.rect, *new)
+                regions.append(self.canvas.bbox(self.rect))
         if "label_text" in updates and self.label is not None:
             self.canvas.itemconfigure(self.label, text=updates["label_text"])
             regions.append(self.canvas.bbox(self.label))
         if "label_pos" in updates and self.label is not None:
-            new = updates["label_pos"]
-            old = self._buffer.get("label_pos", (0, 0))
-            dx = new[0] - old[0]
-            dy = new[1] - old[1]
-            self.canvas.move(self.label, dx, dy)
-            self._buffer["label_pos"] = new
-            regions.append(self.canvas.bbox(self.label))
+            new_raw = updates["label_pos"]
+            old_raw = self._buffer.get("label_pos", (0, 0))
+            new = new_raw if _is_point(new_raw) else None
+            old = old_raw if _is_point(old_raw) else None
+            if new is not None and old is not None:
+                dx = new[0] - old[0]
+                dy = new[1] - old[1]
+                self.canvas.move(self.label, dx, dy)
+                self._buffer["label_pos"] = new
+                regions.append(self.canvas.bbox(self.label))
         if "icon" in updates:
-            img = updates["icon"]
-            if img is None and self.icon_item is not None:
+            icon_update = updates["icon"]
+            icon = icon_update if isinstance(icon_update, ImageTk.PhotoImage) else None
+            if icon_update is None and self.icon_item is not None:
                 self.canvas.delete(self.icon_item)
                 self.icon_item = None
                 self.icon_img = None
-            elif img is not None:
+            elif icon is not None:
                 if self.icon_item is None:
-                    self.icon_item = self.canvas.create_image(0, 0, image=img, anchor="nw")
+                    self.icon_item = self.canvas.create_image(0, 0, image=icon, anchor="nw")
                 else:
-                    self.canvas.itemconfigure(self.icon_item, image=img)
-                self.icon_img = img
+                    self.canvas.itemconfigure(self.icon_item, image=icon)
+                self.icon_img = icon
                 regions.append(self.canvas.bbox(self.icon_item))
         if "icon_pos" in updates and self.icon_item is not None:
-            new = updates["icon_pos"]
-            old = self._buffer.get("icon_pos", (0, 0))
-            dx = new[0] - old[0]
-            dy = new[1] - old[1]
-            self.canvas.move(self.icon_item, dx, dy)
-            self._buffer["icon_pos"] = new
-            regions.append(self.canvas.bbox(self.icon_item))
+            new_raw = updates["icon_pos"]
+            old_raw = self._buffer.get("icon_pos", (0, 0))
+            new = new_raw if _is_point(new_raw) else None
+            old = old_raw if _is_point(old_raw) else None
+            if new is not None and old is not None:
+                dx = new[0] - old[0]
+                dy = new[1] - old[1]
+                self.canvas.move(self.icon_item, dx, dy)
+                self._buffer["icon_pos"] = new
+                regions.append(self.canvas.bbox(self.icon_item))
         end = time.perf_counter()
         logger.debug(
             "ClickOverlay updated %s regions in %.2fms",
@@ -1278,7 +1284,8 @@ class ClickOverlay(tk.Toplevel):
         self._frame_times.append(frame_ms)
         self.avg_frame_ms = sum(self._frame_times) / len(self._frame_times)
         self._frame_count += 1
-        if self._frame_count % self._frame_times.maxlen == 0:
+        maxlen = self._frame_times.maxlen or 0
+        if maxlen and self._frame_count % maxlen == 0:
             logger.debug("ClickOverlay avg frame %.2fms", self.avg_frame_ms)
             if self.adaptive_interval:
                 self._retune_interval()
@@ -1556,7 +1563,7 @@ class ClickOverlay(tk.Toplevel):
         else:
             dist = math.hypot(px - last[0], py - last[1])
         cursor_moved = dist >= self._min_move_px
-        updates: dict[str, tuple[int, ...] | str] = {}
+        updates: dict[str, object] = {}
         self._draw_crosshair(updates, px, py, sw, sh, cursor_moved)
         rect, text, window_changed, hover_changed = self._update_label(info, updates)
         if dist < self._min_move_px and not window_changed:
@@ -1581,7 +1588,7 @@ class ClickOverlay(tk.Toplevel):
 
     def _draw_crosshair(
         self,
-        updates: dict[str, tuple[int, ...] | str],
+        updates: dict[str, object],
         px: int,
         py: int,
         sw: int,
@@ -1602,7 +1609,7 @@ class ClickOverlay(tk.Toplevel):
     def _update_label(
         self,
         info: WindowInfo,
-        updates: dict[str, tuple[int, ...] | str],
+        updates: dict[str, object],
     ) -> tuple[tuple[int, int, int, int], str, bool, bool]:
         """Update overlay rectangle and label text."""
         if info.pid is None or not info.rect:
@@ -1948,3 +1955,90 @@ class ClickOverlay(tk.Toplevel):
                     listener.stop()
             finally:
                 self.reset()
+
+
+if TYPE_CHECKING:
+    from typing import TypeAlias
+
+    QtClickOverlay: TypeAlias = ClickOverlay
+    QtQuickClickOverlay: TypeAlias = ClickOverlay
+
+else:  # pragma: no cover - runtime backend wiring
+
+    if QT_AVAILABLE:
+        assert _QtWidgets is not None
+        assert _QtCore is not None
+
+        class _QtClickOverlayRuntime(_QtWidgets.QWidget):  # pragma: no cover - GUI heavy
+            """Simple transparent overlay rendered with Qt."""
+
+            def __init__(
+                self,
+                parent=None,
+                *,
+                highlight: str = DEFAULT_HIGHLIGHT,
+                show_label: bool = True,
+                **_: Any,
+            ) -> None:
+                app = _QtWidgets.QApplication.instance() or _QtWidgets.QApplication([])
+                super().__init__(parent)
+                self.backend = "qt"
+                self._app = app
+                self.setWindowFlag(_QtCore.Qt.FramelessWindowHint)
+                self.setWindowFlag(_QtCore.Qt.WindowStaysOnTopHint)
+                self.setAttribute(_QtCore.Qt.WA_TranslucentBackground)
+                self.setAttribute(_QtCore.Qt.WA_TransparentForMouseEvents)
+                self.showFullScreen()
+                self.canvas = QtCanvas(self)
+                self.canvas.widget().setGeometry(self.rect())
+                self.canvas.widget().show()
+                self.rect = self.canvas.create_rectangle(
+                    0, 0, 1, 1, outline=highlight, width=2
+                )
+                self.hline = self.canvas.create_line(0, 0, 0, 0, fill=highlight)
+                self.vline = self.canvas.create_line(0, 0, 0, 0, fill=highlight)
+                self.label = None
+                if show_label:
+                    self.label = self.canvas.create_text(10, 10, text="", fill=highlight)
+
+            def close(self) -> None:  # pragma: no cover - GUI heavy
+                super().close()
+                if not _QtWidgets.QApplication.topLevelWidgets():
+                    self._app.quit()
+
+        QtClickOverlay = cast("type[ClickOverlay]", _QtClickOverlayRuntime)
+
+        if QT_QUICK_AVAILABLE:
+
+            class _QtQuickClickOverlayRuntime(_QtClickOverlayRuntime):  # pragma: no cover - GUI heavy
+                def __init__(self, *args: Any, **kwargs: Any) -> None:
+                    super().__init__(*args, **kwargs)
+                    self.backend = "qtquick"
+
+            QtQuickClickOverlay = cast(
+                "type[ClickOverlay]", _QtQuickClickOverlayRuntime
+            )
+
+        else:  # pragma: no cover - Qt optional
+
+            class _MissingQtQuickClickOverlay:
+                def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+                    raise RuntimeError("QtQuick backend not available")
+
+            QtQuickClickOverlay = cast("type[ClickOverlay]", _MissingQtQuickClickOverlay)
+
+    else:  # pragma: no cover - Qt optional
+
+        class _MissingQtClickOverlay:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+                raise RuntimeError("Qt backend not available")
+
+        QtClickOverlay = cast("type[ClickOverlay]", _MissingQtClickOverlay)
+
+        class _MissingQtQuickClickOverlay:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
+                raise RuntimeError("QtQuick backend not available")
+
+        QtQuickClickOverlay = cast(
+            "type[ClickOverlay]", _MissingQtQuickClickOverlay
+        )

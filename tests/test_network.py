@@ -5,16 +5,31 @@ import asyncio
 import importlib
 import subprocess
 import shutil
-import sys
+import asyncio
+import importlib
 import io
 import json
+import shutil
+import socket
+import socketserver
+import sys
+import threading
 import time
+from collections import namedtuple
 from pathlib import Path
+from typing import Any, Dict, cast
+
+import psutil
+import pytest
+
 import scripts.network_scan
 
 import src.utils.network as network
-import psutil
-import pytest
+
+
+Snicaddr = namedtuple(
+    "Snicaddr", ["family", "address", "netmask", "broadcast", "ptp"]
+)
 
 
 class _Handler(socketserver.BaseRequestHandler):
@@ -103,7 +118,8 @@ def test_scan_ports_with_services():
             thread.join()
         assert isinstance(result, dict)
         assert list(result.keys()) == [port]
-        assert isinstance(result[port], str)
+        service = result[port]
+        assert isinstance(service, str)
 
 
 def test_scan_ports_with_banner():
@@ -116,8 +132,10 @@ def test_scan_ports_with_banner():
         finally:
             server.shutdown()
             thread.join()
-        assert isinstance(result[port], network.PortInfo)
-    assert result[port].banner == "banner"
+        assert isinstance(result, dict)
+        info = result[port]
+        assert isinstance(info, network.PortInfo)
+    assert info.banner == "banner"
 
 
 def test_scan_ports_with_latency():
@@ -126,12 +144,17 @@ def test_scan_ports_with_latency():
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = network.scan_ports("localhost", port, port, with_latency=True)
+            result = cast(
+                Dict[int, network.PortInfo],
+                network.scan_ports("localhost", port, port, with_latency=True),
+            )
         finally:
             server.shutdown()
             thread.join()
-        assert isinstance(result[port], network.PortInfo)
-        assert result[port].latency is not None
+        assert isinstance(result, dict)
+        info = result[port]
+        assert isinstance(info, network.PortInfo)
+        assert info.latency is not None
 
 
 def test_scan_port_list():
@@ -312,8 +335,10 @@ def test_async_scan_ports_with_banner():
         finally:
             server.shutdown()
             thread.join()
-        assert isinstance(result[port], network.PortInfo)
-        assert result[port].banner == "banner"
+        assert isinstance(result, dict)
+        info = result[port]
+        assert isinstance(info, network.PortInfo)
+    assert info.banner == "banner"
 
 
 def test_async_scan_ports_with_latency():
@@ -322,14 +347,21 @@ def test_async_scan_ports_with_latency():
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_scan_ports("localhost", port, port, with_latency=True)
+            result = cast(
+                Dict[int, network.PortInfo],
+                asyncio.run(
+                    network.async_scan_ports(
+                        "localhost", port, port, with_latency=True
+                    )
+                ),
             )
         finally:
             server.shutdown()
             thread.join()
-        assert isinstance(result[port], network.PortInfo)
-        assert result[port].latency is not None
+        assert isinstance(result, dict)
+        info = result[port]
+        assert isinstance(info, network.PortInfo)
+        assert info.latency is not None
 
 
 def test_scan_cache_ttl_expires(tmp_path, monkeypatch):
@@ -1205,7 +1237,7 @@ def test_extract_ttl_from_ping():
 
 
 def test_detect_local_hosts(monkeypatch):
-    snic = psutil._common.snicaddr
+    snic = Snicaddr
 
     def fake_if_addrs() -> dict[str, list]:
         return {
@@ -1227,7 +1259,7 @@ def test_detect_local_hosts(monkeypatch):
 
 
 def test_detect_local_hosts_ipv6(monkeypatch):
-    snic = psutil._common.snicaddr
+    snic = Snicaddr
 
     def fake_if_addrs() -> dict[str, list]:
         return {
@@ -1249,7 +1281,7 @@ def test_detect_local_hosts_ipv6(monkeypatch):
 
 
 def test_detect_local_hosts_skip_link_local(monkeypatch):
-    snic = psutil._common.snicaddr
+    snic = Snicaddr
 
     def fake_if_addrs() -> dict[str, list]:
         return {
@@ -1279,7 +1311,7 @@ def test_detect_local_hosts_skip_link_local(monkeypatch):
 
 
 def test_detect_local_hosts_include_arp(monkeypatch):
-    snic = psutil._common.snicaddr
+    snic = Snicaddr
 
     def fake_if_addrs() -> dict[str, list]:
         return {
@@ -1303,7 +1335,7 @@ def test_detect_local_hosts_include_arp(monkeypatch):
 
 
 def test_detect_local_hosts_cache_ttl(tmp_path, monkeypatch):
-    snic = psutil._common.snicaddr
+    snic = Snicaddr
 
     cache_file = tmp_path / "hosts.json"
     monkeypatch.setenv("LOCAL_HOST_CACHE_FILE", str(cache_file))
@@ -1353,7 +1385,7 @@ def test_detect_local_hosts_cache_ttl(tmp_path, monkeypatch):
 
 
 def test_clear_local_host_cache(tmp_path, monkeypatch):
-    snic = psutil._common.snicaddr
+    snic = Snicaddr
 
     cache_file = tmp_path / "hosts.json"
     monkeypatch.setenv("LOCAL_HOST_CACHE_FILE", str(cache_file))
@@ -1471,7 +1503,10 @@ def test_async_auto_scan(monkeypatch):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(network.async_auto_scan(port, port, ports=[port]))
+            result = cast(
+                dict[str, list[int]],
+                asyncio.run(network.async_auto_scan(port, port, ports=[port])),
+            )
         finally:
             server.shutdown()
             thread.join()
@@ -1506,8 +1541,13 @@ def test_async_auto_scan_with_services(monkeypatch):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_auto_scan(port, port, ports=[port], with_services=True)
+            result = cast(
+                dict[str, dict[int, str]],
+                asyncio.run(
+                    network.async_auto_scan(
+                        port, port, ports=[port], with_services=True
+                    )
+                ),
             )
         finally:
             server.shutdown()
@@ -1544,8 +1584,13 @@ def test_async_auto_scan_with_banner(monkeypatch):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_auto_scan(port, port, ports=[port], with_banner=True)
+            result = cast(
+                dict[str, dict[int, network.PortInfo]],
+                asyncio.run(
+                    network.async_auto_scan(
+                        port, port, ports=[port], with_banner=True
+                    )
+                ),
             )
         finally:
             server.shutdown()
@@ -1592,18 +1637,21 @@ def test_async_auto_scan_detailed(monkeypatch):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_auto_scan(
-                    port,
-                    port,
-                    ports=[port],
-                    with_mac=True,
-                    with_hostname=True,
-                    with_connections=True,
-                    with_os=True,
-                    with_vendor=True,
-                    with_device_type=True,
-                )
+            result = cast(
+                dict[str, network.AutoScanInfo],
+                asyncio.run(
+                    network.async_auto_scan(
+                        port,
+                        port,
+                        ports=[port],
+                        with_mac=True,
+                        with_hostname=True,
+                        with_connections=True,
+                        with_os=True,
+                        with_vendor=True,
+                        with_device_type=True,
+                    )
+                ),
             )
         finally:
             server.shutdown()
@@ -1612,6 +1660,7 @@ def test_async_auto_scan_detailed(monkeypatch):
     info = result["localhost"]
     assert isinstance(info, network.AutoScanInfo)
     assert info.mac == "00:0c:29:aa:bb:cc"
+    assert info.connections is not None
     assert info.connections[port] == 2
     assert info.os_guess == "Linux"
     assert info.vendor == "VMware"
@@ -1871,13 +1920,16 @@ def test_async_auto_scan_http_info(monkeypatch):
         thread = threading.Thread(target=srv.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_auto_scan(
-                    port,
-                    port,
-                    ports=[port],
-                    with_http_info=True,
-                )
+            result = cast(
+                dict[str, network.AutoScanInfo],
+                asyncio.run(
+                    network.async_auto_scan(
+                        port,
+                        port,
+                        ports=[port],
+                        with_http_info=True,
+                    )
+                ),
             )
         finally:
             srv.shutdown()
@@ -1917,13 +1969,16 @@ def test_async_auto_scan_ping_latency(monkeypatch):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_auto_scan(
-                    port,
-                    port,
-                    ports=[port],
-                    with_ping_latency=True,
-                )
+            result = cast(
+                dict[str, network.AutoScanInfo],
+                asyncio.run(
+                    network.async_auto_scan(
+                        port,
+                        port,
+                        ports=[port],
+                        with_ping_latency=True,
+                    )
+                ),
             )
         finally:
             server.shutdown()
@@ -1959,7 +2014,10 @@ def test_async_auto_scan_cancel(monkeypatch):
     cancel = asyncio.Event()
     cancel.set()
 
-    result = asyncio.run(network.async_auto_scan(1, 1, cancel_event=cancel))
+    result = cast(
+        dict[str, list[int]],
+        asyncio.run(network.async_auto_scan(1, 1, cancel_event=cancel)),
+    )
 
     assert result == {}
 
@@ -2031,13 +2089,16 @@ def test_async_auto_scan_risk(monkeypatch):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_auto_scan(
-                    port,
-                    port,
-                    ports=[port],
-                    with_risk_score=True,
-                )
+            result = cast(
+                dict[str, network.AutoScanInfo],
+                asyncio.run(
+                    network.async_auto_scan(
+                        port,
+                        port,
+                        ports=[port],
+                        with_risk_score=True,
+                    )
+                ),
             )
         finally:
             server.shutdown()
@@ -2082,13 +2143,16 @@ def test_async_auto_scan_ttl(monkeypatch):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            result = asyncio.run(
-                network.async_auto_scan(
-                    port,
-                    port,
-                    ports=[port],
-                    with_ttl=True,
-                )
+            result = cast(
+                dict[str, network.AutoScanInfo],
+                asyncio.run(
+                    network.async_auto_scan(
+                        port,
+                        port,
+                        ports=[port],
+                        with_ttl=True,
+                    )
+                ),
             )
         finally:
             server.shutdown()
@@ -2140,6 +2204,7 @@ def test_async_scan_hosts_detailed(monkeypatch):
     assert info.ping_latency == 0.01
     assert info.mac == "00:0c:29:aa:bb:cc"
     assert info.vendor == "VMware"
+    assert info.connections is not None
     assert info.connections[80] == 1
 
 

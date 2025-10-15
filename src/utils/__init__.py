@@ -1,6 +1,7 @@
 """Utility helpers and file management."""
 
 import os
+from typing import TYPE_CHECKING
 
 from .system_utils import (
     open_path,
@@ -97,13 +98,20 @@ from .network import (
     clear_arp_cache,
 )
 
-if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
+if TYPE_CHECKING:
     from .ui import center_window, get_screen_refresh_rate
 else:  # pragma: no cover - testing without UI deps
-    def center_window(*_a: object, **_k: object) -> None:
-        pass
-    def get_screen_refresh_rate(*_a: object, **_k: object) -> int:
-        return 60
+    if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
+        from .ui import center_window, get_screen_refresh_rate
+    else:
+
+        def center_window(*_a: object, **_k: object) -> None:
+            """Fallback no-op when UI helpers are unavailable."""
+
+        def get_screen_refresh_rate(*_a: object, **_k: object) -> int:
+            """Return a conservative refresh rate when UI deps are missing."""
+
+            return 60
 from .kill_utils import kill_process, kill_process_tree
 from .win_console import (
     hide_console,

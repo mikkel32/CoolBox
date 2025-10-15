@@ -1,11 +1,17 @@
 import os
 import sys
+import types
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest import mock
+
 import pytest
 
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
-psutil_stub = SimpleNamespace(net_if_addrs=lambda: {}, Process=object, pid_exists=lambda pid: True)
+psutil_stub = types.ModuleType("psutil")
+psutil_stub.net_if_addrs = lambda: {}
+psutil_stub.Process = object  # type: ignore[assignment]
+psutil_stub.pid_exists = lambda pid: True
 sys.modules.setdefault("psutil", psutil_stub)
 sys.modules.setdefault("PIL", mock.Mock())
 sys.modules.setdefault("PIL.Image", mock.Mock())
@@ -45,7 +51,18 @@ def test_main_invokes_overlay(monkeypatch):
             return (123, 'title')
 
     monkeypatch.setattr(kbc, 'ClickOverlay', DummyOverlay)
-    monkeypatch.setattr(kbc.tk, 'Tk', lambda: type('T', (), {'withdraw': lambda self: None, 'destroy': lambda self: None})())
+    monkeypatch.setattr(
+        kbc.tk,
+        'Tk',
+        lambda: cast(
+            Any,
+            type(
+                'T',
+                (),
+                {'withdraw': lambda self: None, 'destroy': lambda self: None},
+            )(),
+        ),
+    )
 
     kbc.main([
         '--skip-confirm',

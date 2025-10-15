@@ -1,13 +1,14 @@
+import importlib.util
+import io
 import os
+import pathlib
+import subprocess
 import sys
 import threading
 import time
-import importlib.util
-import pathlib
 import types
-import io
-import subprocess
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest import mock
 from unittest.mock import patch
 
@@ -37,7 +38,7 @@ class _CTkFont:
     def __init__(self, *a, **k):
         pass
 
-ctk_stub = _CTKStub("customtkinter")
+ctk_stub = cast(Any, _CTKStub("customtkinter"))
 ctk_stub.CTkBaseClass = _CTkBase
 ctk_stub.CTkToplevel = _CTkToplevel
 ctk_stub.CTkFont = _CTkFont
@@ -52,6 +53,7 @@ spec = importlib.util.spec_from_file_location(
     "src.views.force_quit_dialog",
     pathlib.Path("src/views/force_quit_dialog.py"),
 )
+assert spec is not None
 force_quit_dialog = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(force_quit_dialog)  # type: ignore[attr-defined]

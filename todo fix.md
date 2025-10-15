@@ -2044,106 +2044,41 @@ Generated from pyright --outputjson.
   17. [line 135, col 38] Cannot access attribute "max_interval" for class "QtQuickClickOverlay" Attribute "max_interval" is unknown (reportAttributeAccessIssue)
 
 ## tests/test_force_quit_serialization.py
-- Error count: 3
-- Problems:
-  1. [line 22, col 11] Cannot assign to attribute "_overlay" for class "ForceQuitDialog" Expression of type "SimpleNamespace" cannot be assigned to attribute "_overlay" of class "ForceQuitDialog" Type "SimpleNamespace" is not assignable to type "ClickOverlay | QtClickOverlay | QtQuickClickOverlay" "SimpleNamespace" is not assignable to "ClickOverlay" "SimpleNamespace" is not assignable to "QtClickOverlay" "SimpleNamespace" is not assignable to "QtQuickClickOverlay" (reportAttributeAccessIssue)
-  2. [line 23, col 26] Cannot assign to attribute "_overlay_ctx" for class "ForceQuitDialog" Type "SimpleNamespace" is not assignable to type "_OverlayContext | None" "SimpleNamespace" is not assignable to "_OverlayContext" "SimpleNamespace" is not assignable to "None" (reportAttributeAccessIssue)
-  3. [line 30, col 33] Argument of type "_OverlayContext | None" cannot be assigned to parameter "ctx" of type "_OverlayContext" in function "_finish_kill_by_click" Type "_OverlayContext | None" is not assignable to type "_OverlayContext" "None" is not assignable to "_OverlayContext" (reportArgumentType)
+- Error count: 0
 
 ## tests/test_hover_tracker.py
-- Error count: 1
-- Problems:
-  1. [line 34, col 30] "pid" is not a known attribute of "None" (reportOptionalMemberAccess)
+- Error count: 0
 
 ## tests/test_kill_by_click.py
-- Error count: 5
-- Problems:
-  1. [line 40, col 9] Cannot assign to attribute "CTkBaseClass" for class "_CTKStub" Attribute "CTkBaseClass" is unknown (reportAttributeAccessIssue)
-  2. [line 41, col 9] Cannot assign to attribute "CTkToplevel" for class "_CTKStub" Attribute "CTkToplevel" is unknown (reportAttributeAccessIssue)
-  3. [line 42, col 9] Cannot assign to attribute "CTkFont" for class "_CTKStub" Attribute "CTkFont" is unknown (reportAttributeAccessIssue)
-  4. [line 54, col 52] Argument of type "ModuleSpec | None" cannot be assigned to parameter "spec" of type "ModuleSpec" in function "module_from_spec" Type "ModuleSpec | None" is not assignable to type "ModuleSpec" "None" is not assignable to "ModuleSpec" (reportArgumentType)
-  5. [line 55, col 12] "loader" is not a known attribute of "None" (reportOptionalMemberAccess)
+- Error count: 0
 
 ## tests/test_kill_by_click_cli.py
-- Error count: 1
-- Problems:
-  1. [line 8, col 33] Argument of type "SimpleNamespace" cannot be assigned to parameter "default" of type "ModuleType" in function "setdefault" "SimpleNamespace" is not assignable to "ModuleType" (reportArgumentType)
+- Error count: 0
 
 ## tests/test_load_skip.py
-- Error count: 2
-- Problems:
-  1. [line 8, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  2. [line 18, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
+- Error count: 0
 
 ## tests/test_mouse_listener.py
-- Error count: 2
-- Problems:
-  1. [line 152, col 22] "join_timeout" is not a known attribute of "None" (reportOptionalMemberAccess)
-  2. [line 153, col 25] "join_timeout" is not a known attribute of "None" (reportOptionalMemberAccess)
+- Error count: 0
 
 ## tests/test_network.py
-- Error count: 16
-- Problems:
-  1. [line 119, col 24] Cannot access attribute "banner" for class "int" Attribute "banner" is unknown (reportAttributeAccessIssue)
-  2. [line 119, col 24] Cannot access attribute "banner" for class "str" Attribute "banner" is unknown (reportAttributeAccessIssue)
-  3. [line 133, col 28] Cannot access attribute "latency" for class "int" Attribute "latency" is unknown (reportAttributeAccessIssue)
-  4. [line 133, col 28] Cannot access attribute "latency" for class "str" Attribute "latency" is unknown (reportAttributeAccessIssue)
-  5. [line 315, col 28] Cannot access attribute "banner" for class "int" Attribute "banner" is unknown (reportAttributeAccessIssue)
-  6. [line 315, col 28] Cannot access attribute "banner" for class "str" Attribute "banner" is unknown (reportAttributeAccessIssue)
-  7. [line 331, col 28] Cannot access attribute "latency" for class "int" Attribute "latency" is unknown (reportAttributeAccessIssue)
-  8. [line 331, col 28] Cannot access attribute "latency" for class "str" Attribute "latency" is unknown (reportAttributeAccessIssue)
-  9. [line 1207, col 18] "_common" is not a known attribute of module "psutil" (reportAttributeAccessIssue)
-  10. [line 1229, col 18] "_common" is not a known attribute of module "psutil" (reportAttributeAccessIssue)
-  11. [line 1251, col 18] "_common" is not a known attribute of module "psutil" (reportAttributeAccessIssue)
-  12. [line 1281, col 18] "_common" is not a known attribute of module "psutil" (reportAttributeAccessIssue)
-  13. [line 1305, col 18] "_common" is not a known attribute of module "psutil" (reportAttributeAccessIssue)
-  14. [line 1355, col 18] "_common" is not a known attribute of module "psutil" (reportAttributeAccessIssue)
-  15. [line 1614, col 11] Object of type "None" is not subscriptable (reportOptionalSubscript)
-  16. [line 2142, col 11] Object of type "None" is not subscriptable (reportOptionalSubscript)
+- Error count: 0
 
 ## tests/test_process_monitor_alert.py
-- Error count: 14
-- Problems:
-  1. [line 6, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  2. [line 14, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  3. [line 22, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  4. [line 47, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  5. [line 61, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  6. [line 76, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  7. [line 90, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  8. [line 104, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  9. [line 123, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  10. [line 135, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  11. [line 153, col 32] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  12. [line 162, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  13. [line 182, col 32] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
-  14. [line 191, col 29] Argument of type "Queue[tuple[dict[int, object], set[int], float]]" cannot be assigned to parameter "queue" of type "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" in function "__init__" "Queue[tuple[dict[int, object], set[int], float]]" is not assignable to "Queue[tuple[dict[int, ProcessEntry], set[int], float]]" Type parameter "_T@Queue" is invariant, but "tuple[dict[int, object], set[int], float]" is not the same as "tuple[dict[int, ProcessEntry], set[int], float]" (reportArgumentType)
+- Error count: 0
 
 ## tests/test_score_samples_extension.py
-- Error count: 1
-- Problems:
-  1. [line 5, col 60] "_cy_score_samples" is unknown import symbol (reportAttributeAccessIssue)
+- Error count: 0
 
 ## tests/test_security_service_errors.py
-- Error count: 2
-- Problems:
-  1. [line 12, col 27] Operator "in" not supported for types "Literal['BFE not running']" and "str | None" Operator "in" not supported for types "Literal['BFE not running']" and "None" (reportOperatorIssue)
-  2. [line 24, col 27] Operator "in" not supported for types "Literal['WinDefend not running']" and "str | None" Operator "in" not supported for types "Literal['WinDefend not running']" and "None" (reportOperatorIssue)
+- Error count: 0
 
 ## tests/test_theme.py
-- Error count: 1
-- Problems:
-  1. [line 50, col 55] Argument of type "DummyConfig" cannot be assigned to parameter "config" of type "Config | None" in function "__init__" Type "DummyConfig" is not assignable to type "Config | None" "DummyConfig" is not assignable to "Config" "DummyConfig" is not assignable to "None" (reportArgumentType)
+- Error count: 0
 
 ## tests/test_tools_view.py
-- Error count: 2
-- Problems:
-  1. [line 38, col 35] Argument of type "Dummy" cannot be assigned to parameter "self" of type "ToolsView" in function "_security_center" "Dummy" is not assignable to "ToolsView" (reportArgumentType)
-  2. [line 48, col 37] Argument of type "Dummy" cannot be assigned to parameter "self" of type "ToolsView" in function "_exe_inspector" "Dummy" is not assignable to "ToolsView" (reportArgumentType)
+- Error count: 0
 
 ## tests/test_tooltip_scaling_tracker.py
-- Error count: 2
-- Problems:
-  1. [line 11, col 18] Argument of type "CTk" cannot be assigned to parameter "parent" of type "CTkBaseClass" in function "__init__" "CTk" is not assignable to "CTkBaseClass" (reportArgumentType)
-  2. [line 23, col 18] Argument of type "CTk" cannot be assigned to parameter "parent" of type "CTkBaseClass" in function "__init__" "CTk" is not assignable to "CTkBaseClass" (reportArgumentType)
+- Error count: 0
 

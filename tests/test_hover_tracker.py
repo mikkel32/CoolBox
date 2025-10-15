@@ -32,4 +32,5 @@ class TestHoverTracker(unittest.TestCase):
             tracker.update(WindowInfo(1))
             info = tracker.stable_info(0.0)
         self.assertIsNotNone(info)
+        assert info is not None
         self.assertEqual(info.pid, 1)

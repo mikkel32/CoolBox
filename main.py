@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from importlib import metadata as importlib_metadata
 
 from src.utils import launch_vm_debug
 from src.utils.logging_config import setup_logging
@@ -52,18 +53,10 @@ def _parse_requirements(req_path: Path) -> list[str]:
     return reqs
 
 
-def _check_single(req: str) -> str | None:
-    try:
-        from importlib import metadata as importlib_metadata
-        from packaging.requirements import Requirement
-    except Exception:
-        try:
-            import pkg_resources
+from packaging.requirements import Requirement
 
-            pkg_resources.require([req])
-            return None
-        except Exception:
-            return req
+
+def _check_single(req: str) -> str | None:
     r = Requirement(req)
     try:
         version = importlib_metadata.version(r.name)

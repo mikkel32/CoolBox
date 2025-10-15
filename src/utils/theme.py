@@ -2,10 +2,15 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from typing import Dict, TYPE_CHECKING
+from typing import Dict, Protocol, TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - for type hints only
     from ..config import Config
+
+
+class _ConfigLike(Protocol):
+    def set(self, key: str, value: Dict[str, str]) -> None:
+        ...
 
 import customtkinter as ctk
 
@@ -13,16 +18,20 @@ import customtkinter as ctk
 class ThemeManager:
     """Manage application themes and persist user customizations."""
 
-    def __init__(self, config_dir: Path | None = None, config: Config | None = None) -> None:
+    def __init__(
+        self,
+        config_dir: Path | None = None,
+        config: _ConfigLike | None = None,
+    ) -> None:
         self._config_dir = config_dir or (Path.home() / ".coolbox")
         self._theme_file = self._config_dir / "custom_theme.json"
         self.current_theme: Dict[str, str] = {}
-        self._config = config
+        self._config: _ConfigLike | None = config
 
         if self._theme_file.exists():
             self.current_theme = self.load_theme()
 
-    def bind_config(self, config: Config) -> None:
+    def bind_config(self, config: _ConfigLike) -> None:
         """Attach a configuration object for automatic persistence."""
         self._config = config
 

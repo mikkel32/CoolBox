@@ -1,12 +1,13 @@
 import json
 from types import SimpleNamespace
+from typing import cast
 
 import os
 
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 
 from src.views.force_quit_dialog import ForceQuitDialog
-from src.views.click_overlay import OverlayState
+from src.views.click_overlay import OverlayState, ClickOverlay
 
 
 def test_finish_kill_by_click_serializes_overlay_state(capsys):
@@ -19,14 +20,22 @@ def test_finish_kill_by_click_serializes_overlay_state(capsys):
         title_text=None,
         _last_ping=0.0,
         _watchdog_misses=0,
+        reset=lambda: None,
+        close=lambda: None,
+        on_hover=None,
     )
-    dialog._overlay = overlay
-    dialog._overlay_ctx = SimpleNamespace(__exit__=lambda *args: None)
+    dialog._overlay = cast(ClickOverlay, overlay)
+    dialog._overlay_ctx = cast(
+        ForceQuitDialog._OverlayContext,
+        SimpleNamespace(__exit__=lambda *args: False, __enter__=lambda: overlay),
+    )
     dialog._overlay_thread = None
     dialog._overlay_watchdog_proc = None
     dialog._overlay_sync = None
     dialog._overlay_poller = None
     dialog._overlay_last_ping_file = None
+
+    assert dialog._overlay_ctx is not None
 
     dialog._finish_kill_by_click(dialog._overlay_ctx, Exception("boom"))
     err = capsys.readouterr().err.strip().splitlines()

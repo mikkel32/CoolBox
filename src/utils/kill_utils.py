@@ -6,6 +6,7 @@ import logging
 import os
 import signal
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 from threading import Event, Thread
 from typing import Callable
@@ -42,7 +43,10 @@ def _kill_cmd(pid: int) -> bool:
             import ctypes
 
             PROCESS_TERMINATE = 0x0001
-            kernel32 = ctypes.windll.kernel32
+            windll = getattr(ctypes, "windll", None)
+            if windll is None:
+                return False
+            kernel32 = windll.kernel32
             handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
             if not handle:
                 return False
@@ -62,13 +66,17 @@ def _kill_cmd(pid: int) -> bool:
 
 
 @contextmanager
-def _priority_boost() -> None:
+def _priority_boost() -> Generator[None, None, None]:
     """Temporarily boost the current thread priority."""
     if os.name == "nt":
         try:
             import ctypes
 
-            kernel32 = ctypes.windll.kernel32
+            windll = getattr(ctypes, "windll", None)
+            if windll is None:
+                yield
+                return
+            kernel32 = windll.kernel32
             proc_handle = kernel32.GetCurrentProcess()
             thread_handle = kernel32.GetCurrentThread()
             REALTIME_PRIORITY_CLASS = 0x00000100
@@ -200,7 +208,8 @@ def kill_process(
                 break
             if not psutil.pid_exists(pid):
                 break
-            if psutil.cpu_percent(None) > 90:
+            cpu_load = psutil.cpu_percent(None)
+            if cpu_load is not None and cpu_load > 90:
                 break
     elapsed = time.perf_counter() - start
     if thread is not None:

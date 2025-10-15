@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from pathlib import Path
 import socket
 import sys
+from typing import TypeGuard
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -27,6 +28,16 @@ from src.utils import (  # noqa: E402
     parse_hosts,
 )
 from rich.progress import Progress  # noqa: E402
+
+
+def _is_port_info_map(value: object) -> TypeGuard[dict[int, network.PortInfo]]:
+    return isinstance(value, dict) and all(
+        isinstance(info, network.PortInfo) for info in value.values()
+    )
+
+
+def _is_service_map(value: object) -> TypeGuard[dict[int, str]]:
+    return isinstance(value, dict) and all(isinstance(info, str) for info in value.values())
 
 
 async def main() -> None:
@@ -407,22 +418,23 @@ async def main() -> None:
         if args.risk and info.risk_score is not None:
             prefix += f" <Risk:{info.risk_score}>"
 
-        if args.banner and isinstance(ports, dict):
+        if args.banner and _is_port_info_map(ports):
             details = ", ".join(
-                f"{p}({info.service}:{info.banner or ''})" for p, info in ports.items()
+                f"{port}({port_info.service}:{port_info.banner or ''})"
+                for port, port_info in ports.items()
             )
             print(f"{prefix}: {details}")
-        elif args.services and isinstance(ports, dict):
-            details = ", ".join(f"{p}({svc})" for p, svc in ports.items())
+        elif args.services and _is_service_map(ports):
+            details = ", ".join(f"{port}({service})" for port, service in ports.items())
             print(f"{prefix}: {details}")
-        elif args.latency and isinstance(ports, dict):
+        elif args.latency and _is_port_info_map(ports):
             details = ", ".join(
                 (
-                    f"{p}({info.latency * 1000:.1f}ms)"
-                    if info.latency is not None
-                    else str(p)
+                    f"{port}({port_info.latency * 1000:.1f}ms)"
+                    if port_info.latency is not None
+                    else str(port)
                 )
-                for p, info in ports.items()
+                for port, port_info in ports.items()
             )
             print(f"{prefix}: {details}")
         elif args.http and info.http_info and isinstance(ports, (list, dict)):

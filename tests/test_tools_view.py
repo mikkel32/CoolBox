@@ -2,6 +2,8 @@ import os
 import unittest
 from tkinter import filedialog
 from unittest.mock import patch
+from typing import Any, cast
+
 from src.app import CoolBoxApp
 from src.views.tools_view import ToolsView
 
@@ -10,7 +12,7 @@ class TestToolsView(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_filter_resets_label_colors(self) -> None:
         app = CoolBoxApp()
-        view: ToolsView = app.views["tools"]
+        view = cast(ToolsView, app.views["tools"])
         # Grab first tool item
         frame, name, desc, name_lbl, desc_lbl, cmd, default_name, default_desc = view._tool_items[0]
 
@@ -35,7 +37,7 @@ class TestToolsView(unittest.TestCase):
             def open_security_center(self) -> None:
                 called["open"] = True
 
-        dummy = type("Dummy", (), {"app": DummyApp()})()
+        dummy: ToolsView = cast(ToolsView, type("Dummy", (), {"app": DummyApp()})())
         ToolsView._security_center(dummy)
 
         self.assertTrue(called["open"])
@@ -43,8 +45,10 @@ class TestToolsView(unittest.TestCase):
     def test_exe_inspector_opens_dialog(self) -> None:
         with patch.object(filedialog, "askopenfilename", return_value="app.exe"), \
              patch("src.views.exe_inspector_dialog.ExeInspectorDialog") as dlg:
-            dummy_app = type("DummyApp", (), {"status_bar": None})()
-            dummy = type("Dummy", (), {"app": dummy_app})()
+            dummy_app: Any = type("DummyApp", (), {"status_bar": None})()
+            dummy: ToolsView = cast(
+                ToolsView, type("Dummy", (), {"app": dummy_app})()
+            )
 
             ToolsView._exe_inspector(dummy)
 

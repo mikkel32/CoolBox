@@ -1,9 +1,18 @@
+from __future__ import annotations
+
 from queue import Queue
-from src.utils.process_monitor import ProcessWatcher
+
+from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+
+Snapshot = tuple[dict[int, ProcessEntry], set[int], float]
+
+
+def make_queue() -> Queue[Snapshot]:
+    return Queue[Snapshot]()
 
 
 def test_process_watcher_alert_defaults():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q)
     assert watcher.cpu_alert == 80.0
     assert watcher.mem_alert == 500.0
@@ -11,7 +20,7 @@ def test_process_watcher_alert_defaults():
 
 
 def test_process_watcher_alert_custom():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, cpu_alert=70.0, mem_alert=400.0)
     assert watcher.cpu_alert == 70.0
     assert watcher.mem_alert == 400.0
@@ -19,7 +28,7 @@ def test_process_watcher_alert_custom():
 
 
 def test_process_watcher_batch_size():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, batch_size=25)
     try:
         assert watcher.batch_size == 25
@@ -44,7 +53,7 @@ def test_next_batch(monkeypatch):
     monkeypatch.setattr("psutil.pids", fake_pids)
     monkeypatch.setattr("psutil.process_iter", fake_iter)
 
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, batch_size=3)
     try:
         batch, end = watcher._next_batch([])
@@ -58,7 +67,7 @@ def test_next_batch(monkeypatch):
 
 
 def test_update_batch_size():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, batch_size=50, auto_batch=True, min_batch_size=20, max_batch_size=100)
     try:
         watcher._cycle_elapsed = watcher.target_interval * 2
@@ -73,7 +82,7 @@ def test_update_batch_size():
 
 
 def test_update_batch_size_activity():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, batch_size=50, auto_batch=True, min_batch_size=20, max_batch_size=100)
     try:
         watcher.process_count = 10
@@ -87,7 +96,7 @@ def test_update_batch_size_activity():
 
 
 def test_finish_cycle_metrics():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, batch_size=50)
     try:
         watcher.process_count = 10
@@ -101,7 +110,7 @@ def test_finish_cycle_metrics():
 
 
 def test_average_metrics():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, batch_size=40)
     try:
         watcher.process_count = 10
@@ -120,7 +129,7 @@ def test_average_metrics():
 
 
 def test_interval_bounds():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, interval=5.0, min_interval=1.0, max_interval=3.0)
     try:
         assert watcher.interval == 3.0
@@ -132,7 +141,7 @@ def test_interval_bounds():
 
 
 def test_average_interval():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, interval=1.5)
     try:
         watcher._cycle_elapsed = 0.1
@@ -150,7 +159,7 @@ def test_auto_interval_env(monkeypatch):
     import importlib
     import src.utils.process_monitor as pm
     importlib.reload(pm)
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = pm.ProcessWatcher(q)
     try:
         assert watcher.adaptive is False
@@ -159,7 +168,7 @@ def test_auto_interval_env(monkeypatch):
 
 
 def test_resize_executor(monkeypatch):
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, max_workers=2, min_workers=2, max_worker_limit=8)
     try:
         watcher.process_count = 20
@@ -179,7 +188,7 @@ def test_min_workers_env(monkeypatch):
     import importlib
     import src.utils.process_monitor as pm
     importlib.reload(pm)
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = pm.ProcessWatcher(q)
     try:
         assert watcher.min_workers == 3
@@ -188,7 +197,7 @@ def test_min_workers_env(monkeypatch):
 
 
 def test_ignore_names_check():
-    q: Queue[tuple[dict[int, object], set[int], float]] = Queue()
+    q = make_queue()
     watcher = ProcessWatcher(q, ignore_names={"bash"})
     try:
         assert watcher._should_ignore_process("bash") is True

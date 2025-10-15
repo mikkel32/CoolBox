@@ -10,6 +10,7 @@ from src.app import CoolBoxApp  # noqa: E402
 from src.views.security_dialog import SecurityDialog  # noqa: E402
 from src.utils import security  # noqa: E402
 import tkinter as tk
+from typing import cast
 
 
 def main() -> None:
@@ -20,7 +21,7 @@ def main() -> None:
     app = CoolBoxApp()
     app.window.withdraw()
     top = tk.Toplevel(app.window)
-    SecurityDialog(top)
+    SecurityDialog(cast("tk.Misc", top))
     top.protocol("WM_DELETE_WINDOW", app.window.destroy)
     app.window.mainloop()
 

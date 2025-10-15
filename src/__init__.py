@@ -3,6 +3,8 @@
 __version__ = "1.3.76"
 
 import os
+from types import ModuleType
+from typing import TYPE_CHECKING
 
 # NumPy 2.0 deprecates ``row_stack`` and emits a warning each time it is
 # used.  Matplotlib still calls this alias internally, so we replace it with
@@ -15,19 +17,23 @@ try:  # pragma: no cover - optional dependency
 except Exception:
     pass
 
-if not os.environ.get("COOLBOX_LIGHTWEIGHT"):
+if TYPE_CHECKING:  # pragma: no cover - import real symbols for type checking
+    from .app import CoolBoxApp
+    from .ensure_deps import ensure_customtkinter
+elif not os.environ.get("COOLBOX_LIGHTWEIGHT"):
     from .app import CoolBoxApp  # noqa: F401
     from .ensure_deps import ensure_customtkinter  # noqa: F401
-
-    __all__ = ["CoolBoxApp", "ensure_customtkinter"]
 else:  # pragma: no cover - lightweight testing stubs
+
     class CoolBoxApp:
-        """Minimal stub used when UI deps are unavailable."""
+        """Minimal stub used when UI dependencies are unavailable."""
 
         def run(self) -> None:
-            pass
+            """No-op run method used for lightweight testing."""
 
-    def ensure_customtkinter() -> None:
-        return None
+    def ensure_customtkinter(version: str = "5.2.2") -> ModuleType:
+        """Placeholder that raises when the real dependency is missing."""
 
-    __all__ = ["CoolBoxApp", "ensure_customtkinter"]
+        raise RuntimeError("customtkinter is unavailable in lightweight mode")
+
+__all__ = ["CoolBoxApp", "ensure_customtkinter"]

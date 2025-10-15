@@ -7,7 +7,7 @@ import datetime
 import platform
 import sys
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, TYPE_CHECKING, Literal, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -17,11 +17,10 @@ from rich.table import Table  # noqa: E402
 from rich.prompt import Prompt  # noqa: E402
 from rich.panel import Panel  # noqa: E402
 from rich.text import Text  # noqa: E402
-from typing import Any
 import shlex
 
-try:  # pragma: no cover - optional dependency
-    from textual.app import App, ComposeResult  # type: ignore
+if TYPE_CHECKING:  # pragma: no cover - used only for static typing
+    from textual.app import App, ComposeResult
     from textual.widgets import (
         DataTable,
         Header,
@@ -31,11 +30,46 @@ try:  # pragma: no cover - optional dependency
         Input,
     )
     from textual.containers import Container
-
     TEXTUAL_AVAILABLE = True
-except ModuleNotFoundError:  # pragma: no cover - textual is optional
-    App = ComposeResult = DataTable = Header = Footer = TabPane = TabbedContent = Input = Container = Any  # type: ignore
-    TEXTUAL_AVAILABLE = False
+else:  # pragma: no cover - textual is optional
+    try:
+        from textual.app import App, ComposeResult  # type: ignore
+        from textual.widgets import (
+            DataTable,
+            Header,
+            Footer,
+            TabPane,
+            TabbedContent,
+            Input,
+        )
+        from textual.containers import Container
+
+        TEXTUAL_AVAILABLE = True
+    except ModuleNotFoundError:
+        TEXTUAL_AVAILABLE = False
+
+        class _StubWidget:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.args = args
+                self.kwargs = kwargs
+
+
+        class _StubApp:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.args = args
+                self.kwargs = kwargs
+
+            def run(self, *args: Any, **kwargs: Any) -> None:
+                raise RuntimeError("Textual is not installed")
+
+
+        class _StubComposeResult:
+            pass
+
+
+        App = _StubApp  # type: ignore[assignment]
+        ComposeResult = _StubComposeResult  # type: ignore[assignment]
+        DataTable = Header = Footer = TabPane = TabbedContent = Input = Container = _StubWidget  # type: ignore[assignment]
 import psutil  # noqa: E402
 
 from src.utils.hash_utils import calc_hash  # noqa: E402
@@ -64,6 +98,29 @@ LIB_EXT = {
 HASHCALC_LIB_DEFAULT = Path(__file__).with_name("hash_calc" + LIB_EXT)
 HASHCALC_SRC = Path(__file__).with_name("hash_calc.cpp")
 _HASH_LIB = None
+
+HashAlgorithm = Literal["md5", "sha1", "sha256"]
+_HASH_ALGORITHMS: tuple[HashAlgorithm, ...] = ("md5", "sha1", "sha256")
+
+
+def _normalize_algorithms(raw: Sequence[str]) -> list[HashAlgorithm]:
+    """Return the valid hash algorithms from *raw* in CLI order.
+
+    Invalid names are ignored so the CLI can continue running while still
+    honouring the user's intent for recognised algorithms. If no valid names
+    remain we default to the safer ``sha256`` digest.
+    """
+
+    selected: list[HashAlgorithm] = []
+    for entry in raw:
+        algo = entry.strip().lower()
+        if not algo:
+            continue
+        if algo in _HASH_ALGORITHMS:
+            selected.append(cast(HashAlgorithm, algo))
+    if not selected:
+        selected.append("sha256")
+    return selected
 
 
 def _cxx() -> str | None:
@@ -215,7 +272,7 @@ def _load_hash_lib() -> ctypes.CDLL | None:
         return None
 
 
-def _calc_hash_cpp(path: Path, algo: str) -> str | None:
+def _calc_hash_cpp(path: Path, algo: HashAlgorithm) -> str | None:
     """Return hash using the C++ helper if available."""
     lib = _load_hash_lib()
     if lib:
@@ -229,7 +286,7 @@ def _calc_hash_cpp(path: Path, algo: str) -> str | None:
     return out.strip() if out else None
 
 
-def _calc_hash_smart(path: Path, algo: str = "sha256") -> str:
+def _calc_hash_smart(path: Path, algo: HashAlgorithm = "sha256") -> str:
     """Return hash of *path* using *algo* with several fallbacks."""
     cpp = _calc_hash_cpp(path, algo)
     if cpp:
@@ -279,7 +336,7 @@ def _powershell(cmd: str) -> str | None:
     )
 
 
-def _windows_details(path: Path, algos: Sequence[str]) -> Dict[str, str]:
+def _windows_details(path: Path, algos: Sequence[HashAlgorithm]) -> Dict[str, str]:
     details: Dict[str, str] = {}
     for algo in algos:
         details[algo.upper()] = _calc_hash_smart(path, algo)
@@ -298,7 +355,7 @@ def _windows_details(path: Path, algos: Sequence[str]) -> Dict[str, str]:
     return details
 
 
-def _unix_details(path: Path, algos: Sequence[str]) -> Dict[str, str]:
+def _unix_details(path: Path, algos: Sequence[HashAlgorithm]) -> Dict[str, str]:
     details: Dict[str, str] = {}
     for algo in algos:
         details[algo.upper()] = _calc_hash_smart(path, algo)
@@ -558,7 +615,9 @@ def _file_entropy(path: Path, *, sample_size: int = 1_000_000) -> float | None:
     return round(entropy, 3)
 
 
-def gather_info(path: Path, *, algos: Sequence[str] = ("sha256",)) -> Dict[str, str]:
+def gather_info(
+    path: Path, *, algos: Sequence[HashAlgorithm] = ("sha256",)
+) -> Dict[str, str]:
     info: Dict[str, str] = {
         "Path": str(path),
         "Absolute": str(path.resolve(strict=False)),
@@ -781,13 +840,17 @@ class InspectorApp(App):
         self.filter_input = Input(placeholder="Filter strings", id="filter-input")
         self.filter_input.display = False
 
-        tabs = TabbedContent(
-            TabPane(self.info_table, id="info", title="Info"),
-            TabPane(self.procs_table, id="procs", title="Processes"),
-            TabPane(self.port_table, id="ports", title="Ports"),
-            TabPane(self.strings_table, id="strings", title="Strings"),
-            TabPane(self.cmd_table, id="shell", title="Shell"),
+        panes: tuple[TabPane, ...] = (
+            TabPane("Info", self.info_table, id="info"),
+            TabPane("Processes", self.procs_table, id="procs"),
+            TabPane("Ports", self.port_table, id="ports"),
+            TabPane("Strings", self.strings_table, id="strings"),
+            TabPane("Shell", self.cmd_table, id="shell"),
         )
+        titles = ("Info", "Processes", "Ports", "Strings", "Shell")
+        tabs = TabbedContent(*titles, id="tabs")
+        tab_content = cast("list[TabPane]", tabs._tab_content)
+        tab_content.extend(panes)
         yield Container(tabs, id="body")
         yield self.filter_input
         yield self.cmd_input
@@ -904,12 +967,14 @@ def main(argv: List[str] | None = None) -> None:
     exe_path = Path(exe_arg).expanduser()
 
     if args.admin and not is_admin():
-        if not ensure_admin(
-            "Administrator access is required for process and port information."
-        ):
+        if not ensure_admin():
+            print(
+                "Administrator access is required for process and port information.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
-    algos = [a.strip().lower() for a in args.hashes.split(",") if a.strip()]
+    algos = _normalize_algorithms(args.hashes.split(","))
     info = gather_info(exe_path, algos=algos)
     procs = _processes_for(exe_path) if exe_path.exists() else []
     ports = _ports_for([p.pid for p in procs]) if procs else {}

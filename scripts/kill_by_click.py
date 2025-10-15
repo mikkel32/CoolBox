@@ -4,7 +4,17 @@
 import argparse
 import sys
 import tkinter as tk
+from typing import Protocol, runtime_checkable, cast
+
 from src.views.click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
+
+
+@runtime_checkable
+class _OverlayChooser(Protocol):
+    """Simple protocol implemented by overlay backends that can select a window."""
+
+    def choose(self) -> tuple[int | None, str | None]:
+        ...
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -77,7 +87,8 @@ def main(argv: list[str] | None = None) -> None:
         kwargs["delay_scale"] = args.delay_scale
     try:
         overlay = ClickOverlay(root, **kwargs)
-        pid, title = overlay.choose()
+        chooser = cast(_OverlayChooser, overlay)
+        pid, title = chooser.choose()
         if pid is None:
             print("No window selected")
         else:
