@@ -567,10 +567,7 @@ def _patch_asyncio() -> None:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            try:
-                loop = asyncio.get_event_loop()
-            except Exception:
-                loop = None
+            loop = None
         if loop is not None:
             _install_asyncio_on_loop(loop)
     except Exception:

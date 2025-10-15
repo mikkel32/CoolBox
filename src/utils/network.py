@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import math
 import os
 import socket
+import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 import shutil
@@ -22,11 +25,8 @@ from typing import (
     TypeVar,
 )
 import platform
-from .process_utils import (
-    run_command as _run_cmd,
-    run_command_ex as _run_ex,
-    run_command_async_ex as _run_async_ex,
-)
+from .process_utils import run_command as _run_cmd
+from .win_console import hidden_creation_flags
 import time
 import ipaddress
 try:
@@ -55,6 +55,8 @@ _DEFAULT_PING_CONCURRENCY = int(
     os.environ.get("PING_WORKERS", _DEFAULT_CONCURRENCY)
 )
 _PING_CACHE_TTL = float(os.environ.get("PING_CACHE_TTL", 30.0))
+_PING_PROCESS_GRACE = float(os.environ.get("PING_PROCESS_GRACE", 1.5))
+_PING_KILL_GRACE = float(os.environ.get("PING_KILL_GRACE", 0.5))
 
 # Optional OUI database used for MAC vendor lookups
 _OUI_FILE = Path(
@@ -498,8 +500,12 @@ def _refresh_arp_cache(force: bool = False) -> None:
         if shutil.which("ip"):
             output = _run(["ip", "neighbor"], capture=True, timeout=2)
             if output is None:
+                if force:
+                    clear_arp_cache()
                 return
         else:
+            if force:
+                clear_arp_cache()
             return
 
     table: dict[str, str] = {}
@@ -1084,7 +1090,7 @@ def detect_local_hosts(
                         break
 
     if include_arp:
-        _refresh_arp_cache()
+        _refresh_arp_cache(force=not use_cache)
         hosts.extend(ip for ip in _ARP_CACHE_DATA if ip not in hosts)
 
     hosts = sorted(set(hosts))
@@ -1128,15 +1134,111 @@ async def async_detect_local_hosts(
     )
 
 
-def _ping_host(host: str, timeout: float = 1.0) -> bool:
-    """Return ``True`` if ``host`` responds to ping within ``timeout`` seconds."""
+def _build_ping_command(host: str, timeout: float) -> tuple[list[str], float]:
+    """Return a ping command and execution timeout tailored to the platform."""
+
+    timeout = max(timeout, 0.1)
     system = platform.system().lower()
     if system == "windows":
-        cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host]
+        wait_ms = max(1, int(round(timeout * 1000)))
+        cmd = ["ping", "-n", "1", "-w", str(wait_ms), host]
+        effective = wait_ms / 1000.0
     else:
-        cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
-    out, code = _run_ex(cmd, timeout=timeout + 1, check=False)
-    return code == 0 if code is not None else False
+        wait_s = max(1, int(math.ceil(timeout)))
+        cmd = ["ping", "-c", "1", "-W", str(wait_s), host]
+        effective = float(wait_s)
+    proc_timeout = max(effective + _PING_PROCESS_GRACE, timeout + _PING_PROCESS_GRACE, 2.0)
+    return cmd, proc_timeout
+
+
+def _run_ping_sync(
+    cmd: list[str],
+    *,
+    timeout: float,
+    capture: bool = False,
+) -> tuple[str, int | None]:
+    """Execute a ping command synchronously without spamming error logs."""
+
+    stdout = subprocess.PIPE if capture else subprocess.DEVNULL
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=stdout,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            check=False,
+            text=True,
+            creationflags=hidden_creation_flags(detach=False),
+        )
+        return (proc.stdout if capture else ""), proc.returncode
+    except subprocess.TimeoutExpired:
+        return "", None
+    except OSError:
+        return "", None
+
+
+async def _run_ping_async(
+    cmd: list[str],
+    *,
+    timeout: float,
+    capture: bool = False,
+) -> tuple[str, int | None]:
+    """Execute a ping command asynchronously with graceful timeout handling."""
+
+    stdout = asyncio.subprocess.PIPE if capture else asyncio.subprocess.DEVNULL
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=stdout,
+            stderr=asyncio.subprocess.DEVNULL,
+            creationflags=hidden_creation_flags(detach=False),
+        )
+    except OSError:
+        return "", None
+
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(proc.communicate(), _PING_KILL_GRACE)
+        return "", None
+
+    if capture and out:
+        return out.decode(errors="replace"), proc.returncode
+    return "", proc.returncode
+
+
+def _run_ex(
+    cmd: list[str],
+    *,
+    timeout: float,
+    capture: bool = False,
+    **_kwargs: object,
+) -> tuple[str, int | None]:
+    """Compatibility wrapper used by tests to stub ping execution."""
+
+    return _run_ping_sync(cmd, timeout=timeout, capture=capture)
+
+
+async def _run_async_ex(
+    cmd: list[str],
+    *,
+    timeout: float,
+    capture: bool = False,
+    **_kwargs: object,
+) -> tuple[str, int | None]:
+    """Async compatibility wrapper mirroring :func:`_run_ex`."""
+
+    return await _run_ping_async(cmd, timeout=timeout, capture=capture)
+
+
+def _ping_host(host: str, timeout: float = 1.0) -> bool:
+    """Return ``True`` if ``host`` responds to ping within ``timeout`` seconds."""
+
+    cmd, proc_timeout = _build_ping_command(host, timeout)
+    _out, code = _run_ex(cmd, timeout=proc_timeout, capture=False)
+    return bool(code == 0)
 
 
 async def _async_ping_host(
@@ -1159,40 +1261,24 @@ async def _async_ping_host(
             return ok, lat_val
         return ok
 
-    system = platform.system().lower()
-    if system == "windows":
-        cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), host]
-    else:
-        cmd = ["ping", "-c", "1", "-W", str(int(timeout)), host]
-    try:
-        start_ts = time.perf_counter() if return_latency else 0.0
-        out, code = await _run_async_ex(
-            cmd,
-            capture=return_ttl,
-            timeout=timeout + 1,
-            check=False,
-        )
-        ok = code == 0 if code is not None else False
-        latency_val = time.perf_counter() - start_ts if return_latency else None
-        ttl_val = None
-        if return_ttl and ok and out:
-            ttl_val = _extract_ttl_from_ping(out)
-        _PING_CACHE[host] = (ok, ttl_val, latency_val, time.time())
-        if return_ttl and return_latency:
-            return ok, ttl_val, latency_val
-        if return_ttl:
-            return ok, ttl_val
-        if return_latency:
-            return ok, latency_val
-        return ok
-    except Exception:
-        if return_ttl and return_latency:
-            return False, None, None
-        if return_ttl:
-            return False, None
-        if return_latency:
-            return False, None
-        return False
+    cmd, proc_timeout = _build_ping_command(host, timeout)
+    start_ts = time.perf_counter() if return_latency else 0.0
+    out, code = await _run_async_ex(cmd, timeout=proc_timeout, capture=return_ttl)
+    ok = isinstance(code, int) and code == 0
+    latency_val = None
+    if return_latency and ok:
+        latency_val = time.perf_counter() - start_ts
+    ttl_val = None
+    if return_ttl and ok and out:
+        ttl_val = _extract_ttl_from_ping(out)
+    _PING_CACHE[host] = (ok, ttl_val, latency_val, time.time())
+    if return_ttl and return_latency:
+        return ok, ttl_val, latency_val
+    if return_ttl:
+        return ok, ttl_val
+    if return_latency:
+        return ok, latency_val
+    return ok
 
 
 async def async_filter_active_hosts(
