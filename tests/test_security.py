@@ -36,7 +36,8 @@ def test_set_firewall_enabled_windows(monkeypatch):
         return security.RunResult(0, "State ON\nState ON", "")
 
     monkeypatch.setattr(security, "_run", fake_run)
-    assert security.set_firewall_enabled(True) is True
+    res = security.set_firewall_enabled(True)
+    assert res.success is True
     assert cmds[0] == ["netsh", "advfirewall", "set", "allprofiles", "state", "on"]
 
 
@@ -56,7 +57,9 @@ def test_set_defender_realtime(monkeypatch):
         "get_defender_status",
         lambda: security.DefenderStatus("RUNNING", True, True, True, True),
     )
-    assert security.set_defender_realtime(True) is True
+    monkeypatch.setattr(security, "detect_defender_blockers", lambda: ())
+    res = security.set_defender_realtime(True)
+    assert res.success is True
     assert "DisableRealtimeMonitoring False" in scripts[0]
 
 

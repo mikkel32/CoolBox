@@ -179,18 +179,28 @@ def _policy_lock_present() -> bool:
 
 
 def _third_party_firewall_present() -> bool:
-    # SecurityCenter2\FirewallProduct reports registered non-MS firewalls
+    return bool(third_party_firewall_names())
+
+
+def third_party_firewall_names() -> tuple[str, ...]:
+    """Return the registered third-party firewalls reported by SecurityCenter2."""
+
     ps = (
         "($p=Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct -EA SilentlyContinue) | "
         "Where-Object { $_.displayName -ne $null -and $_.displayName -notlike '*Windows*' } | "
-        "Measure-Object | % Count"
+        "Select-Object -ExpandProperty displayName"
     )
     out, rc = _ps(ps)
-    try:
-        n = int(out.strip().splitlines()[-1])
-    except Exception:
-        n = 0 if rc != 0 else 0
-    return n > 0
+    if rc != 0 or not out:
+        return ()
+    names = []
+    for line in out.splitlines():
+        name = line.strip()
+        if not name:
+            continue
+        names.append(name)
+    # Preserve order but drop duplicates
+    return tuple(dict.fromkeys(names))
 
 
 def _netsh_state_all() -> Tuple[Optional[bool], Optional[bool], Optional[bool], Optional[str]]:
@@ -248,6 +258,7 @@ class FirewallStatus:
     third_party_firewall: bool
     services_error: Optional[str] = None
     error: Optional[str] = None
+    third_party_names: tuple[str, ...] = ()
 
 
 def is_firewall_supported() -> bool:
@@ -265,7 +276,18 @@ def is_firewall_enabled() -> Optional[bool]:
 
 def get_firewall_status() -> FirewallStatus:
     if platform.system() != "Windows":
-        return FirewallStatus(None, None, None, False, False, False, False, None, "Not Windows")
+        return FirewallStatus(
+            None,
+            None,
+            None,
+            False,
+            False,
+            False,
+            False,
+            None,
+            "Not Windows",
+            (),
+        )
     d, p, u, err = _get_profile_states()
     svc_ok, svc_err = _services_ok()
     return FirewallStatus(
@@ -278,6 +300,7 @@ def get_firewall_status() -> FirewallStatus:
         third_party_firewall=_third_party_firewall_present(),
         services_error=svc_err,
         error=err or svc_err,
+        third_party_names=third_party_firewall_names(),
     )
 
 

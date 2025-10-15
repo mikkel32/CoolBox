@@ -184,16 +184,27 @@ def _tamper_on() -> Optional[bool]:
 
 
 def _third_party_av_present() -> bool:
+    return bool(third_party_av_names())
+
+
+def third_party_av_names() -> tuple[str, ...]:
+    """Return registered non-Defender antivirus products."""
+
     ps = (
         "($p=Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -EA SilentlyContinue) | "
         "Where-Object { $_.displayName -ne $null -and $_.displayName -notlike '*Defender*' } | "
-        "Measure-Object | % Count"
+        "Select-Object -ExpandProperty displayName"
     )
     out, rc = _ps(ps)
-    try:
-        return int(out.strip().splitlines()[-1]) > 0 if rc == 0 else False
-    except Exception:
-        return False
+    if rc != 0 or not out:
+        return ()
+    names = []
+    for line in out.splitlines():
+        name = line.strip()
+        if not name:
+            continue
+        names.append(name)
+    return tuple(dict.fromkeys(names))
 
 
 def _policy_lock_present() -> bool:
@@ -217,11 +228,22 @@ class DefenderStatus:
     policy_lock: bool
     services_error: Optional[str] = None
     error: Optional[str] = None
+    third_party_names: tuple[str, ...] = ()
 
 
 def get_defender_status() -> DefenderStatus:
     if platform.system() != "Windows":
-        return DefenderStatus(None, None, False, False, False, False, None, "Not Windows")
+        return DefenderStatus(
+            None,
+            None,
+            False,
+            False,
+            False,
+            False,
+            None,
+            "Not Windows",
+            (),
+        )
     rt, err_rt = _is_defender_enabled_raw()
     tp, err_tp = _tamper_on_raw()
     svc_ok, svc_err = _defender_services_ok()
@@ -235,6 +257,7 @@ def get_defender_status() -> DefenderStatus:
         policy_lock=_policy_lock_present(),
         services_error=svc_err,
         error=err,
+        third_party_names=third_party_av_names(),
     )
 
 # ------------------------------- toggling -----------------------------------

@@ -7,15 +7,84 @@ No PowerShell popups; work is done via utils with hidden windows.
 
 from __future__ import annotations
 
+import sys
 import threading
+import traceback
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
-from typing import Callable, Type, cast
+from typing import Callable, Type, TypeVar, cast
 
 from src.utils import security
 from .firewall_dialog import FirewallDialog
 from .defender_dialog import DefenderDialog
+
+
+T = TypeVar("T")
+
+
+class _AsyncDispatcher:
+    """Coordinate background work and marshal results onto the UI thread."""
+
+    def __init__(self, widget: tk.Misc):
+        self._widget = widget
+        self._lock = threading.Lock()
+        self._tokens: dict[str, object] = {}
+
+    def submit(
+        self,
+        key: str,
+        func: Callable[[], T],
+        on_success: Callable[[T], None],
+        on_error: Callable[[BaseException, str], None] | None = None,
+    ) -> None:
+        token = object()
+        with self._lock:
+            self._tokens[key] = token
+
+        def worker() -> None:
+            try:
+                result = func()
+            except Exception as exc:  # pragma: no cover - defensive path
+                trace = traceback.format_exc()
+                self._schedule(lambda: self._deliver_error(key, token, exc, trace, on_error))
+            else:
+                self._schedule(lambda: self._deliver_success(key, token, result, on_success))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _schedule(self, callback: Callable[[], None]) -> None:
+        try:
+            self._widget.after(0, callback)
+        except tk.TclError:  # pragma: no cover - UI already destroyed
+            pass
+
+    def _pop_token(self, key: str, token: object) -> bool:
+        with self._lock:
+            current = self._tokens.get(key)
+            if current is not token:
+                return False
+            self._tokens.pop(key, None)
+            return True
+
+    def _deliver_success(
+        self, key: str, token: object, result: T, on_success: Callable[[T], None]
+    ) -> None:
+        if self._pop_token(key, token):
+            on_success(result)
+
+    def _deliver_error(
+        self,
+        key: str,
+        token: object,
+        exc: BaseException,
+        trace: str,
+        on_error: Callable[[BaseException, str], None] | None,
+    ) -> None:
+        if not self._pop_token(key, token):
+            return
+        if on_error is not None:
+            on_error(exc, trace)
 
 
 class SecurityDialog(ttk.Frame):
@@ -31,6 +100,7 @@ class SecurityDialog(ttk.Frame):
 
         self._fw_var = tk.BooleanVar(value=False)
         self._rt_var = tk.BooleanVar(value=False)
+        self._dispatcher = _AsyncDispatcher(self)
 
         # Track dialogs opened from the "+" buttons so they can be
         # positioned near the main window on any available side.
@@ -83,6 +153,15 @@ class SecurityDialog(ttk.Frame):
         self._refresh_btn = ttk.Button(self, text="Refresh", command=self.refresh_async)
         self._refresh_btn.grid(row=3, column=1, sticky="e", pady=(12, 0))
 
+        self._report_var = tk.StringVar(value="No activity yet.")
+        self._report_lbl = ttk.Label(
+            self,
+            textvariable=self._report_var,
+            wraplength=440,
+            style="Warn.TLabel",
+        )
+        self._report_lbl.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+
         self.grid(sticky="nsew")
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
@@ -95,35 +174,48 @@ class SecurityDialog(ttk.Frame):
     def _on_fw_toggle(self):
         target = bool(self._fw_var.get())
         self._disable_inputs()
-        threading.Thread(target=self._apply_firewall, args=(target,), daemon=True).start()
+        self._dispatcher.submit(
+            "fw",
+            lambda: self._apply_firewall(target),
+            lambda ok: self._post_apply("fw", ok),
+            lambda exc, trace: self._handle_async_failure("firewall", exc, trace),
+        )
 
     def _on_rt_toggle(self):
         target = bool(self._rt_var.get())
         self._disable_inputs()
-        threading.Thread(target=self._apply_realtime, args=(target,), daemon=True).start()
+        self._dispatcher.submit(
+            "rt",
+            lambda: self._apply_realtime(target),
+            lambda ok: self._post_apply("rt", ok),
+            lambda exc, trace: self._handle_async_failure("Defender", exc, trace),
+        )
 
     # ------------------------------ Workers --------------------------------
 
-    def _apply_firewall(self, enabled: bool):
-        ok = security.set_firewall_enabled(enabled)
-        self.after(0, lambda: self._post_apply("fw", ok))
+    def _apply_firewall(self, enabled: bool) -> security.ActionOutcome:
+        return security.set_firewall_enabled(enabled)
 
-    def _apply_realtime(self, enabled: bool):
+    def _apply_realtime(self, enabled: bool) -> security.ActionOutcome:
         # Use composite helper so enabling ensures service + realtime.
-        ok = (
+        return (
             security.set_defender_enabled(enabled)
             if enabled
             else security.set_defender_realtime(False)
         )
-        self.after(0, lambda: self._post_apply("rt", ok))
 
-    def _post_apply(self, kind: str, ok: bool):
-        if not ok:
-            messagebox.showerror(
-                "Operation failed",
-                "The requested change could not be applied.\n"
-                "Ensure you are running as Administrator and that policy does not block it.",
-            )
+    def _post_apply(self, kind: str, outcome: security.ActionOutcome):
+        action = self._friendly_action(kind)
+        if outcome.success:
+            detail = outcome.detail or f"{action} completed successfully."
+            self._update_report(detail, success=True)
+        else:
+            actors = ", ".join(outcome.blockers) if outcome.blockers else "unknown forces"
+            message = f"{action} was blocked by {actors}."
+            if outcome.detail:
+                message = f"{message} Details: {outcome.detail}"
+            self._update_report(message, success=False)
+            messagebox.showerror("Operation blocked", message)
         self.refresh_async()
 
     # --------------------------- Subdialogs --------------------------------
@@ -163,26 +255,33 @@ class SecurityDialog(ttk.Frame):
 
     def refresh_async(self):
         self._disable_inputs()
-        threading.Thread(target=self._refresh, daemon=True).start()
+        self._dispatcher.submit(
+            "refresh",
+            security.get_security_snapshot,
+            self._set_states,
+            lambda exc, trace: self._handle_async_failure("refresh", exc, trace),
+        )
 
-    def _refresh(self):
-        admin = security.is_admin()
-        fw = security.is_firewall_enabled()
-        ds = security.get_defender_status()
-        self.after(0, lambda: self._set_states(admin, fw, ds))
+    def _set_states(self, snapshot: security.SecuritySnapshot):
+        admin = snapshot.admin
+        fw_enabled = snapshot.firewall_enabled
+        ds = snapshot.defender
 
-    def _set_states(self, admin: bool, fw_enabled: bool | None, ds: security.DefenderStatus):
         self._admin_lbl.config(text=f"Admin: {'Yes' if admin else 'No'}")
 
         if fw_enabled is None:
             self._fw_var.set(False)
-            self._fw_status.config(text="Status: unknown", style="Warn.TLabel")
+            txt = "Status: unknown"
+            style = "Warn.TLabel"
         else:
             self._fw_var.set(bool(fw_enabled))
-            self._fw_status.config(
-                text=f"Status: {'Enabled' if fw_enabled else 'Disabled'}",
-                style="Good.TLabel" if fw_enabled else "Bad.TLabel",
-            )
+            state_txt = "Enabled" if fw_enabled else "Disabled"
+            txt = f"Status: {state_txt}"
+            style = "Good.TLabel" if fw_enabled else "Bad.TLabel"
+        if snapshot.firewall_blockers:
+            txt += " | Block: " + ", ".join(snapshot.firewall_blockers)
+            style = "Bad.TLabel"
+        self._fw_status.config(text=txt, style=style)
 
         rt = ds.realtime_enabled
         svc = ds.service_state or "UNKNOWN"
@@ -195,6 +294,8 @@ class SecurityDialog(ttk.Frame):
         rt_txt.append(f"SVC: {svc}")
         if tamper is not None:
             rt_txt.append(f"TP: {'on' if tamper else 'off'}")
+        if ds.blockers:
+            rt_txt.append("Block: " + ", ".join(ds.blockers))
         self._rt_status.config(
             text="Status: " + " | ".join(rt_txt),
             style=(
@@ -204,6 +305,30 @@ class SecurityDialog(ttk.Frame):
         self._rt_var.set(bool(rt) if rt is not None else False)
 
         self._enable_inputs(admin)
+
+    def _handle_async_failure(self, label: str, exc: BaseException, trace: str) -> None:
+        print(trace, file=sys.stderr)
+        msg = (
+            f"An unexpected error occurred while processing {label} actions."
+            " Check logs for details."
+        )
+        self._update_report(msg, success=False)
+        messagebox.showerror("Security Center", msg)
+        self._enable_inputs(False)
+
+    def _update_report(self, text: str, *, success: bool) -> None:
+        prefix = "Last action: "
+        self._report_var.set(prefix + text)
+        self._report_lbl.configure(style="Good.TLabel" if success else "Bad.TLabel")
+
+    @staticmethod
+    def _friendly_action(kind: str) -> str:
+        mapping = {
+            "fw": "Firewall toggle",
+            "rt": "Defender realtime toggle",
+            "refresh": "Refresh",
+        }
+        return mapping.get(kind, kind.capitalize())
 
     # ------------------------------ UI state --------------------------------
 
