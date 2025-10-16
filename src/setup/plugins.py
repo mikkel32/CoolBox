@@ -16,6 +16,21 @@ ENTRYPOINT_GROUP = "coolbox.setup"
 Validator = Callable[["SetupResult", "StageContext"], None]
 Reporter = Callable[[Sequence["SetupResult"], "StageContext"], None]
 ProgressColumnFactory = Callable[["StageContext"], Any]
+RemediationAction = Callable[["StageContext", "SetupResult"], Optional["SetupResult"]]
+
+
+@dataclass
+class ValidatorDecision:
+    """Decision returned by continuous validators."""
+
+    name: str
+    reason: str
+    repairs: Sequence[RemediationAction] = ()
+    rollbacks: Sequence[RemediationAction] = ()
+    retry: bool = False
+
+
+ContinuousValidator = Callable[["SetupResult", "StageContext"], Optional[ValidatorDecision]]
 
 
 @runtime_checkable
@@ -86,6 +101,9 @@ class PluginRegistrar:
     def add_progress_column(self, factory: ProgressColumnFactory) -> None:
         self.manager.progress_columns.append(factory)
 
+    def add_continuous_validator(self, validator: ContinuousValidator) -> None:
+        self.manager.continuous_validators.append(validator)
+
 
 class PluginManager:
     """Load and manage setup plugins."""
@@ -95,6 +113,7 @@ class PluginManager:
         self.validators: list[Validator] = []
         self.reporters: list[Reporter] = []
         self.progress_columns: list[ProgressColumnFactory] = []
+        self.continuous_validators: list[ContinuousValidator] = []
 
     def load_entrypoints(self, orchestrator: "SetupOrchestrator", group: str = ENTRYPOINT_GROUP) -> None:
         """Discover plugins via entry points."""
@@ -129,6 +148,9 @@ class PluginManager:
 
     def iter_progress_columns(self) -> Iterable[ProgressColumnFactory]:
         return list(self.progress_columns)
+
+    def iter_continuous_validators(self) -> Iterable[ContinuousValidator]:
+        return list(self.continuous_validators)
 
     def dispatch_before_stage(self, stage: "SetupStage", context: "StageContext") -> None:
         for plugin in self.plugins:
@@ -178,5 +200,8 @@ __all__ = [
     "Validator",
     "Reporter",
     "ProgressColumnFactory",
+    "ContinuousValidator",
+    "ValidatorDecision",
+    "RemediationAction",
     "ENTRYPOINT_GROUP",
 ]

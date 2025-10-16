@@ -1,6 +1,7 @@
 """Core setup orchestrator implementation."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -8,7 +9,13 @@ import logging
 import time
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
 
-from .plugins import PluginManager, Validator
+from .plugins import (
+    PluginManager,
+    Validator,
+    ContinuousValidator,
+    ValidatorDecision,
+    RemediationAction,
+)
 from .recipes import Recipe
 
 
@@ -159,6 +166,17 @@ class SetupOrchestrator:
         self._last_recipe = recipe
 
         context = StageContext(root=self.root, recipe=recipe, orchestrator=self)
+        offline_flag = os.environ.get("_OFFLINE")
+        offline_enabled = False
+        if offline_flag is not None:
+            offline_enabled = offline_flag not in {"0", "false", "False", ""}
+            if offline_enabled:
+                os.environ["COOLBOX_OFFLINE"] = "1"
+            else:
+                os.environ.pop("COOLBOX_OFFLINE", None)
+        elif os.environ.get("COOLBOX_OFFLINE") == "1":
+            offline_enabled = True
+        context.set("setup.offline", offline_enabled)
         if load_plugins:
             self.plugin_manager.load_entrypoints(self)
         results: list[SetupResult] = []
@@ -207,46 +225,70 @@ class SetupOrchestrator:
                 context.results[task.name] = result
                 stage_results.append(result)
                 continue
-            run_attempts = self._attempts.get(task.name, 0) + 1
-            self._attempts[task.name] = run_attempts
-            self.plugin_manager.dispatch_before_task(task, context)
-            try:
-                raw = task.action(context)
-                if isinstance(raw, SetupResult):
-                    result = raw
-                    result.attempts = run_attempts
-                else:
-                    payload = dict(raw or {})
+            break_stage = False
+            while True:
+                run_attempts = self._attempts.get(task.name, 0) + 1
+                self._attempts[task.name] = run_attempts
+                self.plugin_manager.dispatch_before_task(task, context)
+                try:
+                    raw = task.action(context)
+                    if isinstance(raw, SetupResult):
+                        result = raw
+                        result.attempts = run_attempts
+                    else:
+                        payload = dict(raw or {})
+                        result = SetupResult(
+                            task=task.name,
+                            stage=stage,
+                            status=SetupStatus.SUCCESS,
+                            payload=payload,
+                            attempts=run_attempts,
+                        )
+                except Exception as exc:  # pragma: no cover - defensive
+                    self.plugin_manager.dispatch_error(task, exc, context)
                     result = SetupResult(
                         task=task.name,
                         stage=stage,
-                        status=SetupStatus.SUCCESS,
-                        payload=payload,
+                        status=SetupStatus.FAILED,
+                        payload={},
+                        error=exc,
                         attempts=run_attempts,
                     )
-            except Exception as exc:  # pragma: no cover - defensive
-                self.plugin_manager.dispatch_error(task, exc, context)
-                result = SetupResult(
-                    task=task.name,
-                    stage=stage,
-                    status=SetupStatus.FAILED,
-                    payload={},
-                    error=exc,
-                    attempts=run_attempts,
+                    if not task.allow_fail:
+                        self.logger.error(
+                            "Task %s failed during %s: %s", task.name, stage.value, exc
+                        )
+                finally:
+                    result.finished_at = time.time()
+                context.results[task.name] = result
+                stage_results.append(result)
+                self.plugin_manager.dispatch_after_task(result, context)
+                retry_requested = False
+                for validator in self._validators():
+                    try:
+                        validator(result, context)
+                    except Exception as exc:
+                        self.logger.warning("Validator error for %s: %s", task.name, exc)
+                retry_requested = (
+                    self._apply_continuous_validators(result, context, stage_results)
+                    or retry_requested
                 )
-                if not task.allow_fail:
-                    self.logger.error("Task %s failed during %s: %s", task.name, stage.value, exc)
-            finally:
-                result.finished_at = time.time()
-            context.results[task.name] = result
-            stage_results.append(result)
-            self.plugin_manager.dispatch_after_task(result, context)
-            for validator in self._validators():
-                try:
-                    validator(result, context)
-                except Exception as exc:
-                    self.logger.warning("Validator error for %s: %s", task.name, exc)
-            if result.status is SetupStatus.FAILED and not task.allow_fail:
+                if (
+                    retry_requested
+                    and result.status is SetupStatus.FAILED
+                    and not task.allow_fail
+                    and run_attempts < task.max_retries
+                ):
+                    self.logger.info(
+                        "Retrying task %s after remediation (attempt %s)",
+                        task.name,
+                        run_attempts + 1,
+                    )
+                    continue
+                if result.status is SetupStatus.FAILED and not task.allow_fail:
+                    break_stage = True
+                break
+            if break_stage:
                 break
         self.plugin_manager.dispatch_after_stage(stage, stage_results, context)
         for reporter in self.plugin_manager.iter_reporters():
@@ -259,6 +301,65 @@ class SetupOrchestrator:
 
     def _validators(self) -> Iterable[Validator]:
         return self.plugin_manager.iter_validators()
+
+    def _continuous_validators(self) -> Iterable[ContinuousValidator]:
+        return self.plugin_manager.iter_continuous_validators()
+
+    def _apply_continuous_validators(
+        self,
+        result: SetupResult,
+        context: StageContext,
+        stage_results: list[SetupResult],
+    ) -> bool:
+        retry_requested = False
+        for validator in self._continuous_validators():
+            try:
+                decision = validator(result, context)
+            except Exception as exc:  # pragma: no cover - defensive
+                self.logger.warning(
+                    "Continuous validator error for %s: %s", result.task, exc
+                )
+                continue
+            if not decision:
+                continue
+            self.logger.info(
+                "Continuous validator %s triggered remediation: %s",
+                decision.name,
+                decision.reason,
+            )
+            self._run_remediations(
+                decision.rollbacks, "rollback", decision, result, context, stage_results
+            )
+            self._run_remediations(
+                decision.repairs, "repair", decision, result, context, stage_results
+            )
+            retry_requested = retry_requested or decision.retry
+        return retry_requested
+
+    def _run_remediations(
+        self,
+        actions: Sequence[RemediationAction],
+        phase: str,
+        decision: ValidatorDecision,
+        result: SetupResult,
+        context: StageContext,
+        stage_results: list[SetupResult],
+    ) -> None:
+        for action in actions:
+            try:
+                remediation_result = action(context, result)
+            except Exception as exc:  # pragma: no cover - defensive
+                self.logger.error(
+                    "Remediation %s from validator %s failed: %s",
+                    phase,
+                    decision.name,
+                    exc,
+                )
+                continue
+            if isinstance(remediation_result, SetupResult):
+                remediation_result.finished_at = time.time()
+                context.results[remediation_result.task] = remediation_result
+                stage_results.append(remediation_result)
 
 
 __all__ = [

@@ -55,19 +55,25 @@ def test_pip_invokes_run(monkeypatch):
     assert run_calls and run_calls[0][:4] == [sys.executable, "-m", "pip", "install"]
 
 
-def test_pip_offline_skips(monkeypatch):
+def test_pip_offline_uses_cache(monkeypatch, tmp_path):
     monkeypatch.setenv("COOLBOX_OFFLINE", "1")
     importlib.reload(setup)
 
-    run_calls = []
+    run_calls: list[list[str]] = []
+    env_calls: list[dict | None] = []
 
-    def fake_run(cmd, **kw):
+    def fake_run(cmd, env=None, **kw):
         run_calls.append(cmd)
+        env_calls.append(env)
 
     monkeypatch.setattr(setup, "_run", fake_run)
+    monkeypatch.setattr(setup, "_available_wheel_links", lambda: [str(tmp_path)])
+
     setup._pip(["install", "pkg"], python=sys.executable)
 
-    assert run_calls == []
+    assert run_calls, "pip should still run in offline mode"
+    assert "--no-index" in run_calls[0]
+    assert env_calls[0]["PIP_NO_INDEX"] == "1"
 
 
 def test_cli_offline_flag(monkeypatch):

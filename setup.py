@@ -25,6 +25,8 @@ from typing import Sequence, Tuple, TYPE_CHECKING, TypeAlias
 from types import ModuleType
 import urllib.request
 
+from src.setup.run_summary import CommandRecord, RunSummaryPanelModel
+
 if TYPE_CHECKING:
     from rich.console import Console
     from rich.table import Table, Column
@@ -404,6 +406,30 @@ ROOT_DIR = get_root()
 REQUIREMENTS_FILE = ROOT_DIR / "requirements.txt"
 DEV_PACKAGES: Sequence[str] = ("pip-tools>=7", "build>=1", "wheel>=0.43", "pytest>=8")
 
+
+def _default_cache_root() -> Path:
+    env = os.environ.get("COOLBOX_CACHE")
+    if env:
+        return Path(env).expanduser().resolve()
+    try:
+        home = Path.home()
+    except Exception:
+        home = ROOT_DIR
+    return (home / ".coolbox" / "cache").resolve()
+
+
+CACHE_ROOT = _default_cache_root()
+
+
+def _cache_dir(name: str) -> Path:
+    path = CACHE_ROOT / name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+WHEEL_CACHE_ROOT = _cache_dir("wheels")
+STAMP_CACHE_ROOT = _cache_dir("stamps")
+
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 
 def log(msg: str) -> None:
@@ -441,29 +467,53 @@ def check_python_version(min_version: tuple[int, int] = (3, 8)) -> None:
         raise RuntimeError(msg)
 
 # ---------- summary ----------
-class RunSummary:
+class RunSummary(RunSummaryPanelModel):
+    """Rich-enabled summary that logs command diagnostics."""
+
     def __init__(self) -> None:
-        self.warnings: list[str] = []
-        self.errors: list[str] = []
-    def add_warning(self, msg: str) -> None:
-        self.warnings.append(msg); log(f"[yellow]WARN[/]: {msg}")
-    def add_error(self, msg: str) -> None:
-        self.errors.append(msg); log(f"[red]ERROR[/]: {msg}")
+        super().__init__()
+        self._logger = logging.getLogger("coolbox.setup.summary")
+
+    def add_warning(self, msg: str) -> None:  # type: ignore[override]
+        super().add_warning(msg)
+        log(f"[yellow]WARN[/]: {msg}")
+
+    def add_error(self, msg: str) -> None:  # type: ignore[override]
+        super().add_error(msg)
+        log(f"[red]ERROR[/]: {msg}")
+
+    def begin_command(self, command: Sequence[str], *, cwd: str | None = None) -> CommandRecord:  # type: ignore[override]
+        record = super().begin_command(command, cwd=cwd)
+        self._logger.debug("Executing command: %s", " ".join(map(str, command)))
+        return record
+
     def render(self) -> None:
-        if not self.warnings and not self.errors:
-            console.print(Panel.fit("[green]No warnings or errors.[/]", title="Summary", box=box.ROUNDED)); return
-        table = Table(box=box.SIMPLE_HEAVY)
-        table.add_column("Type", no_wrap=True); table.add_column("Message", overflow="fold")
-        for w in self.warnings: table.add_row("[yellow]Warning[/]", w)
-        for e in self.errors: table.add_row("[red]Error[/]", e)
-        console.print(Panel(table, title="Summary", box=box.ROUNDED))
+        panel = self.as_panel()
+        if hasattr(console, "print"):
+            console.print(panel)
+        else:
+            print(panel)
+
 
 SUMMARY = RunSummary()
 
 def send_telemetry(summary: RunSummary) -> None:
     url = os.environ.get("COOLBOX_TELEMETRY_URL")
     if not url: return
-    data = {"warnings": summary.warnings, "errors": summary.errors, "platform": sys.platform}
+    data = {
+        "warnings": summary.warnings,
+        "errors": summary.errors,
+        "platform": sys.platform,
+        "commands": [
+            {
+                "command": " ".join(map(str, record.command)),
+                "exit_code": record.exit_code,
+                "duration": record.duration,
+                "hint": record.hint,
+            }
+            for record in summary.commands
+        ],
+    }
     try:
         req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=2)
@@ -484,21 +534,99 @@ def ensure_venv() -> str:
         _venv.EnvBuilder(with_pip=True, clear=False, upgrade=False).create(str(venv_dir))
     return _venv_python()
 
-def _run(cmd: Sequence[str], *, cwd: Path | None = None, env: dict | None = None, timeout: float | None = None) -> None:
-    final_env = dict(BASE_ENV)
-    if env: final_env.update(env)
-    try: res = subprocess.run(list(cmd), cwd=cwd, env=final_env, timeout=timeout)
-    except subprocess.TimeoutExpired as e: raise RuntimeError(f"Command '{' '.join(cmd)}' timed out after {timeout}s") from e
-    if res.returncode != 0: raise subprocess.CalledProcessError(res.returncode, cmd)
+def _hint_for_command(cmd: Sequence[str], exit_code: int | None, stderr: str | None) -> str | None:
+    joined = " ".join(map(str, cmd)).lower()
+    stderr_lower = (stderr or "").lower()
+    if "pip" in joined:
+        if exit_code:
+            if "connection" in stderr_lower or "timeout" in stderr_lower:
+                return "Check connectivity or pre-download wheels with 'pip download'."
+        return "Pip will reuse cached wheels from ~/.coolbox/cache/wheels when available."
+    if "git" in joined:
+        return "Verify git remotes or rerun with --skip-update if network access is limited."
+    if "build" in joined or "wheel" in joined:
+        return "Ensure build deps are installed; cached wheels will be used when builds fail."
+    return None
 
-def _retry(cmd: Sequence[str], *, attempts: int = 3, delay: float = 0.8, cwd: Path | None = None, timeout: float | None = None) -> None:
+
+def _run(
+    cmd: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    env: dict | None = None,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    cmd_list = [str(part) for part in cmd]
+    record = SUMMARY.begin_command(cmd_list, cwd=str(cwd) if cwd else None)
+    final_env = dict(BASE_ENV)
+    if env:
+        final_env.update(env)
+    start = time.perf_counter()
+    try:
+        result = subprocess.run(
+            cmd_list,
+            cwd=cwd,
+            env=final_env,
+            timeout=timeout,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration = time.perf_counter() - start
+        hint = _hint_for_command(cmd_list, None, str(exc))
+        record.finalize(exit_code=None, stderr=str(exc), duration=duration, hint=hint)
+        logger.error("Command timed out: %s", " ".join(cmd_list))
+        raise RuntimeError(
+            f"Command '{' '.join(cmd_list)}' timed out after {timeout}s"
+        ) from exc
+
+    duration = time.perf_counter() - start
+    stderr_text = result.stderr or ""
+    hint = _hint_for_command(cmd_list, result.returncode, stderr_text)
+    record.finalize(
+        exit_code=result.returncode,
+        stderr=stderr_text,
+        duration=duration,
+        hint=hint,
+    )
+    logger.debug(
+        "Command %s finished with exit %s in %.2fs",
+        " ".join(cmd_list),
+        result.returncode,
+        duration,
+    )
+    if hint and result.returncode != 0:
+        logger.info("Remediation hint: %s", hint)
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            cmd_list,
+            output=None,
+            stderr=stderr_text,
+        )
+    return result
+
+def _retry(
+    cmd: Sequence[str],
+    *,
+    attempts: int = 3,
+    delay: float = 0.8,
+    cwd: Path | None = None,
+    timeout: float | None = None,
+    env: dict | None = None,
+) -> None:
     last: Exception | None = None
     for i in range(1, attempts + 1):
-        try: _run(cmd, cwd=cwd, timeout=timeout); return
+        try:
+            _run(cmd, cwd=cwd, timeout=timeout, env=env)
+            return
         except Exception as e:
             last = e
-            if i < attempts: time.sleep(delay * i)
-    if last is not None: raise last
+            if i < attempts:
+                time.sleep(delay * i)
+    if last is not None:
+        raise last
+
 
 def _file_hash(path: Path) -> str:
     h = hashlib.sha256()
@@ -506,18 +634,104 @@ def _file_hash(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 16), b""): h.update(chunk)
     return h.hexdigest()
 
+
 def _stamp_path() -> Path: return get_venv_dir() / ".req_hash"
 
+
+def _global_stamp_path(req_hash: str) -> Path:
+    return STAMP_CACHE_ROOT / f"{req_hash}.stamp"
+
+
+def _hydrate_stamp_from_cache(req_hash: str, target: Path) -> None:
+    cached = _global_stamp_path(req_hash)
+    if cached.is_file():
+        try:
+            data = cached.read_text(encoding="utf-8")
+            target.write_text(data, encoding="utf-8")
+        except Exception:
+            pass
+
+
+def _store_stamp_to_cache(req_hash: str) -> None:
+    cached = _global_stamp_path(req_hash)
+    try:
+        cached.write_text(req_hash, encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _should_install(req: Path, upgrade: bool) -> bool:
-    if upgrade: return True
-    if not req.exists(): return False
+    if upgrade:
+        return True
+    if not req.exists():
+        return False
+    req_hash = _file_hash(req)
     sp = _stamp_path()
-    if not sp.exists(): return True
-    try: return sp.read_text().strip() != _file_hash(req)
-    except Exception: return True
+    if not sp.exists():
+        _hydrate_stamp_from_cache(req_hash, sp)
+    try:
+        recorded = sp.read_text().strip()
+    except Exception:
+        return True
+    return recorded != req_hash
 
-def _write_req_stamp(req: Path) -> None: _stamp_path().write_text(_file_hash(req), encoding="utf-8")
 
+def _write_req_stamp(req: Path) -> None:
+    req_hash = _file_hash(req)
+    target = _stamp_path()
+    target.write_text(req_hash, encoding="utf-8")
+    _store_stamp_to_cache(req_hash)
+
+
+def _wheel_cache_key() -> str:
+    h = hashlib.sha256()
+    for name in ("pyproject.toml", "setup.py"):
+        path = ROOT_DIR / name
+        if path.is_file():
+            h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def _wheel_cache_dir() -> Path:
+    path = WHEEL_CACHE_ROOT / _wheel_cache_key()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _store_wheel_artifacts(dist_dir: Path) -> None:
+    if not dist_dir.exists():
+        return
+    cache_dir = _wheel_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    for item in dist_dir.glob("*.whl"):
+        try:
+            shutil.copy2(item, cache_dir / item.name)
+        except Exception:
+            continue
+
+
+def _restore_wheel_artifacts(dist_dir: Path) -> bool:
+    cache_dir = _wheel_cache_dir()
+    if not cache_dir.exists():
+        return False
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    restored = False
+    for item in cache_dir.glob("*.whl"):
+        try:
+            shutil.copy2(item, dist_dir / item.name)
+            restored = True
+        except Exception:
+            continue
+    return restored
+
+
+def _available_wheel_links() -> list[str]:
+    links: list[str] = []
+    if WHEEL_CACHE_ROOT.exists():
+        for candidate in [WHEEL_CACHE_ROOT, *WHEEL_CACHE_ROOT.glob("*")]:
+            if candidate.is_dir():
+                links.append(str(candidate))
+    return links
 def update_repo() -> None:
     if CONFIG.no_git or is_offline(): log("Skip git update (disabled or offline)."); return
     if not (ROOT_DIR / ".git").exists(): log("No .git directory. Skipping update."); return
@@ -529,11 +743,22 @@ def update_repo() -> None:
         SUMMARY.add_warning(f"git update failed: {e}")
 
 def build_extensions() -> None:
+    dist_dir = ROOT_DIR / "dist"
+    if is_offline():
+        if _restore_wheel_artifacts(dist_dir):
+            log("Offline mode: restored cached wheel artifacts.")
+        else:
+            SUMMARY.add_warning("Offline mode: no cached wheels available for reuse.")
+        return
     try:
         py = ensure_venv()
         _run([py, "-m", "build", "--wheel", "--no-isolation"], cwd=ROOT_DIR)
     except Exception as e:
         SUMMARY.add_warning(f"native build skipped: {e}")
+        if _restore_wheel_artifacts(dist_dir):
+            log("Used cached wheel artifacts after build failure.")
+    else:
+        _store_wheel_artifacts(dist_dir)
 
 def _progress(**overrides):
     # Columns: spinner | description | bar | % | M/N | elapsed
@@ -554,14 +779,39 @@ def _progress(**overrides):
 def _pip(args: Sequence[str], python: str | Path | None = None, *, upgrade_pip: bool = False, attempts: int = 2) -> None:
     py = str(python or ensure_venv())
     base_cmd = [py, "-m", "pip"]
-    if is_offline():
-        SUMMARY.add_warning("Offline mode: skipping " + " ".join(base_cmd + list(args))); return
+    env_override: dict[str, str] = {}
+    offline = is_offline()
+    links = _available_wheel_links()
+    if offline:
+        offline_args: list[str] = ["--no-index"]
+        if not links:
+            SUMMARY.add_warning(
+                "Offline mode enabled but wheel cache is empty; pip command may fail."
+            )
+        for link in links:
+            offline_args.extend(["--find-links", link])
+        if links:
+            env_override["PIP_FIND_LINKS"] = os.pathsep.join(links)
+        env_override["PIP_NO_INDEX"] = "1"
+        cmd = base_cmd + list(args) + offline_args
+        log("Offline mode: forcing pip to use cached wheels.")
+    else:
+        cmd = base_cmd + list(args)
+        if upgrade_pip:
+            _retry(
+                base_cmd + ["install", "-U", "pip", "setuptools", "wheel"],
+                attempts=attempts,
+                env=env_override,
+            )
+    if offline and upgrade_pip:
+        SUMMARY.add_warning("Offline mode: skipping pip bootstrap upgrade.")
     if upgrade_pip:
-        _retry(base_cmd + ["install", "-U", "pip", "setuptools", "wheel"], attempts=attempts)
-    cmd = base_cmd + list(args)
+        env_override.setdefault("PIP_DEFAULT_TIMEOUT", "60")
     last: Exception | None = None
     for i in range(1, attempts + 1):
-        try: _run(cmd); return
+        try:
+            _run(cmd, env=env_override or None)
+            return
         except Exception as e:
             last = e
             if i < attempts: time.sleep(0.8 * i)
