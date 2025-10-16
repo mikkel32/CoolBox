@@ -424,13 +424,36 @@ flake8 src setup.py tests
 ```bash
 python main.py
 ```
-By default, ``main.py`` computes a digest of ``requirements.txt``, ``setup.py``
-and your Python executable. It also verifies that all listed packages are
-installed. When either the digest has changed or any dependency is missing it
-automatically runs the setup routine with the same neon border and spinner
-for a seamless experience. Set
-``SKIP_SETUP=1`` to bypass this check if you have already handled installation
-yourself.
+Before the UI launches the application bootstraps the environment using the
+new ``SetupOrchestrator`` pipeline. Each run loads a recipe (YAML or JSON)
+describing preflight checks, dependency resolution, installer tasks,
+verification, and summaries. The orchestrator returns structured results so
+stages can be selectively retried, extended via plugins, or surfaced in CI
+logs. Use ``--setup-recipe`` to point at a recipe by name or path.
+
+Example recipes live in ``assets/setup/recipes``:
+
+| Recipe        | Description                                                                           |
+| ------------- | ------------------------------------------------------------------------------------- |
+| ``base.yaml`` | Default behavior: skip installation when the sentinel digest matches and deps exist. |
+| ``local.yaml`` | Inherits from ``base`` and enables the neon border, perfect for local demos.         |
+| ``ci.yaml``   | Forces installers and disables animations so CI logs remain deterministic.            |
+| ``airgapped`` | Builds on ``ci`` but skips ``install.run`` allowing offline installers via plugins.   |
+
+Set ``SKIP_SETUP=1`` to bypass orchestration entirely when you know the
+environment is already prepared.
+
+```bash
+python main.py --setup-recipe ci
+```
+
+The example above forces the CI recipe, while ``python main.py --setup-recipe
+assets/setup/recipes/airgapped.yaml`` shows how to point to a custom path.
+
+3rd-party tooling can hook into the pipeline by exposing an entry-point in
+the ``coolbox.setup`` group. Plugins receive a registrar object that can add
+new stages, validators, progress columns, or reporters, and they receive
+lifecycle callbacks before/after each stage and task.
 
 To start the app and wait for a debugger to attach, use:
 ```bash

@@ -25,6 +25,7 @@ import socket
 import sys
 import threading
 import traceback
+import types
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
@@ -60,6 +61,11 @@ KILL_BY_CLICK_WATCHDOG = 5.0
 KILL_BY_CLICK_WATCHDOG_MISSES = 2
 
 logger = logging.getLogger(__name__)
+
+_FORCE_QUIT_STATE = sys.modules.setdefault(
+    "_coolbox_force_quit_state", types.SimpleNamespace()
+)
+_PREVIOUS_FORCE_QUIT_DIALOG = getattr(_FORCE_QUIT_STATE, "ForceQuitDialog", None)
 
 
 class ForceQuitDialog(BaseDialog):
@@ -1829,19 +1835,22 @@ class ForceQuitDialog(BaseDialog):
         self.details_text.configure(state="disabled")
 
     def _apply_hover_tag(self) -> None:
-        if self._hover_iid and self.tree.exists(self._hover_iid):
-            tags = set(self.tree.item(self._hover_iid, "tags"))
+        current = getattr(self, "_hover_iid", None)
+        if current and self.tree.exists(current):
+            tags = set(self.tree.item(current, "tags"))
             tags.add("hover")
-            self.tree.item(self._hover_iid, tags=tuple(tags))
+            self.tree.item(current, tags=tuple(tags))
 
     def _remove_hover_tag(self) -> None:
-        if self._hover_iid and self.tree.exists(self._hover_iid):
-            tags = set(self.tree.item(self._hover_iid, "tags"))
+        current = getattr(self, "_hover_iid", None)
+        if current and self.tree.exists(current):
+            tags = set(self.tree.item(current, "tags"))
             tags.discard("hover")
-            self.tree.item(self._hover_iid, tags=tuple(tags))
+            self.tree.item(current, tags=tuple(tags))
 
     def _set_hover_row(self, iid: str | None) -> None:
-        if iid == self._hover_iid:
+        current = getattr(self, "_hover_iid", None)
+        if iid == current:
             if iid is not None and not self.tree.exists(iid):
                 self._hover_iid = None
             return
@@ -1863,10 +1872,11 @@ class ForceQuitDialog(BaseDialog):
         self._set_hover_row(None)
 
     def _update_hover(self) -> None:
-        if not self._last_motion:
+        last_motion = getattr(self, "_last_motion", None)
+        if not last_motion:
             self._set_hover_row(None)
             return
-        _, y = self._last_motion
+        _, y = last_motion
         iid = self.tree.identify_row(y)
         self._set_hover_row(iid)
 
@@ -2544,7 +2554,8 @@ class ForceQuitDialog(BaseDialog):
             msg = "Kill by Click raised an exception"
             data = json.dumps(info, indent=2, default=str)
             logger.error("%s: %s", msg, data)
-            print(f"{msg}: {data}", file=sys.stderr)
+            print(msg, file=sys.stderr)
+            print(data, file=sys.stderr)
             return
         pid, title, ctime, cmd, exe = result
         if pid is None:
@@ -2925,3 +2936,13 @@ class ForceQuitDialog(BaseDialog):
         except Exception:
             pass
         self.destroy()
+
+
+if _PREVIOUS_FORCE_QUIT_DIALOG is not None:
+    for _name, _value in ForceQuitDialog.__dict__.items():
+        if _name.startswith("__") and _name not in {"__doc__", "__module__"}:
+            continue
+        setattr(_PREVIOUS_FORCE_QUIT_DIALOG, _name, _value)
+    ForceQuitDialog = _PREVIOUS_FORCE_QUIT_DIALOG
+
+_FORCE_QUIT_STATE.ForceQuitDialog = ForceQuitDialog

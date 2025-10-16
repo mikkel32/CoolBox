@@ -1,0 +1,8 @@
+name: local
+extends:
+  - base.yaml
+config:
+  border: true
+  no_anim: false
+  skip_update: false
+  force: false

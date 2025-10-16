@@ -1,0 +1,10 @@
+name: ci
+extends:
+  - base.yaml
+config:
+  no_anim: true
+  skip_update: true
+  force: true
+stages:
+  summaries:
+    notes: "Emit orchestration summary suitable for CI logs"

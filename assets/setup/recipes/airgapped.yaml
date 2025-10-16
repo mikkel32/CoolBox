@@ -1,0 +1,12 @@
+name: airgapped
+extends:
+  - ci.yaml
+config:
+  offline: true
+  skip_update: true
+  force: false
+stages:
+  installers:
+    skip:
+      - install.run
+    notes: "Skip pip installers; expect preregistered offline plugin"

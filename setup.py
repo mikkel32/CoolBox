@@ -353,7 +353,7 @@ _OFFLINE_AUTO: bool | None = None
 def set_offline(value: bool) -> None:
     global _OFFLINE_FORCED, _OFFLINE_AUTO
     _OFFLINE_FORCED = value
-    _OFFLINE_AUTO = True if value else None
+    _OFFLINE_AUTO = True if value else False
     if value:
         os.environ["COOLBOX_OFFLINE"] = "1"; BASE_ENV["COOLBOX_OFFLINE"] = "1"
     else:

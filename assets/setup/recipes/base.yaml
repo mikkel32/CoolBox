@@ -1,0 +1,14 @@
+name: base
+config:
+  requirements: requirements.txt
+  sentinel: .setup_done
+  skip_when_clean: true
+  skip_update: true
+  write_sentinel_on_skip: false
+  force: false
+stages:
+  preflight: {}
+  dependency-resolution: {}
+  installers: {}
+  verification: {}
+  summaries: {}
