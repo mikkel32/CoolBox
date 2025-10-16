@@ -9,6 +9,8 @@ import logging
 import time
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
 
+from src.console.events import DashboardEvent, LogEvent, StageEvent, TaskEvent
+
 from .plugins import (
     PluginManager,
     Validator,
@@ -126,6 +128,8 @@ class SetupOrchestrator:
         self._results: dict[str, SetupResult] = {}
         self._last_recipe: Recipe | None = None
         self.plugin_manager = plugin_manager or PluginManager()
+        self._subscribers: list[Callable[[DashboardEvent], None]] = []
+        self.stage_order: tuple[SetupStage, ...] = STAGE_ORDER
         if tasks:
             for task in tasks:
                 self.register_task(task)
@@ -187,8 +191,19 @@ class SetupOrchestrator:
             if task_filter:
                 stage_tasks = [t for t in stage_tasks if t.name in task_filter]
             if not stage_tasks:
+                self._publish(StageEvent(stage, status="skipped", payload={"reason": "no tasks"}))
                 continue
-            stage_results = self._run_stage(stage, stage_tasks, context)
+            try:
+                stage_results = self._run_stage(stage, stage_tasks, context)
+            except Exception as exc:
+                self._publish(
+                    StageEvent(
+                        stage,
+                        status="failed",
+                        payload={"error": repr(exc)},
+                    )
+                )
+                raise
             results.extend(stage_results)
         return results
 
@@ -206,11 +221,36 @@ class SetupOrchestrator:
             raise RuntimeError("No recipe available for retry")
         return self.run(retry_recipe, stages=stages, task_names=task_names, load_plugins=False)
 
+    def rerun_stage(self, stage: SetupStage) -> list[SetupResult]:
+        """Retry a specific stage using the most recent recipe."""
+
+        return self.retry(stages=[stage])
+
+    # --- dashboard integration --------------------------------------------
+    def subscribe(self, callback: Callable[[DashboardEvent], None]) -> None:
+        """Register *callback* to receive dashboard events."""
+
+        self._subscribers.append(callback)
+
+    def unsubscribe(self, callback: Callable[[DashboardEvent], None]) -> None:
+        try:
+            self._subscribers.remove(callback)
+        except ValueError:
+            pass
+
+    def _publish(self, event: DashboardEvent) -> None:
+        for subscriber in list(self._subscribers):
+            try:
+                subscriber(event)
+            except Exception:  # pragma: no cover - best effort delivery
+                self.logger.debug("dashboard subscriber failed", exc_info=True)
+
     # --- helpers ------------------------------------------------------
     def _run_stage(
         self, stage: SetupStage, tasks: Sequence[SetupTask], context: StageContext
     ) -> list[SetupResult]:
         stage_results: list[SetupResult] = []
+        self._publish(StageEvent(stage, status="started"))
         self.plugin_manager.dispatch_before_stage(stage, context)
         stage_config = context.stage_config(stage)
         disabled_tasks = set(stage_config.get("skip", []) if isinstance(stage_config, dict) else [])
@@ -224,8 +264,17 @@ class SetupOrchestrator:
                 )
                 context.results[task.name] = result
                 stage_results.append(result)
+                self._publish(TaskEvent(task.name, stage, status="skipped", payload=result.payload))
                 continue
             break_stage = False
+            self._publish(
+                TaskEvent(
+                    task.name,
+                    stage,
+                    status="started",
+                    payload={"dependencies": list(task.dependencies)},
+                )
+            )
             while True:
                 run_attempts = self._attempts.get(task.name, 0) + 1
                 self._attempts[task.name] = run_attempts
@@ -255,6 +304,9 @@ class SetupOrchestrator:
                         attempts=run_attempts,
                     )
                     if not task.allow_fail:
+                        self._publish(
+                            LogEvent("error", f"Task {task.name} failed: {exc}")
+                        )
                         self.logger.error(
                             "Task %s failed during %s: %s", task.name, stage.value, exc
                         )
@@ -263,6 +315,33 @@ class SetupOrchestrator:
                 context.results[task.name] = result
                 stage_results.append(result)
                 self.plugin_manager.dispatch_after_task(result, context)
+                if result.status is SetupStatus.SUCCESS:
+                    self._publish(
+                        TaskEvent(
+                            task.name,
+                            stage,
+                            status="completed",
+                            payload=result.payload,
+                        )
+                    )
+                elif result.status is SetupStatus.FAILED:
+                    self._publish(
+                        TaskEvent(
+                            task.name,
+                            stage,
+                            status="failed",
+                            error=repr(result.error),
+                        )
+                    )
+                else:
+                    self._publish(
+                        TaskEvent(
+                            task.name,
+                            stage,
+                            status=result.status.value,
+                            payload=result.payload,
+                        )
+                    )
                 retry_requested = False
                 for validator in self._validators():
                     try:
@@ -279,6 +358,12 @@ class SetupOrchestrator:
                     and not task.allow_fail
                     and run_attempts < task.max_retries
                 ):
+                    self._publish(
+                        LogEvent(
+                            "info",
+                            f"Retrying task {task.name} after remediation (attempt {run_attempts + 1})",
+                        )
+                    )
                     self.logger.info(
                         "Retrying task %s after remediation (attempt %s)",
                         task.name,
@@ -297,6 +382,13 @@ class SetupOrchestrator:
             except Exception as exc:
                 self.logger.warning("Reporter error for stage %s: %s", stage.value, exc)
         self._results.update({r.task: r for r in stage_results})
+        self._publish(
+            StageEvent(
+                stage,
+                status="completed",
+                payload={"results": [res.as_dict() for res in stage_results]},
+            )
+        )
         return stage_results
 
     def _validators(self) -> Iterable[Validator]:
