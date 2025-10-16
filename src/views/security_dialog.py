@@ -11,9 +11,10 @@ import sys
 import threading
 import traceback
 import tkinter as tk
+from datetime import datetime
 from tkinter import messagebox, ttk
 
-from typing import Callable, Type, TypeVar, cast
+from typing import Callable, Optional, Type, TypeVar, cast
 
 from src.utils import security
 from .firewall_dialog import FirewallDialog
@@ -95,12 +96,24 @@ class SecurityDialog(ttk.Frame):
             raise TypeError("SecurityDialog requires a Tk or Toplevel master")
         self._window: tk.Toplevel | tk.Tk = cast("tk.Toplevel | tk.Tk", window)
         self._window.title("Security Center")
-        self._window.geometry("480x240")
+        self._window.geometry("620x480")
         self._window.resizable(False, False)
 
         self._fw_var = tk.BooleanVar(value=False)
         self._rt_var = tk.BooleanVar(value=False)
+        self._last_refresh_var = tk.StringVar(value="Last updated: pending…")
+        self._fw_pending_var = tk.StringVar(value="")
+        self._rt_pending_var = tk.StringVar(value="")
+        self._fw_action_text = tk.StringVar(value="Checking…")
+        self._rt_action_text = tk.StringVar(value="Checking…")
         self._dispatcher = _AsyncDispatcher(self)
+        self._busy_messages: list[str] = []
+        self._auto_job: Optional[str] = None
+        self._fw_state: Optional[bool] = None
+        self._rt_state: Optional[bool] = None
+        self._updating_fw_var = False
+        self._updating_rt_var = False
+        self._run_admin_visible = False
 
         # Track dialogs opened from the "+" buttons so they can be
         # positioned near the main window on any available side.
@@ -116,55 +129,187 @@ class SecurityDialog(ttk.Frame):
         style.configure("Good.TLabel", foreground="#0a7d0a")
         style.configure("Bad.TLabel", foreground="#a61e1e")
         style.configure("Warn.TLabel", foreground="#ad5a00")
+        style.configure("Caption.TLabel", foreground="#4f5d6b", font=("Segoe UI", 9))
+        style.configure("BusyCaption.TLabel", foreground="#0b4faa", font=("Segoe UI", 9, "italic"))
+
+        for style_name, bg, fg in (
+            ("Status.Good.TLabel", "#e8f5e9", "#0a7d0a"),
+            ("Status.Bad.TLabel", "#fdecea", "#a61e1e"),
+            ("Status.Warn.TLabel", "#fff4e5", "#ad5a00"),
+            ("Status.Info.TLabel", "#e7f0fd", "#0b4faa"),
+        ):
+            style.configure(
+                style_name,
+                background=bg,
+                foreground=fg,
+                padding=(10, 4),
+                relief="flat",
+                anchor="w",
+            )
+            style.map(style_name, background=[("!disabled", bg), ("disabled", bg)])
+
+        style.configure("Report.Pending.TLabel", foreground="#0b4faa")
+        style.configure("Report.Success.TLabel", foreground="#0a7d0a")
+        style.configure("Report.Failure.TLabel", foreground="#a61e1e")
 
         # Header
         title = ttk.Label(self, text="Security Center", font=("Segoe UI", 16, "bold"))
         title.grid(row=0, column=0, sticky="w")
 
-        # Admin state
-        self._admin_lbl = ttk.Label(self, text="Admin: checking...")
-        self._admin_lbl.grid(row=0, column=1, sticky="e")
+        last_refresh = ttk.Label(self, textvariable=self._last_refresh_var, style="Caption.TLabel")
+        last_refresh.grid(row=0, column=1, sticky="e")
+
+        admin_frame = ttk.Frame(self)
+        admin_frame.grid(row=1, column=0, columnspan=2, sticky="ew")
+        admin_frame.columnconfigure(0, weight=1)
+
+        self._admin_lbl = ttk.Label(admin_frame, text="Admin: checking...")
+        self._admin_lbl.grid(row=0, column=0, sticky="w")
+
+        self._admin_hint = ttk.Label(
+            admin_frame,
+            text="Administrator permissions are required for changes.",
+            style="Caption.TLabel",
+        )
+        self._admin_hint.grid(row=1, column=0, sticky="w", pady=(2, 0))
+
+        self._admin_btn = ttk.Button(
+            admin_frame,
+            text="Run as administrator…",
+            command=self._attempt_admin,
+        )
+        self._admin_btn.grid(row=0, column=1, rowspan=2, sticky="e")
+        self._admin_btn.state(["disabled"])
+        self._admin_btn.grid_remove()
+
+        subtitle = ttk.Label(
+            self,
+            text="Manage Windows Firewall and Defender realtime protection with verified toggles.",
+            style="Caption.TLabel",
+            wraplength=460,
+        )
+        subtitle.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 12))
 
         # Firewall section
         fw_frame = ttk.LabelFrame(self, text="Windows Firewall")
-        fw_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(16, 4))
+        fw_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 6))
         ttk.Button(fw_frame, text="+", width=2, command=self._open_firewall).grid(row=0, column=0, padx=(0, 4))
         self._fw_switch = ttk.Checkbutton(
-            fw_frame, text="Enabled", variable=self._fw_var, command=self._on_fw_toggle
+            fw_frame,
+            variable=self._fw_var,
+            command=self._on_fw_toggle,
+            textvariable=self._fw_action_text,
         )
         self._fw_switch.grid(row=0, column=1, sticky="w")
-        self._fw_status = ttk.Label(fw_frame, text="Status: ...")
+        self._fw_status = ttk.Label(
+            fw_frame,
+            text="Status: ...",
+            style="Status.Info.TLabel",
+            wraplength=220,
+        )
         self._fw_status.grid(row=0, column=2, sticky="e")
+        ttk.Label(
+            fw_frame,
+            text="Applies to Domain, Private, and Public profiles in one step.",
+            style="Caption.TLabel",
+            wraplength=320,
+        ).grid(row=1, column=1, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(
+            fw_frame,
+            textvariable=self._fw_pending_var,
+            style="Caption.TLabel",
+            wraplength=320,
+        ).grid(row=2, column=1, columnspan=2, sticky="w", pady=(4, 0))
         fw_frame.columnconfigure(1, weight=1)
 
         # Defender section
         rt_frame = ttk.LabelFrame(self, text="Microsoft Defender Realtime")
-        rt_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=4)
+        rt_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=6)
         ttk.Button(rt_frame, text="+", width=2, command=self._open_defender).grid(row=0, column=0, padx=(0, 4))
         self._rt_switch = ttk.Checkbutton(
-            rt_frame, text="Enabled", variable=self._rt_var, command=self._on_rt_toggle
+            rt_frame,
+            variable=self._rt_var,
+            command=self._on_rt_toggle,
+            textvariable=self._rt_action_text,
         )
         self._rt_switch.grid(row=0, column=1, sticky="w")
-        self._rt_status = ttk.Label(rt_frame, text="Status: ...")
+        self._rt_status = ttk.Label(
+            rt_frame,
+            text="Status: ...",
+            style="Status.Info.TLabel",
+            wraplength=220,
+        )
         self._rt_status.grid(row=0, column=2, sticky="e")
+        ttk.Label(
+            rt_frame,
+            text=(
+                "Disabling stops realtime scanning and attempts to stop the WinDefend service; "
+                "enabling restarts it."
+            ),
+            style="Caption.TLabel",
+            wraplength=320,
+        ).grid(row=1, column=1, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(
+            rt_frame,
+            textvariable=self._rt_pending_var,
+            style="Caption.TLabel",
+            wraplength=320,
+        ).grid(row=2, column=1, columnspan=2, sticky="w", pady=(4, 0))
         rt_frame.columnconfigure(1, weight=1)
 
-        # Refresh button
-        self._refresh_btn = ttk.Button(self, text="Refresh", command=self.refresh_async)
-        self._refresh_btn.grid(row=3, column=1, sticky="e", pady=(12, 0))
+        controls = ttk.Frame(self)
+        controls.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        controls.columnconfigure(0, weight=1)
 
-        self._report_var = tk.StringVar(value="No activity yet.")
+        # Refresh button
+        self._refresh_btn = ttk.Button(controls, text="Refresh", command=self.refresh_async)
+        self._refresh_btn.grid(row=0, column=1, sticky="e")
+
+        self._auto_refresh_var = tk.BooleanVar(value=False)
+        self._auto_refresh = ttk.Checkbutton(
+            controls,
+            text="Auto-refresh every 30s",
+            variable=self._auto_refresh_var,
+            command=self._on_auto_refresh_changed,
+        )
+        self._auto_refresh.grid(row=0, column=0, sticky="w")
+
+        self._busy_var = tk.StringVar(value="")
+        self._busy_lbl = ttk.Label(self, textvariable=self._busy_var, style="BusyCaption.TLabel")
+        self._busy_bar = ttk.Progressbar(self, mode="indeterminate", length=180)
+
+        self._report_var = tk.StringVar(
+            value="Use the switches to apply changes. Results are verified automatically."
+        )
         self._report_lbl = ttk.Label(
             self,
             textvariable=self._report_var,
             wraplength=440,
-            style="Warn.TLabel",
+            style="Report.Pending.TLabel",
         )
-        self._report_lbl.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        self._report_lbl.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(16, 0))
+
+        log_frame = ttk.LabelFrame(self, text="Activity log")
+        log_frame.grid(row=8, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+
+        self._log = tk.Text(
+            log_frame,
+            height=7,
+            wrap="word",
+            state="disabled",
+            font=("Consolas", 9),
+        )
+        scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self._log.yview)
+        self._log.configure(yscrollcommand=scroll.set)
+        self._log.grid(row=0, column=0, sticky="nsew")
+        scroll.grid(row=0, column=1, sticky="ns")
 
         self.grid(sticky="nsew")
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
+        self.rowconfigure(8, weight=1)
 
         # Initial load
         self.refresh_async()
@@ -172,7 +317,24 @@ class SecurityDialog(ttk.Frame):
     # --------------------------- Event handlers ----------------------------
 
     def _on_fw_toggle(self):
-        target = bool(self._fw_var.get())
+        if self._updating_fw_var:
+            return
+        current = self._fw_state
+        if current is None:
+            self._append_log("Firewall toggle ignored because status is unknown.")
+            messagebox.showwarning(
+                "Security Center",
+                "The current firewall status is unknown. Refresh the snapshot before changing it.",
+            )
+            self._set_fw_var(False)
+            self._fw_pending_var.set("")
+            return
+        target = not current
+        self._set_fw_var(current)
+        self._fw_pending_var.set(f"Requested: {'Enable' if target else 'Disable'} firewall")
+        self._append_log(f"Requesting firewall change -> {'on' if target else 'off'}")
+        self._announce_pending("Applying firewall change…")
+        self._set_status_badge(self._fw_status, "Status: applying change…", "info")
         self._disable_inputs()
         self._dispatcher.submit(
             "fw",
@@ -182,7 +344,26 @@ class SecurityDialog(ttk.Frame):
         )
 
     def _on_rt_toggle(self):
-        target = bool(self._rt_var.get())
+        if self._updating_rt_var:
+            return
+        current = self._rt_state
+        if current is None:
+            self._append_log("Realtime toggle ignored because status is unknown.")
+            messagebox.showwarning(
+                "Security Center",
+                "Realtime status is unknown. Refresh before applying changes.",
+            )
+            self._set_rt_var(False)
+            self._rt_pending_var.set("")
+            return
+        target = not current
+        self._set_rt_var(current)
+        self._rt_pending_var.set(
+            f"Requested: {'Enable' if target else 'Disable'} Defender realtime"
+        )
+        self._append_log(f"Requesting Defender realtime change -> {'on' if target else 'off'}")
+        self._announce_pending("Updating Defender realtime…")
+        self._set_status_badge(self._rt_status, "Status: applying change…", "info")
         self._disable_inputs()
         self._dispatcher.submit(
             "rt",
@@ -209,6 +390,7 @@ class SecurityDialog(ttk.Frame):
         if outcome.success:
             detail = outcome.detail or f"{action} completed successfully."
             self._update_report(detail, success=True)
+            self._append_log(f"{action} succeeded: {detail}")
         else:
             actors = ", ".join(outcome.blockers) if outcome.blockers else "unknown forces"
             message = f"{action} was blocked by {actors}."
@@ -216,6 +398,12 @@ class SecurityDialog(ttk.Frame):
                 message = f"{message} Details: {outcome.detail}"
             self._update_report(message, success=False)
             messagebox.showerror("Operation blocked", message)
+            self._append_log(f"{action} blocked: {message}")
+        if kind == "fw":
+            self._fw_pending_var.set("")
+        elif kind == "rt":
+            self._rt_pending_var.set("")
+        self._end_busy()
         self.refresh_async()
 
     # --------------------------- Subdialogs --------------------------------
@@ -254,6 +442,9 @@ class SecurityDialog(ttk.Frame):
     # ------------------------------- Refresh --------------------------------
 
     def refresh_async(self):
+        self._announce_pending("Refreshing security snapshot…")
+        self._set_status_badge(self._fw_status, "Status: refreshing…", "info")
+        self._set_status_badge(self._rt_status, "Status: refreshing…", "info")
         self._disable_inputs()
         self._dispatcher.submit(
             "refresh",
@@ -268,20 +459,40 @@ class SecurityDialog(ttk.Frame):
         ds = snapshot.defender
 
         self._admin_lbl.config(text=f"Admin: {'Yes' if admin else 'No'}")
+        if admin:
+            self._admin_hint.config(text="You have administrator control.")
+            self._admin_btn.state(["disabled"])
+            if self._run_admin_visible:
+                self._admin_btn.grid_remove()
+                self._run_admin_visible = False
+        else:
+            self._admin_hint.config(
+                text="Elevation is required to apply firewall or Defender changes."
+            )
+            if not self._run_admin_visible:
+                self._admin_btn.grid()
+                self._run_admin_visible = True
+            self._admin_btn.state(["!disabled"])
 
         if fw_enabled is None:
-            self._fw_var.set(False)
+            self._fw_state = None
+            self._set_fw_var(False)
             txt = "Status: unknown"
-            style = "Warn.TLabel"
+            tone = "warn"
+            self._fw_action_text.set("Firewall status unknown")
         else:
-            self._fw_var.set(bool(fw_enabled))
+            self._fw_state = bool(fw_enabled)
+            self._set_fw_var(bool(fw_enabled))
             state_txt = "Enabled" if fw_enabled else "Disabled"
             txt = f"Status: {state_txt}"
-            style = "Good.TLabel" if fw_enabled else "Bad.TLabel"
+            tone = "good" if fw_enabled else "bad"
+            self._fw_action_text.set(
+                "Turn Firewall Off" if fw_enabled else "Turn Firewall On"
+            )
         if snapshot.firewall_blockers:
             txt += " | Block: " + ", ".join(snapshot.firewall_blockers)
-            style = "Bad.TLabel"
-        self._fw_status.config(text=txt, style=style)
+            tone = "bad"
+        self._set_status_badge(self._fw_status, txt, tone)
 
         rt = ds.realtime_enabled
         svc = ds.service_state or "UNKNOWN"
@@ -289,22 +500,48 @@ class SecurityDialog(ttk.Frame):
         rt_txt = []
         if rt is None:
             rt_txt.append("RT: unknown")
+            self._rt_state = None
+            self._set_rt_var(False)
+            self._rt_action_text.set("Realtime status unknown")
         else:
             rt_txt.append("RT: on" if rt else "RT: off")
+            self._rt_state = bool(rt)
+            self._set_rt_var(bool(rt))
+            self._rt_action_text.set(
+                "Turn Defender Off" if rt else "Turn Defender On"
+            )
         rt_txt.append(f"SVC: {svc}")
         if tamper is not None:
             rt_txt.append(f"TP: {'on' if tamper else 'off'}")
+        rt_tone = "warn" if rt is None else ("good" if rt else "bad")
         if ds.blockers:
             rt_txt.append("Block: " + ", ".join(ds.blockers))
-        self._rt_status.config(
-            text="Status: " + " | ".join(rt_txt),
-            style=(
-                "Good.TLabel" if rt else "Bad.TLabel" if rt is False else "Warn.TLabel"
-            ),
+            rt_tone = "bad"
+        self._set_status_badge(
+            self._rt_status,
+            "Status: " + " | ".join(rt_txt),
+            rt_tone,
         )
-        self._rt_var.set(bool(rt) if rt is not None else False)
-
+        self._rt_pending_var.set("")
+        self._fw_pending_var.set("")
+        if not admin:
+            if fw_enabled is None:
+                self._fw_action_text.set("Admin required (status unknown)")
+            else:
+                self._fw_action_text.set("Admin required for firewall")
+            if rt is None:
+                self._rt_action_text.set("Admin required (status unknown)")
+            else:
+                self._rt_action_text.set("Admin required for Defender")
+        now = datetime.now().strftime("%H:%M:%S")
+        self._last_refresh_var.set(f"Last updated: {now}")
+        fw_status = "on" if fw_enabled else ("off" if fw_enabled is not None else "unknown")
+        rt_status = "on" if rt else ("off" if rt is not None else "unknown")
+        self._append_log(
+            f"Snapshot refreshed (admin={'yes' if admin else 'no'}, firewall={fw_status}, realtime={rt_status})"
+        )
         self._enable_inputs(admin)
+        self._end_busy()
 
     def _handle_async_failure(self, label: str, exc: BaseException, trace: str) -> None:
         print(trace, file=sys.stderr)
@@ -315,11 +552,29 @@ class SecurityDialog(ttk.Frame):
         self._update_report(msg, success=False)
         messagebox.showerror("Security Center", msg)
         self._enable_inputs(False)
+        self._append_log(f"{label.capitalize()} action failed: {exc}")
+        self._end_busy()
 
     def _update_report(self, text: str, *, success: bool) -> None:
         prefix = "Last action: "
         self._report_var.set(prefix + text)
-        self._report_lbl.configure(style="Good.TLabel" if success else "Bad.TLabel")
+        self._report_lbl.configure(
+            style="Report.Success.TLabel" if success else "Report.Failure.TLabel"
+        )
+
+    def _announce_pending(self, text: str) -> None:
+        self._report_var.set(text)
+        self._report_lbl.configure(style="Report.Pending.TLabel")
+        self._begin_busy(text)
+
+    def _set_status_badge(self, label: ttk.Label, message: str, tone: str) -> None:
+        mapping = {
+            "good": "Status.Good.TLabel",
+            "bad": "Status.Bad.TLabel",
+            "warn": "Status.Warn.TLabel",
+            "info": "Status.Info.TLabel",
+        }
+        label.config(text=message, style=mapping.get(tone, "Status.Info.TLabel"))
 
     @staticmethod
     def _friendly_action(kind: str) -> str:
@@ -339,11 +594,13 @@ class SecurityDialog(ttk.Frame):
     def _enable_inputs(self, admin: bool):
         # Allow viewing even without admin. Changes require admin.
         self._refresh_btn.state(["!disabled"])
-        if admin:
+        if admin and self._fw_state is not None:
             self._fw_switch.state(["!disabled"])
-            self._rt_switch.state(["!disabled"])
         else:
             self._fw_switch.state(["disabled"])
+        if admin and self._rt_state is not None:
+            self._rt_switch.state(["!disabled"])
+        else:
             self._rt_switch.state(["disabled"])
 
     # --------------------------- Window helpers -----------------------------
@@ -626,6 +883,94 @@ class SecurityDialog(ttk.Frame):
                         win.geometry(f"+{x}+{y}")
                     else:
                         self._child_windows.remove(win)
+
+    # ------------------------------- Busy/UI helpers ------------------------
+
+    def _begin_busy(self, message: str) -> None:
+        self._busy_messages.append(message)
+        self._busy_var.set(message)
+        if len(self._busy_messages) == 1:
+            self._busy_lbl.grid(row=6, column=0, columnspan=2, sticky="w", pady=(12, 4))
+            self._busy_bar.grid(row=6, column=1, sticky="e", pady=(12, 4))
+            self._busy_bar.start(12)
+
+    def _end_busy(self) -> None:
+        if not self._busy_messages:
+            return
+        self._busy_messages.pop()
+        if self._busy_messages:
+            self._busy_var.set(self._busy_messages[-1])
+            return
+        self._busy_var.set("")
+        self._busy_bar.stop()
+        self._busy_lbl.grid_remove()
+        self._busy_bar.grid_remove()
+
+    def _append_log(self, message: str) -> None:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self._log.configure(state="normal")
+        self._log.insert("end", f"[{timestamp}] {message}\n")
+        self._log.see("end")
+        self._log.configure(state="disabled")
+
+    def _set_fw_var(self, value: bool) -> None:
+        self._updating_fw_var = True
+        try:
+            self._fw_var.set(value)
+        finally:
+            self._updating_fw_var = False
+
+    def _set_rt_var(self, value: bool) -> None:
+        self._updating_rt_var = True
+        try:
+            self._rt_var.set(value)
+        finally:
+            self._updating_rt_var = False
+
+    def _attempt_admin(self) -> None:
+        self._append_log("Attempting to relaunch Security Center with elevation…")
+        if security.relaunch_security_center():
+            self._update_report(
+                "Elevation requested. Accept the Windows UAC prompt to continue.",
+                success=True,
+            )
+            self._append_log("Elevation relaunch initiated via ShellExecute.")
+        else:
+            messagebox.showinfo(
+                "Security Center",
+                "Unable to trigger elevation. Launch this tool from an administrator session instead.",
+            )
+            self._append_log("Elevation relaunch request was not issued (already admin or unsupported).")
+
+    def _on_auto_refresh_changed(self) -> None:
+        if self._auto_refresh_var.get():
+            self._append_log("Auto-refresh enabled (30s cadence).")
+            self._schedule_auto_refresh(initial=True)
+        else:
+            self._append_log("Auto-refresh disabled.")
+            if self._auto_job is not None:
+                try:
+                    self.after_cancel(self._auto_job)
+                except Exception:
+                    pass
+                self._auto_job = None
+
+    def _schedule_auto_refresh(self, *, initial: bool = False) -> None:
+        if not self._auto_refresh_var.get():
+            return
+        delay = 1000 if initial else 30000
+        self._auto_job = self.after(delay, self._auto_refresh_tick)
+
+    def _auto_refresh_tick(self) -> None:
+        self._auto_job = None
+        if not self._auto_refresh_var.get():
+            return
+        if self._refresh_btn.instate(["disabled"]):
+            self._schedule_auto_refresh()
+            return
+        self._append_log("Auto-refresh cycle triggered.")
+        self.refresh_async()
+        self._schedule_auto_refresh()
 
 
 def run():
