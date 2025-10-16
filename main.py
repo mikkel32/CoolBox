@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
-"""
-CoolBox - A Modern Desktop Application
-Main entry point for the application
-"""
+"""CoolBox main entry point that delegates boot orchestration."""
 import sys
 import hashlib
 import importlib.util
 from pathlib import Path
-from argparse import ArgumentParser
 import logging
 from typing import Iterable
 
 from importlib import metadata as importlib_metadata
 from packaging.requirements import Requirement
 
-from src.utils import launch_vm_debug
+from src.boot import BootManager
 from src.utils.logging_config import setup_logging
 
 # Ensure package imports work when running as a script before other imports.
@@ -144,68 +140,16 @@ def _run_setup(recipe_name: str | None) -> None:
         raise RuntimeError(f"Setup orchestration failed for tasks: {summary}")
 
 
-def main() -> None:
-    """Initialize and run the application."""
+def main(argv: Iterable[str] | None = None) -> None:
+    """Initialize logging and delegate to :class:`BootManager`."""
+
     setup_logging()
-
-    parser = ArgumentParser(description="CoolBox application")
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Run under debugpy and wait for debugger to attach",
+    manager = BootManager(
+        manifest_path=Path(__file__).resolve().parent / "assets" / "boot_manifest.yaml",
+        app_factory=CoolBoxApp,
+        dependency_checker=_run_setup_if_needed,
     )
-    parser.add_argument(
-        "--debug-port",
-        type=int,
-        default=5678,
-        help="Port for debugpy or --vm-debug listener (default: 5678)",
-    )
-    parser.add_argument(
-        "--vm-debug",
-        action="store_true",
-        help="Launch inside a VM or container and wait for debugger",
-    )
-    parser.add_argument(
-        "--vm-prefer",
-        choices=["docker", "vagrant", "podman", "auto"],
-        default="auto",
-        help="Preferred VM backend for --vm-debug",
-    )
-    parser.add_argument(
-        "--open-code",
-        action="store_true",
-        help="Open VS Code when launching --vm-debug",
-    )
-    parser.add_argument(
-        "--setup-recipe",
-        type=str,
-        default=None,
-        help="Path or name of the setup recipe to apply before launching CoolBox",
-    )
-    args = parser.parse_args()
-
-    if args.vm_debug:
-        launch_vm_debug(
-            prefer=None if args.vm_prefer == "auto" else args.vm_prefer,
-            open_code=args.open_code,
-            port=args.debug_port,
-        )
-        return
-
-    if args.debug:
-        try:
-            import debugpy  # type: ignore
-
-            debugpy.listen(args.debug_port)
-            logger.info("Waiting for debugger on port %s...", args.debug_port)
-            debugpy.wait_for_client()
-        except Exception as exc:  # pragma: no cover - debug only
-            logger.warning("Failed to start debugpy: %s", exc)
-
-    _run_setup(args.setup_recipe)
-
-    app = CoolBoxApp()
-    app.run()
+    manager.run(list(argv) if argv is not None else None)
 
 
 if __name__ == "__main__":

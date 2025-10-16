@@ -1,0 +1,43 @@
+profiles:
+  default:
+    orchestrator:
+      stages:
+        - preflight
+        - dependency-resolution
+        - installers
+        - verification
+        - summaries
+      load_plugins: true
+    preload:
+      modules:
+        - src.console.dashboard
+        - src.utils.logging_config
+      callables: []
+    recovery:
+      dashboard:
+        mode: json
+        theme: minimal
+        layout: minimal
+      hints:
+        - "Review setup diagnostics before relaunching."
+        - "Run coolbox --profile recovery to execute extended checks."
+      stages:
+        - verification
+        - summaries
+  recovery:
+    orchestrator:
+      stages:
+        - verification
+        - summaries
+      load_plugins: false
+    preload:
+      modules:
+        - src.console.dashboard
+      callables: []
+    recovery:
+      dashboard:
+        mode: json
+        theme: high-contrast
+        layout: horizontal
+      hints:
+        - "Inspect verification output for actionable errors."
