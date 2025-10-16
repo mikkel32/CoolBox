@@ -7,6 +7,7 @@ import pytest
 
 from src.boot import BootManager
 from src.setup.orchestrator import SetupStage
+from src.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
 
 
 class DummyRecipe:
@@ -38,6 +39,16 @@ class DummyPluginManager:
 
     def load_entrypoints(self, orchestrator):  # pragma: no cover - interface stub
         return None
+
+
+class DummyConsentManager:
+    def __init__(self, *, granted: bool = True) -> None:
+        self.granted = granted
+        self.calls = 0
+
+    def ensure_opt_in(self):
+        self.calls += 1
+        return SimpleNamespace(granted=self.granted, source="test")
 
 
 class DummyOrchestrator:
@@ -85,11 +96,25 @@ def manifest(tmp_path: Path) -> Path:
     return path
 
 
+@pytest.fixture()
+def telemetry_client() -> TelemetryClient:
+    storage = InMemoryTelemetryStorage()
+
+    def clock() -> float:
+        clock.current += 1.0
+        return clock.current
+
+    clock.current = 1000.0  # type: ignore[attr-defined]
+    return TelemetryClient(storage, clock=clock)
+
+
 def _stub_app():
     return SimpleNamespace(run=lambda: None)
 
 
-def test_boot_manager_invokes_preload(monkeypatch: pytest.MonkeyPatch, manifest: Path) -> None:
+def test_boot_manager_invokes_preload(
+    monkeypatch: pytest.MonkeyPatch, manifest: Path, telemetry_client: TelemetryClient
+) -> None:
     calls: list[tuple[list[str], list[str]]] = []
 
     def fake_preload(self, *, modules, callables):
@@ -103,6 +128,8 @@ def test_boot_manager_invokes_preload(monkeypatch: pytest.MonkeyPatch, manifest:
         orchestrator_factory=DummyOrchestrator,
         recipe_loader=loader,
         dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
     )
     manager.run([])
     assert calls
@@ -111,7 +138,9 @@ def test_boot_manager_invokes_preload(monkeypatch: pytest.MonkeyPatch, manifest:
     assert callables == ["pkg:preload"]
 
 
-def test_boot_manager_skips_preload_when_debug(monkeypatch: pytest.MonkeyPatch, manifest: Path) -> None:
+def test_boot_manager_skips_preload_when_debug(
+    monkeypatch: pytest.MonkeyPatch, manifest: Path, telemetry_client: TelemetryClient
+) -> None:
     calls = 0
 
     def fake_preload(self, *, modules, callables):
@@ -126,12 +155,16 @@ def test_boot_manager_skips_preload_when_debug(monkeypatch: pytest.MonkeyPatch, 
         orchestrator_factory=DummyOrchestrator,
         recipe_loader=loader,
         dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
     )
     manager.run(["--debug"])
     assert calls == 0
 
 
-def test_boot_manager_passes_manifest_stages(monkeypatch: pytest.MonkeyPatch, manifest: Path) -> None:
+def test_boot_manager_passes_manifest_stages(
+    monkeypatch: pytest.MonkeyPatch, manifest: Path, telemetry_client: TelemetryClient
+) -> None:
     loader = DummyRecipeLoader()
     manager = BootManager(
         manifest_path=manifest,
@@ -139,6 +172,8 @@ def test_boot_manager_passes_manifest_stages(monkeypatch: pytest.MonkeyPatch, ma
         orchestrator_factory=DummyOrchestrator,
         recipe_loader=loader,
         dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
     )
     manager.run([])
     assert manager.orchestrator.last_run is not None
@@ -146,7 +181,9 @@ def test_boot_manager_passes_manifest_stages(monkeypatch: pytest.MonkeyPatch, ma
     assert manager.orchestrator.last_run["load_plugins"] is False
 
 
-def test_boot_manager_fallback_to_console(monkeypatch: pytest.MonkeyPatch, manifest: Path) -> None:
+def test_boot_manager_fallback_to_console(
+    monkeypatch: pytest.MonkeyPatch, manifest: Path, telemetry_client: TelemetryClient
+) -> None:
     events: list[str] = []
 
     class DashboardStub:
@@ -175,6 +212,8 @@ def test_boot_manager_fallback_to_console(monkeypatch: pytest.MonkeyPatch, manif
         orchestrator_factory=DummyOrchestrator,
         recipe_loader=loader,
         dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
     )
     manager.run([])
     assert events[0] == "start"
@@ -182,13 +221,53 @@ def test_boot_manager_fallback_to_console(monkeypatch: pytest.MonkeyPatch, manif
     assert any("GUI failed" in msg for msg in events if isinstance(msg, str))
 
 
-def test_boot_manager_unknown_profile_raises(manifest: Path) -> None:
+def test_boot_manager_unknown_profile_raises(
+    manifest: Path, telemetry_client: TelemetryClient
+) -> None:
     manager = BootManager(
         manifest_path=manifest,
         app_factory=_stub_app,
         orchestrator_factory=DummyOrchestrator,
         recipe_loader=DummyRecipeLoader(),
         dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
     )
     with pytest.raises(ValueError):
         manager.run(["--profile", "missing"])
+
+
+def test_boot_manager_emits_environment_telemetry(
+    manifest: Path, telemetry_client: TelemetryClient
+) -> None:
+    manager = BootManager(
+        manifest_path=manifest,
+        app_factory=_stub_app,
+        orchestrator_factory=DummyOrchestrator,
+        recipe_loader=DummyRecipeLoader(),
+        dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
+    )
+    manager.run([])
+    env_events = [
+        event for event in telemetry_client.storage.events if event.type is TelemetryEventType.ENVIRONMENT
+    ]
+    assert env_events
+    assert env_events[0].metadata["profile"] == "default"
+
+
+def test_boot_manager_disables_telemetry_when_opt_out(
+    manifest: Path, telemetry_client: TelemetryClient
+) -> None:
+    manager = BootManager(
+        manifest_path=manifest,
+        app_factory=_stub_app,
+        orchestrator_factory=DummyOrchestrator,
+        recipe_loader=DummyRecipeLoader(),
+        dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(granted=False),
+    )
+    manager.run([])
+    assert not telemetry_client.storage.events

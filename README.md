@@ -2,6 +2,13 @@
 
 A modern, feature-rich desktop application built with Python and CustomTkinter.
 
+## 📈 Telemetry & Privacy
+
+- **Opt-in consent**: The setup orchestrator now records stage durations, task outcomes, failure codes, and sanitized environment metadata only when telemetry is explicitly enabled. Preferences are cached locally and can be overridden at runtime with `COOLBOX_TELEMETRY=0/1`.
+- **Anonymized insights**: Task failures include deterministic failure codes (stage, task, error type) plus optional remediation hints. These aggregate into an on-device knowledge base that powers the console dashboard's "most likely fix" suggestions without storing personal data.
+- **Storage adapters**: Telemetry is persisted to `artifacts/telemetry.jsonl` via an append-only JSONL adapter. Tests can swap in-memory adapters to keep runs deterministic.
+- **QA guardrails**: New unit and integration tests simulate online/offline setup flows, recipe variants, and orchestrator edge cases using heavy system-call mocks so regressions are caught quickly without touching the network or filesystem.
+
 ## 🚀 Features
 
 - **Modern UI**: Beautiful dark/light theme with smooth animations

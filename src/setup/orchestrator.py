@@ -10,6 +10,7 @@ import time
 from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
 
 from src.console.events import DashboardEvent, LogEvent, StageEvent, TaskEvent
+from src.telemetry import NullTelemetryClient, TelemetryClient
 
 from .plugins import (
     PluginManager,
@@ -120,6 +121,7 @@ class SetupOrchestrator:
         tasks: Sequence[SetupTask] | None = None,
         plugin_manager: PluginManager | None = None,
         logger: logging.Logger | None = None,
+        telemetry: TelemetryClient | None = None,
     ) -> None:
         self.root = Path(root or Path.cwd()).resolve()
         self.logger = logger or logging.getLogger("coolbox.setup.orchestrator")
@@ -130,9 +132,13 @@ class SetupOrchestrator:
         self.plugin_manager = plugin_manager or PluginManager()
         self._subscribers: list[Callable[[DashboardEvent], None]] = []
         self.stage_order: tuple[SetupStage, ...] = STAGE_ORDER
+        self.telemetry: TelemetryClient | NullTelemetryClient = telemetry or NullTelemetryClient()
         if tasks:
             for task in tasks:
                 self.register_task(task)
+
+    def attach_telemetry(self, telemetry: TelemetryClient | None) -> None:
+        self.telemetry = telemetry or NullTelemetryClient()
 
     # --- registration -------------------------------------------------
     def register_task(self, task: SetupTask) -> None:
@@ -184,6 +190,12 @@ class SetupOrchestrator:
         if load_plugins:
             self.plugin_manager.load_entrypoints(self)
         results: list[SetupResult] = []
+        self.telemetry.record_run({
+            "recipe": recipe.name,
+            "stages": [stage.value for stage in self.stage_order],
+            "task_count": len(self._tasks),
+            "offline": offline_enabled,
+        })
         for stage in STAGE_ORDER:
             if stage_filter and stage not in stage_filter:
                 continue
@@ -202,6 +214,13 @@ class SetupOrchestrator:
                         status="failed",
                         payload={"error": repr(exc)},
                     )
+                )
+                self._record_stage_telemetry(
+                    stage,
+                    status="failed",
+                    duration=time.time() - context.get(f"stage.{stage.value}.started", time.time()),
+                    failure_code=f"{stage.value}:exception:{type(exc).__name__}",
+                    metadata={"error": repr(exc)},
                 )
                 raise
             results.extend(stage_results)
@@ -250,6 +269,8 @@ class SetupOrchestrator:
         self, stage: SetupStage, tasks: Sequence[SetupTask], context: StageContext
     ) -> list[SetupResult]:
         stage_results: list[SetupResult] = []
+        stage_started_at = time.time()
+        context.set(f"stage.{stage.value}.started", stage_started_at)
         self._publish(StageEvent(stage, status="started"))
         self.plugin_manager.dispatch_before_stage(stage, context)
         stage_config = context.stage_config(stage)
@@ -279,6 +300,7 @@ class SetupOrchestrator:
                 run_attempts = self._attempts.get(task.name, 0) + 1
                 self._attempts[task.name] = run_attempts
                 self.plugin_manager.dispatch_before_task(task, context)
+                started_at = time.time()
                 try:
                     raw = task.action(context)
                     if isinstance(raw, SetupResult):
@@ -311,7 +333,9 @@ class SetupOrchestrator:
                             "Task %s failed during %s: %s", task.name, stage.value, exc
                         )
                 finally:
-                    result.finished_at = time.time()
+                    finished_at = time.time()
+                    result.started_at = started_at
+                    result.finished_at = finished_at
                 context.results[task.name] = result
                 stage_results.append(result)
                 self.plugin_manager.dispatch_after_task(result, context)
@@ -325,12 +349,21 @@ class SetupOrchestrator:
                         )
                     )
                 elif result.status is SetupStatus.FAILED:
+                    failure_code = self._failure_code(result)
+                    failure_payload: dict[str, Any] = {}
+                    if failure_code:
+                        failure_payload["failure_code"] = failure_code
+                    if result.payload:
+                        failure_payload["payload"] = result.payload
+                    if result.error:
+                        failure_payload["error_type"] = type(result.error).__name__
                     self._publish(
                         TaskEvent(
                             task.name,
                             stage,
                             status="failed",
                             error=repr(result.error),
+                            payload=failure_payload or None,
                         )
                     )
                 else:
@@ -342,6 +375,7 @@ class SetupOrchestrator:
                             payload=result.payload,
                         )
                     )
+                self._record_task_telemetry(task, result)
                 retry_requested = False
                 for validator in self._validators():
                     try:
@@ -382,14 +416,74 @@ class SetupOrchestrator:
             except Exception as exc:
                 self.logger.warning("Reporter error for stage %s: %s", stage.value, exc)
         self._results.update({r.task: r for r in stage_results})
+        duration = time.time() - stage_started_at
+        stage_failure = next((res for res in stage_results if res.status is SetupStatus.FAILED), None)
+        status = "failed" if stage_failure else "completed"
         self._publish(
             StageEvent(
                 stage,
-                status="completed",
+                status=status,
                 payload={"results": [res.as_dict() for res in stage_results]},
             )
         )
+        failure_code = self._failure_code(stage_failure) if stage_failure else None
+        self._record_stage_telemetry(
+            stage,
+            status=status,
+            duration=duration,
+            failure_code=failure_code,
+            metadata={"results": [res.as_dict() for res in stage_results]},
+        )
         return stage_results
+
+    def _failure_code(self, result: SetupResult | None) -> str | None:
+        if result is None:
+            return None
+        error_type = type(result.error).__name__ if result.error else "unknown"
+        return f"{result.stage.value}:{result.task}:{error_type}"
+
+    def _record_stage_telemetry(
+        self,
+        stage: SetupStage,
+        *,
+        status: str,
+        duration: float,
+        failure_code: str | None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {
+            "stage": stage.value,
+            "status": status,
+            "duration_ms": int(duration * 1000),
+        }
+        if failure_code:
+            payload["failure_code"] = failure_code
+        if metadata:
+            payload.update(metadata)
+        self.telemetry.record_stage(payload)
+
+    def _record_task_telemetry(self, task: SetupTask, result: SetupResult) -> None:
+        duration = max(result.finished_at - result.started_at, 0.0)
+        payload: dict[str, Any] = {
+            "task": task.name,
+            "stage": task.stage.value,
+            "status": result.status.value,
+            "duration_ms": int(duration * 1000),
+            "attempts": result.attempts,
+        }
+        if result.status is SetupStatus.FAILED:
+            failure_code = self._failure_code(result)
+            if failure_code:
+                payload["failure_code"] = failure_code
+            if result.error:
+                payload["error_type"] = type(result.error).__name__
+                payload["error_message"] = repr(result.error)
+        if result.payload:
+            suggested_fix = result.payload.get("suggested_fix") if isinstance(result.payload, Mapping) else None
+            if suggested_fix:
+                payload["suggested_fix"] = suggested_fix
+            payload["payload_keys"] = sorted(result.payload.keys()) if isinstance(result.payload, Mapping) else []
+        self.telemetry.record_task(payload)
 
     def _validators(self) -> Iterable[Validator]:
         return self.plugin_manager.iter_validators()

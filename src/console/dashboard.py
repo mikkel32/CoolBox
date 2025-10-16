@@ -18,6 +18,7 @@ from .events import (
     ThemeEvent,
     TroubleshootingEvent,
 )
+from src.telemetry import TelemetryKnowledgeBase
 
 try:  # pragma: no cover - optional dependency guard
     from textual import events
@@ -145,19 +146,47 @@ class BaseDashboard:
 class JsonDashboard(BaseDashboard):
     """Headless dashboard implementation that records events in JSON."""
 
-    def __init__(self, *, theme: DashboardTheme = DashboardTheme.MINIMAL) -> None:
+    def __init__(
+        self,
+        *,
+        theme: DashboardTheme = DashboardTheme.MINIMAL,
+        knowledge_base: TelemetryKnowledgeBase | None = None,
+    ) -> None:
         self.theme = DashboardThemeSettings(THEME_PROFILES[theme])
         self.events: list[dict[str, Any]] = []
+        self._knowledge_base = knowledge_base or TelemetryKnowledgeBase()
 
     def handle_event(self, event: DashboardEvent) -> None:
         self.events.append(event.as_dict())
+        if isinstance(event, TaskEvent) and event.status == "failed":
+            payload = event.payload if isinstance(event.payload, Mapping) else {}
+            failure_code = payload.get("failure_code")
+            error_type = payload.get("error_type")
+            suggestion = self._knowledge_base.suggest_fix(
+                failure_code=failure_code,
+                error_type=error_type,
+            )
+            if suggestion:
+                self.events.append(
+                    {
+                        "type": "suggestion",
+                        "task": event.task,
+                        "stage": event.stage.value if hasattr(event.stage, "value") else str(event.stage),
+                        "suggestion": suggestion,
+                        "failure_code": failure_code,
+                    }
+                )
 
     def apply_theme(self, theme: DashboardThemeSettings) -> None:
         self.theme = theme
         self.events.append(ThemeEvent(theme.profile.name.value).as_dict())
 
     def export_state(self) -> Mapping[str, Any]:
-        return {"theme": self.theme.to_dict(), "events": list(self.events)}
+        return {
+            "theme": self.theme.to_dict(),
+            "events": list(self.events),
+            "knowledge_base": self._knowledge_base.summarize(),
+        }
 
     def start(self) -> None:  # pragma: no cover - nothing to do
         self.events.append({"type": "lifecycle", "payload": {"status": "started"}})
@@ -405,12 +434,14 @@ if TEXTUAL_AVAILABLE:
             theme: DashboardThemeSettings,
             layout: DashboardLayout,
             studio: TroubleshootingStudio,
+            knowledge_base: TelemetryKnowledgeBase,
         ) -> None:
             super().__init__()
             self._orchestrator = orchestrator
             self._theme = theme
             self._layout = layout
             self._studio = studio
+            self._knowledge_base = knowledge_base
             self.summary = SummaryTiles()
             self.log_panel = LiveLog()
             self.deps = DependencyGraph()
@@ -470,6 +501,19 @@ if TEXTUAL_AVAILABLE:
                 self.deps.record(event.task, deps)
                 if event.status == "failed" and event.error:
                     self.log_panel.add_entry("error", event.error, theme=self._theme.profile)
+                    payload = event.payload if isinstance(event.payload, Mapping) else {}
+                    failure_code = payload.get("failure_code")
+                    error_type = payload.get("error_type")
+                    suggestion = self._knowledge_base.suggest_fix(
+                        failure_code=failure_code,
+                        error_type=error_type,
+                    )
+                    if suggestion:
+                        self.log_panel.add_entry(
+                            "info",
+                            f"Suggested fix for {event.task}: {suggestion}",
+                            theme=self._theme.profile,
+                        )
             elif isinstance(event, LogEvent):
                 self.log_panel.add_entry(event.level, event.message, theme=self._theme.profile)
             elif isinstance(event, TroubleshootingEvent):
@@ -495,6 +539,7 @@ class TextualDashboard(BaseDashboard):
         layout: DashboardLayout = DashboardLayout.MINIMAL,
         theme: DashboardTheme = DashboardTheme.MINIMAL,
         studio: Optional[TroubleshootingStudio] = None,
+        knowledge_base: TelemetryKnowledgeBase | None = None,
     ) -> None:
         if not TEXTUAL_AVAILABLE:  # pragma: no cover - runtime guard
             raise RuntimeError("textual is required for the interactive dashboard")
@@ -502,11 +547,13 @@ class TextualDashboard(BaseDashboard):
         self.theme_settings = DashboardThemeSettings(THEME_PROFILES[theme])
         self.layout = layout
         self.studio = studio or TroubleshootingStudio(publisher=self._publish)
+        self.knowledge = knowledge_base or TelemetryKnowledgeBase()
         self.app = TextualDashboardApp(
             orchestrator,
             theme=self.theme_settings,
             layout=layout,
             studio=self.studio,
+            knowledge_base=self.knowledge,
         )
         self._running = False
 
@@ -536,6 +583,7 @@ class TextualDashboard(BaseDashboard):
         return {
             "theme": self.theme_settings.to_dict(),
             "running": self._running,
+            "knowledge_base": self.knowledge.summarize(),
         }
 
 
@@ -545,12 +593,13 @@ def create_dashboard(
     mode: str = "textual",
     layout: DashboardLayout = DashboardLayout.MINIMAL,
     theme: DashboardTheme = DashboardTheme.MINIMAL,
+    knowledge_base: TelemetryKnowledgeBase | None = None,
 ) -> BaseDashboard:
     """Factory returning a dashboard implementation."""
 
     if mode == "json":
-        return JsonDashboard(theme=theme)
-    return TextualDashboard(orchestrator, layout=layout, theme=theme)
+        return JsonDashboard(theme=theme, knowledge_base=knowledge_base)
+    return TextualDashboard(orchestrator, layout=layout, theme=theme, knowledge_base=knowledge_base)
 
 
 __all__ = [

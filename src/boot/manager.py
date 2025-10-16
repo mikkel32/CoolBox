@@ -22,6 +22,7 @@ from src.setup.orchestrator import SetupOrchestrator, SetupResult, SetupStage, S
 from src.setup.recipes import Recipe, RecipeLoader
 from src.setup.stages import register_builtin_tasks
 from src.utils import launch_vm_debug
+from src.telemetry import JsonlTelemetryStorage, TelemetryClient, TelemetryConsentManager
 
 
 @dataclass(slots=True)
@@ -46,11 +47,24 @@ class BootManager:
         recipe_loader: RecipeLoader | None = None,
         dependency_checker: Callable[[Path | None], bool] | None = None,
         logger: logging.Logger | None = None,
+        telemetry: TelemetryClient | None = None,
+        consent_manager: TelemetryConsentManager | None = None,
+        telemetry_storage: JsonlTelemetryStorage | None = None,
     ) -> None:
         self._default_manifest = Path(manifest_path) if manifest_path else None
         self.app_factory = app_factory
         self._orchestrator_factory = orchestrator_factory or self._default_orchestrator_factory
+        self.consent_manager = consent_manager or TelemetryConsentManager()
+        if telemetry is not None:
+            self.telemetry = telemetry
+        else:
+            storage = telemetry_storage or JsonlTelemetryStorage(
+                Path(__file__).resolve().parents[2] / "artifacts" / "telemetry.jsonl"
+            )
+            self.telemetry = TelemetryClient(storage)
         self.orchestrator = self._orchestrator_factory()
+        if hasattr(self.orchestrator, "attach_telemetry"):
+            self.orchestrator.attach_telemetry(self.telemetry)
         if not getattr(self.orchestrator, "tasks", None):
             register_builtin_tasks(self.orchestrator)
         self.recipe_loader = recipe_loader or RecipeLoader()
@@ -100,6 +114,16 @@ class BootManager:
                 raise
 
         profile = self._load_profile(args.profile)
+        consent = self.consent_manager.ensure_opt_in()
+        if consent.granted and isinstance(self.telemetry, TelemetryClient):
+            metadata = {"profile": profile.name}
+            if self._default_manifest:
+                metadata["manifest"] = str(self._default_manifest)
+            self.telemetry.record_environment(metadata)
+            self.telemetry.record_consent(granted=True, source=consent.source)
+        else:
+            if isinstance(self.telemetry, TelemetryClient):
+                self.telemetry.disable()
         self.logger.debug("Selected boot profile", extra={"profile": profile.name})
 
         recipe_name = args.setup_recipe or profile.orchestrator.get("recipe")
@@ -122,6 +146,9 @@ class BootManager:
         except Exception as exc:
             self.logger.exception("Application launch failed; entering recovery console", exc_info=exc)
             self._fallback_to_console(exc, profile)
+        finally:
+            if isinstance(self.telemetry, TelemetryClient):
+                self.telemetry.flush()
 
     # ------------------------------------------------------------------
     def _parse_args(self, argv: Sequence[str] | None) -> Namespace:
@@ -353,7 +380,14 @@ class BootManager:
             layout = DashboardLayout(layout_name)
         except ValueError:
             layout = DashboardLayout.MINIMAL
-        dashboard = create_dashboard(self.orchestrator, mode=mode, layout=layout, theme=theme)
+        knowledge = getattr(self.telemetry, "knowledge", None)
+        dashboard = create_dashboard(
+            self.orchestrator,
+            mode=mode,
+            layout=layout,
+            theme=theme,
+            knowledge_base=knowledge,
+        )
         dashboard.start()
         hints = recovery.get("hints", []) if isinstance(recovery, Mapping) else []
         hint_text = "\n".join(str(hint) for hint in hints) if hints else "Review setup diagnostics and retry launch."
