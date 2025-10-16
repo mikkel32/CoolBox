@@ -6,7 +6,7 @@ import importlib.util
 import os
 from pathlib import Path
 import sys
-from typing import Any, Sequence
+from typing import Any, Sequence, TypeGuard
 
 from importlib import metadata as importlib_metadata
 from packaging.requirements import Requirement
@@ -29,6 +29,12 @@ _SKIP_KEY = "setup.skip"
 _SHOULD_INSTALL_KEY = "setup.should_install"
 _MISSING_KEY = "setup.missing"
 _MODULE_KEY = "setup.module"
+
+
+def _is_str_path(value: object) -> TypeGuard[str | os.PathLike[str]]:
+    return isinstance(value, (str, os.PathLike))
+
+
 def register_builtin_tasks(orchestrator: "SetupOrchestrator") -> None:
     """Register the default set of setup tasks."""
 
@@ -300,7 +306,9 @@ def _missing_requirements(
     if not reqs:
         return []
     installed = _installed_packages(metadata_paths)
-    environment = default_environment()
+    environment: dict[str, str] = {
+        key: str(value) for key, value in default_environment().items()
+    }
     missing: list[str] = []
     for req in reqs:
         requirement = Requirement(req)
@@ -346,13 +354,20 @@ def _metadata_search_paths(context: StageContext) -> list[Path]:
     get_venv_dir = getattr(module, "get_venv_dir", None)
     if callable(get_venv_dir):
         try:
-            venv_dir = Path(get_venv_dir())
+            raw_venv_dir = get_venv_dir()
         except Exception as exc:  # pragma: no cover - defensive
             context.orchestrator.logger.debug(
                 "Unable to resolve virtualenv directory: %s", exc
             )
         else:
-            paths = _candidate_site_packages(venv_dir)
+            if _is_str_path(raw_venv_dir):
+                venv_dir = Path(raw_venv_dir)
+                paths = _candidate_site_packages(venv_dir)
+            else:
+                context.orchestrator.logger.debug(
+                    "Ignoring unexpected virtualenv path type: %s",
+                    type(raw_venv_dir),
+                )
 
     return paths
 

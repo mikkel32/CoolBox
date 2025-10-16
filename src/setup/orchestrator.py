@@ -511,12 +511,13 @@ class SetupOrchestrator:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
         stage_values = [stage.value for stage in requested_stages]
         task_values = list(requested_tasks)
+        resume_journal = self._resume_journal
         resume_entry = (
-            self._resume_journal is not None
-            and self._resume_journal.path.exists()
+            resume_journal is not None and resume_journal.path.exists()
         )
         if resume_entry:
-            path = self._resume_journal.path
+            assert resume_journal is not None
+            path = resume_journal.path
             mode = "a"
         else:
             path = journal_dir / f"{timestamp}.jsonl"
@@ -524,7 +525,8 @@ class SetupOrchestrator:
         self._journal_path = path
         self._journal_file = path.open(mode, encoding="utf-8")
         if resume_entry:
-            self._journal_metadata = dict(self._resume_journal.metadata)
+            assert resume_journal is not None
+            self._journal_metadata = dict(resume_journal.metadata)
             entry = {
                 "type": "resume",
                 "timestamp": timestamp,
