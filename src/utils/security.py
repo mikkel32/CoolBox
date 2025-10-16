@@ -50,9 +50,13 @@ def is_admin() -> bool:
     if not _IS_WINDOWS:
         return False
     try:
+        global _windll
         loader = _windll
         if loader is None:
-            return False
+            loader = getattr(ctypes, "windll", None)
+            if loader is None:
+                return False
+            _windll = loader
         return bool(loader.shell32.IsUserAnAdmin())
     except Exception:
         return False
@@ -173,7 +177,8 @@ class _OutcomeBuilder:
         if _IS_WINDOWS:
             return None
         self.log.add("platform", "non-Windows host")
-        return ActionOutcome.ok(self._compose_detail(unavailable_detail))
+        self.add_blockers("Unsupported platform")
+        return self.blocked(unavailable_detail)
 
     def require_admin(self, reason: str, message: str) -> Optional[ActionOutcome]:
         if is_admin():
