@@ -1,76 +1,63 @@
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Literal, Mapping, cast
 
 import pytest
 
 from src.boot import BootManager
-from src.setup.orchestrator import SetupStage
+from src.setup.orchestrator import SetupOrchestrator, SetupStage
+from src.setup.plugins import PluginManager
+from src.setup.recipes import Recipe, RecipeLoader
 from src.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
+from src.telemetry.consent import ConsentDecision, TelemetryConsentManager
 
 
-class DummyRecipe:
-    def __init__(self, name: str = "test") -> None:
-        self.name = name
-        self.data: dict[str, object] = {}
+class DummyRecipeLoader(RecipeLoader):
+    def __init__(self, recipe: Recipe | None = None) -> None:
+        super().__init__(search_paths=[])
+        self._recipe = recipe or Recipe(name="test")
+        self.loaded: list[str | Path | None] = []
 
-    @property
-    def config(self) -> dict[str, object]:
-        return {}
-
-    def stage_config(self, stage: str | SetupStage) -> dict[str, object]:
-        return {}
-
-
-class DummyRecipeLoader:
-    def __init__(self, recipe: DummyRecipe | None = None) -> None:
-        self._recipe = recipe or DummyRecipe()
-        self.loaded: list[str | None] = []
-
-    def load(self, identifier: str | None) -> DummyRecipe:
+    def load(
+        self,
+        identifier: str | Path | None,
+        *,
+        overrides: Mapping[str, object] | None = None,
+    ) -> Recipe:
         self.loaded.append(identifier)
         return self._recipe
 
 
-class DummyPluginManager:
-    def iter_progress_columns(self):  # pragma: no cover - interface stub
-        return ()
-
-    def load_entrypoints(self, orchestrator):  # pragma: no cover - interface stub
-        return None
-
-
-class DummyConsentManager:
+class DummyConsentManager(TelemetryConsentManager):
     def __init__(self, *, granted: bool = True) -> None:
+        super().__init__(storage_path=None)
         self.granted = granted
         self.calls = 0
 
-    def ensure_opt_in(self):
+    def ensure_opt_in(
+        self, *, default: Literal["deny", "allow"] = "deny"
+    ) -> ConsentDecision:
         self.calls += 1
-        return SimpleNamespace(granted=self.granted, source="test")
+        return ConsentDecision(granted=self.granted, source="test")
 
 
-class DummyOrchestrator:
+class DummyOrchestrator(SetupOrchestrator):
     def __init__(self) -> None:
-        self._tasks: dict[str, object] = {}
-        self.plugin_manager = DummyPluginManager()
-        self.logger = logging.getLogger("dummy.orchestrator")
-        self.stage_order = tuple()
+        super().__init__(root=Path.cwd(), plugin_manager=PluginManager())
         self.last_run: dict[str, object] | None = None
 
-    def register_task(self, task) -> None:
-        self._tasks[task.name] = task
-
-    def register_tasks(self, tasks) -> None:  # pragma: no cover - convenience
-        for task in tasks:
-            self.register_task(task)
-
-    @property
-    def tasks(self) -> dict[str, object]:  # pragma: no cover - accessed by boot manager
-        return dict(self._tasks)
-
-    def run(self, recipe, *, stages=None, task_names=None, load_plugins=True):
+    def run(
+        self,
+        recipe,
+        *,
+        stages=None,
+        task_names=None,
+        load_plugins=True,
+    ):
         self.last_run = {
             "recipe": recipe,
             "stages": stages,
@@ -99,12 +86,12 @@ def manifest(tmp_path: Path) -> Path:
 @pytest.fixture()
 def telemetry_client() -> TelemetryClient:
     storage = InMemoryTelemetryStorage()
+    state = {"current": 1_000.0}
 
     def clock() -> float:
-        clock.current += 1.0
-        return clock.current
+        state["current"] += 1.0
+        return state["current"]
 
-    clock.current = 1000.0  # type: ignore[attr-defined]
     return TelemetryClient(storage, clock=clock)
 
 
@@ -176,9 +163,10 @@ def test_boot_manager_passes_manifest_stages(
         consent_manager=DummyConsentManager(),
     )
     manager.run([])
-    assert manager.orchestrator.last_run is not None
-    assert manager.orchestrator.last_run["stages"] == [SetupStage.VERIFICATION]
-    assert manager.orchestrator.last_run["load_plugins"] is False
+    orchestrator = cast(DummyOrchestrator, manager.orchestrator)
+    assert orchestrator.last_run is not None
+    assert orchestrator.last_run["stages"] == [SetupStage.VERIFICATION]
+    assert orchestrator.last_run["load_plugins"] is False
 
 
 def test_boot_manager_fallback_to_console(
@@ -250,8 +238,9 @@ def test_boot_manager_emits_environment_telemetry(
         consent_manager=DummyConsentManager(),
     )
     manager.run([])
+    storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
     env_events = [
-        event for event in telemetry_client.storage.events if event.type is TelemetryEventType.ENVIRONMENT
+        event for event in storage.events if event.type is TelemetryEventType.ENVIRONMENT
     ]
     assert env_events
     assert env_events[0].metadata["profile"] == "default"
@@ -270,4 +259,5 @@ def test_boot_manager_disables_telemetry_when_opt_out(
         consent_manager=DummyConsentManager(granted=False),
     )
     manager.run([])
-    assert not telemetry_client.storage.events
+    storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
+    assert not storage.events

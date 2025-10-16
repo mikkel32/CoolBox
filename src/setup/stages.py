@@ -13,6 +13,7 @@ from importlib import metadata as importlib_metadata
 from packaging.requirements import Requirement
 
 from .orchestrator import (
+    SetupOrchestrator,
     SetupResult,
     SetupStage,
     SetupStatus,

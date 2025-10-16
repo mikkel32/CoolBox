@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import metadata
-from typing import Any, Callable, Iterable, List, Optional, Protocol, Sequence, runtime_checkable, TYPE_CHECKING
+from typing import Any, Callable, Iterable, Optional, Protocol, Sequence, TYPE_CHECKING, cast, runtime_checkable
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .orchestrator import SetupOrchestrator, SetupResult, SetupStage, StageContext
@@ -125,7 +125,8 @@ class PluginManager:
         for ep in entry_points.select(group=group):
             try:
                 plugin_obj = ep.load()
-                plugin: SetupPlugin = plugin_obj() if callable(plugin_obj) else plugin_obj
+                plugin_instance = plugin_obj() if callable(plugin_obj) else plugin_obj
+                plugin = cast(SetupPlugin, plugin_instance)
             except Exception as exc:  # pragma: no cover - defensive
                 orchestrator.logger.warning("Failed to load setup plugin %s: %s", ep.name, exc)
                 continue

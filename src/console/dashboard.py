@@ -7,7 +7,18 @@ import json
 import logging
 from pathlib import Path
 import time
-from typing import Any, Callable, Dict, Iterable, List, Mapping, MutableMapping, Optional
+from types import SimpleNamespace
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Mapping,
+    MutableMapping,
+    Optional,
+    TYPE_CHECKING,
+    cast,
+)
 
 from .events import (
     DashboardEvent,
@@ -20,7 +31,9 @@ from .events import (
 )
 from src.telemetry import TelemetryKnowledgeBase
 
-try:  # pragma: no cover - optional dependency guard
+TEXTUAL_AVAILABLE: bool = False
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
     from textual import events
     from textual.app import App, ComposeResult
     from textual.binding import Binding
@@ -29,19 +42,117 @@ try:  # pragma: no cover - optional dependency guard
     from textual.reactive import reactive
     from textual.widgets import DataTable, Footer, Header, Input, Static
     from textual.widgets._log import Log  # type: ignore[attr-defined]
+    from src.setup.orchestrator import SetupOrchestrator, SetupStage
+else:  # pragma: no cover - runtime import guard
+    try:
+        from textual import events
+        from textual.app import App, ComposeResult
+        from textual.binding import Binding
+        from textual.containers import Container, Horizontal, Vertical
+        from textual.message import Message
+        from textual.reactive import reactive
+        from textual.widgets import DataTable, Footer, Header, Input, Static
+        from textual.widgets._log import Log  # type: ignore[attr-defined]
 
+        TEXTUAL_AVAILABLE = True
+    except Exception:  # pragma: no cover - fallback when textual missing
+        TEXTUAL_AVAILABLE = False
+
+        class _StubStyles(SimpleNamespace):
+            def __init__(self) -> None:
+                super().__init__(background=None, color=None)
+
+        class _StubWidget:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.styles = _StubStyles()
+
+            def update(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+            def refresh(self) -> None:
+                return None
+
+        class _StubApp(_StubWidget):
+            def run(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+            def exit(self) -> None:
+                return None
+
+            def post_message(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+            def set_theme(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+        class _StubMessage:
+            pass
+
+        class _StubInput(_StubWidget):
+            class Submitted:
+                def __init__(self, value: str, input: _StubInput) -> None:  # type: ignore[name-defined]
+                    self.value = value
+                    self.input = input
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                self.value = ""
+                self.display = True
+
+            def focus(self) -> None:
+                return None
+
+        class _StubDataTable(_StubWidget):
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                self.columns: list[Any] = []
+
+            def add_column(self, _name: str) -> None:
+                self.columns.append(_name)
+
+            def add_row(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+            def clear(self) -> None:
+                return None
+
+        class _StubLog(_StubWidget):
+            def write(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+        class _StubBinding:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+        class _StubContainer(_StubWidget):
+            def __init__(self, *children: Any, **kwargs: Any) -> None:
+                super().__init__(**kwargs)
+                self.children = children
+
+        class _StubHorizontal(_StubContainer):
+            pass
+
+        class _StubVertical(_StubContainer):
+            pass
+
+        def reactive(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
+            return args[0] if args else None
+
+        events = SimpleNamespace()  # type: ignore[assignment]
+        App = _StubApp  # type: ignore[assignment]
+        ComposeResult = Iterable[Any]  # type: ignore[assignment]
+        Binding = _StubBinding  # type: ignore[assignment]
+        Container = _StubContainer  # type: ignore[assignment]
+        Horizontal = _StubHorizontal  # type: ignore[assignment]
+        Vertical = _StubVertical  # type: ignore[assignment]
+        Message = _StubMessage  # type: ignore[assignment]
+        Static = Header = Footer = _StubWidget  # type: ignore[assignment]
+        Input = _StubInput  # type: ignore[assignment]
+        DataTable = _StubDataTable  # type: ignore[assignment]
+        Log = _StubLog  # type: ignore[assignment]
+
+if TYPE_CHECKING:
     TEXTUAL_AVAILABLE = True
-except Exception:  # pragma: no cover - fallback when textual missing
-    TEXTUAL_AVAILABLE = False
-    App = object  # type: ignore
-    ComposeResult = Iterable  # type: ignore
-    Binding = object  # type: ignore
-    Container = Horizontal = Vertical = object  # type: ignore
-    Message = object  # type: ignore
-    events = object  # type: ignore
-    Static = Input = Header = Footer = object  # type: ignore
-    DataTable = object  # type: ignore
-    Log = object  # type: ignore
 
 
 class DashboardLayout(str, Enum):
@@ -368,16 +479,17 @@ if TEXTUAL_AVAILABLE:
         def __init__(self, orchestrator: "SetupOrchestrator") -> None:
             super().__init__()
             self._orchestrator = orchestrator
-            self._input = Input(placeholder="Enter stage id (tab to cancel)")
-            self._input.display = False
+            self._input = Input()
+            cast(Any, self._input).placeholder = "Enter stage id (tab to cancel)"
+            cast(Any, self._input).display = False
 
         def compose(self) -> ComposeResult:
             yield self._input
 
         def toggle(self) -> None:
-            self._input.display = not self._input.display
-            if self._input.display:
-                self._input.focus()
+            cast(Any, self._input).display = not cast(Any, self._input).display
+            if cast(Any, self._input).display:
+                cast(Any, self._input).focus()
 
         def on_input_submitted(self, event: Input.Submitted) -> None:
             from src.setup.orchestrator import SetupStage  # local import
@@ -396,8 +508,8 @@ if TEXTUAL_AVAILABLE:
                             break
                 if stage is not None:
                     self._orchestrator.rerun_stage(stage)
-            self._input.value = ""
-            self._input.display = False
+            cast(Any, self._input).value = ""
+            cast(Any, self._input).display = False
             event.stop()
 
     class TroubleshootingPanel(Static):
@@ -464,7 +576,7 @@ if TEXTUAL_AVAILABLE:
                 for stage in self._orchestrator.stage_order:
                     self.summary.update_stage(stage.value, "pending")
 
-        def _build_layout(self) -> Container:
+        def _build_layout(self) -> Container | Horizontal | Vertical:
             if self._layout is DashboardLayout.HORIZONTAL:
                 return Horizontal(self.summary, self.deps, self.log_panel, id="main")
             if self._layout is DashboardLayout.VERTICAL:

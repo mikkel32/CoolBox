@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -13,7 +14,7 @@ from src.console.dashboard import (
     THEME_PROFILES,
 )
 from src.console.events import TaskEvent
-from src.setup.orchestrator import SetupStage
+from src.setup.orchestrator import SetupOrchestrator, SetupStage
 from src.telemetry import TelemetryKnowledgeBase
 from src.telemetry.events import TelemetryEvent, TelemetryEventType
 
@@ -52,7 +53,10 @@ def test_json_dashboard_surfaces_suggestions() -> None:
 @pytest.mark.skipif(not TEXTUAL_AVAILABLE, reason="Textual UI not available in test environment")
 def test_textual_dashboard_logs_suggestions(monkeypatch: pytest.MonkeyPatch) -> None:
     kb = _seed_knowledge_base()
-    orchestrator = SimpleNamespace(stage_order=())
+    orchestrator = cast(
+        SetupOrchestrator,
+        SimpleNamespace(stage_order=(), rerun_stage=lambda stage: None),
+    )
     studio = TroubleshootingStudio(publisher=lambda event: None)
     theme = DashboardThemeSettings(THEME_PROFILES[DashboardTheme.MINIMAL])
     app = TextualDashboardApp(

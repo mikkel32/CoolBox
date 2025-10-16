@@ -73,6 +73,7 @@ def test_pip_offline_uses_cache(monkeypatch, tmp_path):
 
     assert run_calls, "pip should still run in offline mode"
     assert "--no-index" in run_calls[0]
+    assert env_calls[0] is not None
     assert env_calls[0]["PIP_NO_INDEX"] == "1"
 
 

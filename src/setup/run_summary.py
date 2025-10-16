@@ -1,16 +1,61 @@
 """Run summary panel models and command logging for CoolBox setup."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Iterable, List, Sequence
 import time
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+from typing import Iterable, List, Sequence, TYPE_CHECKING
 
-try:  # pragma: no cover - optional rich support
+if TYPE_CHECKING:  # pragma: no cover - typing only
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
-except Exception:  # pragma: no cover - fallback when rich unavailable
-    Panel = Table = Text = None  # type: ignore
+    from rich.console import RenderableType
+else:  # pragma: no cover - runtime import guard
+    try:
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich.text import Text
+        from rich.console import RenderableType
+
+        _RICH_AVAILABLE = True
+    except Exception:
+        _RICH_AVAILABLE = False
+
+        class _StubText(str):
+            def __new__(cls, value: str = "", *args: object, **kwargs: object) -> "_StubText":
+                return str.__new__(cls, value)
+
+        class _StubTable(SimpleNamespace):
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                super().__init__()
+                self.rows: list[tuple[str, ...]] = []
+
+            def add_column(self, *args: object, **kwargs: object) -> None:
+                return None
+
+            def add_row(self, *args: object, **kwargs: object) -> None:
+                self.rows.append(tuple(str(a) for a in args))
+
+            @classmethod
+            def grid(cls, *args: object, **kwargs: object) -> "_StubTable":
+                return cls()
+
+            @property
+            def row_count(self) -> int:
+                return len(self.rows)
+
+        class _StubPanel(str):
+            @classmethod
+            def fit(cls, renderable: object, *args: object, **kwargs: object) -> "_StubPanel":
+                return cls(str(renderable))
+
+        Panel = _StubPanel  # type: ignore[assignment]
+        Table = _StubTable  # type: ignore[assignment]
+        Text = _StubText  # type: ignore[assignment]
+        RenderableType = str  # type: ignore[assignment]
+
+RICH_AVAILABLE = TYPE_CHECKING or globals().get("_RICH_AVAILABLE", True)
 
 
 @dataclass
@@ -75,8 +120,8 @@ class RunSummaryPanelModel:
         self.errors.extend(other.errors)
         self.commands.extend(other.commands)
 
-    def as_panel(self) -> Panel | str:
-        if Panel is None or Table is None:
+    def as_panel(self) -> RenderableType | str:
+        if not RICH_AVAILABLE:
             lines: List[str] = []
             if self.warnings:
                 lines.append("Warnings:")

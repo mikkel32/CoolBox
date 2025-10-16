@@ -1,10 +1,13 @@
 """Recipe parsing utilities for setup orchestration."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, MutableMapping, Sequence
+from typing import Any, Dict, Iterable, Mapping, MutableMapping, Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .orchestrator import SetupStage
 
 try:  # pragma: no cover - optional dependency
     import yaml  # type: ignore
@@ -47,7 +50,7 @@ class Recipe:
         base.update(self.data.get("config", {}))
         return base
 
-    def stage_config(self, stage: str | "SetupStage") -> dict[str, Any]:
+    def stage_config(self, stage: str | SetupStage) -> dict[str, Any]:
         key = getattr(stage, "value", stage)
         stages = self.data.get("stages", {})
         raw = stages.get(key, {})

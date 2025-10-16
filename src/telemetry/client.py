@@ -60,7 +60,7 @@ class TelemetryClient:
         self.knowledge.observe(event)
 
     def record_environment(self, metadata: Mapping[str, object] | None = None) -> None:
-        payload = {
+        payload: dict[str, object] = {
             "platform": platform.platform(),
             "python": platform.python_version(),
         }

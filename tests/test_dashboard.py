@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -17,6 +18,7 @@ from src.console.dashboard import (
 from src.console.events import StageEvent, TaskEvent, ThemeEvent
 from src.setup.orchestrator import SetupOrchestrator, SetupStage, SetupTask
 from src.setup.recipes import Recipe
+from src.telemetry import TelemetryKnowledgeBase
 
 
 def test_json_dashboard_records_events() -> None:
@@ -76,7 +78,7 @@ def test_textual_dashboard_handles_events() -> None:
         def rerun_stage(self, stage: SetupStage) -> None:
             self.rerun_calls.append(stage)
 
-    orchestrator = DummyOrchestrator()
+    orchestrator = cast(SetupOrchestrator, DummyOrchestrator())
     studio = TroubleshootingStudio()
 
     from src.console.dashboard import TextualDashboardApp, THEME_PROFILES
@@ -86,6 +88,7 @@ def test_textual_dashboard_handles_events() -> None:
         theme=DashboardThemeSettings(THEME_PROFILES[DashboardTheme.MINIMAL]),
         layout=DashboardLayout.MINIMAL,
         studio=studio,
+        knowledge_base=TelemetryKnowledgeBase(),
     )
 
     async def run_app() -> None:

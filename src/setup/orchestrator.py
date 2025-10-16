@@ -301,6 +301,7 @@ class SetupOrchestrator:
                 self._attempts[task.name] = run_attempts
                 self.plugin_manager.dispatch_before_task(task, context)
                 started_at = time.time()
+                result: SetupResult | None = None
                 try:
                     raw = task.action(context)
                     if isinstance(raw, SetupResult):
@@ -332,10 +333,11 @@ class SetupOrchestrator:
                         self.logger.error(
                             "Task %s failed during %s: %s", task.name, stage.value, exc
                         )
-                finally:
-                    finished_at = time.time()
-                    result.started_at = started_at
-                    result.finished_at = finished_at
+                finished_at = time.time()
+                if result is None:
+                    raise RuntimeError("Task action did not produce a SetupResult")
+                result.started_at = started_at
+                result.finished_at = finished_at
                 context.results[task.name] = result
                 stage_results.append(result)
                 self.plugin_manager.dispatch_after_task(result, context)

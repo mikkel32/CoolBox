@@ -1,26 +1,40 @@
+from __future__ import annotations
+
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Literal, Mapping, cast
 
 import pytest
 
 from src.boot import BootManager
 from src.setup.orchestrator import SetupOrchestrator, SetupStage, SetupTask
-from src.setup.recipes import Recipe
+from src.setup.recipes import Recipe, RecipeLoader
 from src.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
+from src.telemetry.consent import ConsentDecision, TelemetryConsentManager
 
 
-class _ConsentStub:
+class _ConsentStub(TelemetryConsentManager):
     def __init__(self, granted: bool = True) -> None:
-        self.granted = granted
+        super().__init__(storage_path=None)
+        self._granted = granted
 
-    def ensure_opt_in(self):
-        return SimpleNamespace(granted=self.granted, source="integration")
+    def ensure_opt_in(
+        self, *, default: Literal["deny", "allow"] = "deny"
+    ) -> ConsentDecision:
+        return ConsentDecision(granted=self._granted, source="integration")
 
 
-class _RecipeLoader:
+class _RecipeLoader(RecipeLoader):
     def __init__(self, recipe: Recipe) -> None:
+        super().__init__(search_paths=[])
         self._recipe = recipe
 
-    def load(self, identifier):  # pragma: no cover - simple passthrough
+    def load(
+        self,
+        identifier: str | Path | None,
+        *,
+        overrides: Mapping[str, object] | None = None,
+    ) -> Recipe:
         return self._recipe
 
 
@@ -42,13 +56,14 @@ def _build_orchestrator(root, telemetry: TelemetryClient) -> SetupOrchestrator:
 @pytest.fixture()
 def telemetry_client() -> TelemetryClient:
     storage = InMemoryTelemetryStorage()
+    state = {"current": 5_000.0}
 
     def clock() -> float:
-        clock.current += 0.5
-        return clock.current
+        state["current"] += 0.5
+        return state["current"]
 
-    clock.current = 5_000.0  # type: ignore[attr-defined]
-    return TelemetryClient(storage, clock=clock)
+    client = TelemetryClient(storage, clock=clock)
+    return client
 
 
 def _boot_manager(tmp_path, telemetry: TelemetryClient) -> BootManager:
@@ -68,9 +83,10 @@ def _boot_manager(tmp_path, telemetry: TelemetryClient) -> BootManager:
 def test_online_setup_flow_emits_telemetry(tmp_path, telemetry_client: TelemetryClient) -> None:
     manager = _boot_manager(tmp_path, telemetry_client)
     manager.run([])
-    run_event = next(event for event in telemetry_client.storage.events if event.type is TelemetryEventType.RUN)
+    storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
+    run_event = next(event for event in storage.events if event.type is TelemetryEventType.RUN)
     assert run_event.metadata["offline"] is False
-    stage_events = [event for event in telemetry_client.storage.events if event.type is TelemetryEventType.STAGE]
+    stage_events = [event for event in storage.events if event.type is TelemetryEventType.STAGE]
     assert {event.metadata["stage"] for event in stage_events} >= {"preflight", "verification"}
 
 
@@ -78,7 +94,8 @@ def test_offline_setup_flow_records_mode(tmp_path, telemetry_client: TelemetryCl
     monkeypatch.setenv("_OFFLINE", "1")
     manager = _boot_manager(tmp_path, telemetry_client)
     manager.run([])
-    run_event = next(event for event in telemetry_client.storage.events if event.type is TelemetryEventType.RUN)
+    storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
+    run_event = next(event for event in storage.events if event.type is TelemetryEventType.RUN)
     assert run_event.metadata["offline"] is True
-    stage_events = [event for event in telemetry_client.storage.events if event.type is TelemetryEventType.STAGE]
+    stage_events = [event for event in storage.events if event.type is TelemetryEventType.STAGE]
     assert any(event.metadata["stage"] == "preflight" for event in stage_events)

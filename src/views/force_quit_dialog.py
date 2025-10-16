@@ -29,7 +29,7 @@ import types
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from typing import Any, Optional
+from typing import Any, Optional, cast
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter import ttk
@@ -62,8 +62,11 @@ KILL_BY_CLICK_WATCHDOG_MISSES = 2
 
 logger = logging.getLogger(__name__)
 
-_FORCE_QUIT_STATE = sys.modules.setdefault(
-    "_coolbox_force_quit_state", types.SimpleNamespace()
+_FORCE_QUIT_STATE = cast(
+    types.ModuleType,
+    sys.modules.setdefault(
+        "_coolbox_force_quit_state", types.ModuleType("_coolbox_force_quit_state")
+    ),
 )
 _PREVIOUS_FORCE_QUIT_DIALOG = getattr(_FORCE_QUIT_STATE, "ForceQuitDialog", None)
 
@@ -2945,4 +2948,4 @@ if _PREVIOUS_FORCE_QUIT_DIALOG is not None:
         setattr(_PREVIOUS_FORCE_QUIT_DIALOG, _name, _value)
     ForceQuitDialog = _PREVIOUS_FORCE_QUIT_DIALOG
 
-_FORCE_QUIT_STATE.ForceQuitDialog = ForceQuitDialog
+setattr(_FORCE_QUIT_STATE, "ForceQuitDialog", ForceQuitDialog)
