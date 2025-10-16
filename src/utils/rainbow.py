@@ -56,24 +56,70 @@ def _console_lock_ctx(console: Console):
 def _clamp01(x: float) -> float:
     return 0.0 if x < 0.0 else 1.0 if x > 1.0 else x
 
+
+def _hex_tuple(color: str) -> tuple[int, int, int]:
+    color = color.strip().lstrip("#")
+    if len(color) == 3:
+        color = "".join(ch * 2 for ch in color)
+    if len(color) != 6:
+        raise ValueError(f"Invalid color '{color}'")
+    return int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
+
+
+def _rgb_to_hex(red: int, green: int, blue: int) -> str:
+    return f"#{red:02x}{green:02x}{blue:02x}"
+
+
+def _mix_hex(color: str, target: str, factor: float) -> str:
+    r1, g1, b1 = _hex_tuple(color)
+    r2, g2, b2 = _hex_tuple(target)
+    r = round(r1 + (r2 - r1) * factor)
+    g = round(g1 + (g2 - g1) * factor)
+    b = round(b1 + (b2 - b1) * factor)
+    return _rgb_to_hex(r, g, b)
+
+
 def _hsl_to_hex(h: float, s: float, l: float) -> str:
-    # h,s,l in [0,1]
+    """Convert HSL values (``0..1`` range) into a ``#rrggbb`` string."""
+
     def hue_to_rgb(p: float, q: float, t: float) -> float:
         t = t % 1.0
-        if t < 1/6: return p + (q - p) * 6 * t
-        if t < 1/2: return q
-        if t < 2/3: return p + (q - p) * (2/3 - t) * 6
+        if t < 1 / 6:
+            return p + (q - p) * 6 * t
+        if t < 1 / 2:
+            return q
+        if t < 2 / 3:
+            return p + (q - p) * (2 / 3 - t) * 6
         return p
-    s = _clamp01(s); l = _clamp01(l)
+
+    s = _clamp01(s)
+    l = _clamp01(l)
     if s == 0.0:
         r = g = b = l
     else:
-        q = l + s - l * s if l < 0.5 else l + s - l * s
+        q = l * (1 + s) if l < 0.5 else l + s - l * s
         p = 2 * l - q
-        r = hue_to_rgb(p, q, h + 1/3)
+        r = hue_to_rgb(p, q, h + 1 / 3)
         g = hue_to_rgb(p, q, h)
-        b = hue_to_rgb(p, q, h - 1/3)
-    return f"#{int(r*255+0.5):02x}{int(g*255+0.5):02x}{int(b*255+0.5):02x}"
+        b = hue_to_rgb(p, q, h - 1 / 3)
+    return _rgb_to_hex(int(r * 255 + 0.5), int(g * 255 + 0.5), int(b * 255 + 0.5))
+
+
+def _expand_palette(colors: Sequence[str], *, steps: int = 96) -> List[str]:
+    anchors = [_rgb_to_hex(*_hex_tuple(color)) for color in colors]
+    if not anchors:
+        return ["#ffffff"]
+    if len(anchors) == 1:
+        return list(anchors)
+    steps = max(len(anchors) * 8, steps)
+    ramp: List[str] = []
+    segment = max(1, steps // len(anchors))
+    for index, color in enumerate(anchors):
+        start = color
+        end = anchors[(index + 1) % len(anchors)]
+        for i in range(segment):
+            ramp.append(_mix_hex(start, end, i / segment))
+    return ramp
 
 THEMES: dict[str, Sequence[str]] = {
     "classic": ["red", "yellow", "green", "cyan", "blue", "magenta"],
@@ -118,6 +164,13 @@ class RainbowBorder:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_size: Tuple[int, int] | None = None
+        self._phase = 0.0
+        self._phase_step = 0.45
+        self.wave_amplitude = 0.35
+        self.twinkle = 0.18
+        self.wave_period = 18.0
+        palette_source = self.colors or list(THEMES.get(theme, THEMES["classic"]))
+        self._palette = _expand_palette(palette_source, steps=144)
 
     def __enter__(self) -> "RainbowBorder":
         self.start()
@@ -167,6 +220,7 @@ class RainbowBorder:
             if sleep_for > 0:
                 time.sleep(sleep_for)
             offset += 1
+            self._phase = (self._phase + self._phase_step) % (math.tau)
 
     def _draw(self, offset: int) -> None:
         width, height = shutil.get_terminal_size(fallback=(80, 24))
@@ -174,8 +228,8 @@ class RainbowBorder:
             return
         self._last_size = (width, height)
 
-        tl, tr, bl, br, h, v = self.border
-        C = max(1, len(self.colors))
+        tl, tr, bl, br, h_char, v_char = self.border
+        palette_len = max(1, len(self._palette))
 
         with _console_lock_ctx(self.console):
             self.console.file.write("\x1b7")  # save cursor
@@ -186,31 +240,85 @@ class RainbowBorder:
                 if w < 2 or hgt < 2:
                     continue
 
-                # top
-                top = Text((tl if layer == 0 else " ") + ("─" * (w - 2)) + (tr if layer == 0 else " "))
-                for i in range(w):
-                    top.stylize(self.colors[(offset + i + layer) % C], i, i + 1)
+                rng_seed = (offset + 1) * 9973 + layer * 131
+                rng = random.Random(rng_seed)
+
+                top = self._styled_line(
+                    left=tl if layer == 0 else " ",
+                    fill=h_char,
+                    right=tr if layer == 0 else " ",
+                    length=w,
+                    start_index=offset + layer,
+                    palette_len=palette_len,
+                    layer=layer,
+                    rng=rng,
+                )
                 self.console.control(Control.move_to(layer, layer))
                 self.console.print(top, end="")
 
-                # bottom
-                bottom = Text((bl if layer == 0 else " ") + ("─" * (w - 2)) + (br if layer == 0 else " "))
-                for i in range(w):
-                    bottom.stylize(self.colors[(offset + hgt + i + layer) % C], i, i + 1)
+                bottom = self._styled_line(
+                    left=bl if layer == 0 else " ",
+                    fill=h_char,
+                    right=br if layer == 0 else " ",
+                    length=w,
+                    start_index=offset + hgt + layer,
+                    palette_len=palette_len,
+                    layer=layer,
+                    rng=rng,
+                )
                 self.console.control(Control.move_to(layer, layer + hgt - 1))
                 self.console.print(bottom, end="")
 
-                # sides
                 for row in range(1, hgt - 1):
-                    left_style = self.colors[(offset + w + row + layer) % C]
-                    right_style = self.colors[(offset + w + hgt + row + layer) % C]
+                    left_style = self._color_for_index(offset + w + row + layer, layer, palette_len, rng)
+                    right_style = self._color_for_index(offset + w + hgt + row + layer, layer, palette_len, rng)
                     self.console.control(Control.move_to(layer, layer + row))
-                    self.console.print(Text("│", style=left_style), end="")
+                    self.console.print(Text(v_char, style=left_style), end="")
                     self.console.control(Control.move_to(layer + w - 1, layer + row))
-                    self.console.print(Text("│", style=right_style), end="")
+                    self.console.print(Text(v_char, style=right_style), end="")
 
             self.console.file.write("\x1b8")  # restore cursor
             self.console.file.flush()
+
+    def _styled_line(
+        self,
+        *,
+        left: str,
+        fill: str,
+        right: str,
+        length: int,
+        start_index: int,
+        palette_len: int,
+        layer: int,
+        rng: random.Random,
+    ) -> Text:
+        if length <= 0:
+            return Text("")
+        inner = max(0, length - 2)
+        text = Text(left + (fill * inner) + right)
+        for column in range(length):
+            style = self._color_for_index(start_index + column, layer, palette_len, rng)
+            text.stylize(style, column, column + 1)
+        return text
+
+    def _color_for_index(
+        self,
+        index: int,
+        layer: int,
+        palette_len: int,
+        rng: random.Random,
+    ) -> str:
+        base = self._palette[index % palette_len]
+        if self.wave_amplitude <= 0 and self.twinkle <= 0:
+            return base
+        wave = math.sin((index / max(1.0, self.wave_period)) + self._phase + layer * 0.5)
+        sparkle = (rng.random() - 0.5) * self.twinkle
+        intensity = _clamp01(0.5 + wave * self.wave_amplitude + sparkle)
+        if intensity >= 0.5:
+            factor = (intensity - 0.5) * 2
+            return _mix_hex(base, "#ffffff", factor * 0.6)
+        factor = (0.5 - intensity) * 2
+        return _mix_hex(base, "#050505", factor * 0.5)
 
     def _clear(self) -> None:
         size = self._last_size or shutil.get_terminal_size(fallback=(80, 24))

@@ -20,6 +20,15 @@ from typing import (
     cast,
 )
 
+try:  # pragma: no cover - optional rich dependency
+    from rich.markup import escape as _rich_escape
+except Exception:  # pragma: no cover - executed when rich missing
+    def _escape_markup(value: str) -> str:
+        return value
+else:  # pragma: no cover - exercised indirectly in UI tests
+    def _escape_markup(value: str) -> str:
+        return _rich_escape(value)
+
 from .events import (
     DashboardEvent,
     DashboardEventType,
@@ -42,6 +51,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from textual.reactive import reactive
     from textual.widgets import DataTable, Footer, Header, Input, Static
     from textual.widgets._log import Log  # type: ignore[attr-defined]
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+    from rich.console import Group
     from src.setup.orchestrator import SetupOrchestrator, SetupStage
 else:  # pragma: no cover - runtime import guard
     try:
@@ -53,6 +66,10 @@ else:  # pragma: no cover - runtime import guard
         from textual.reactive import reactive
         from textual.widgets import DataTable, Footer, Header, Input, Static
         from textual.widgets._log import Log  # type: ignore[attr-defined]
+        from rich.panel import Panel
+        from rich.table import Table
+        from rich.text import Text
+        from rich.console import Group
 
         TEXTUAL_AVAILABLE = True
     except Exception:  # pragma: no cover - fallback when textual missing
@@ -150,6 +167,7 @@ else:  # pragma: no cover - runtime import guard
         Input = _StubInput  # type: ignore[assignment]
         DataTable = _StubDataTable  # type: ignore[assignment]
         Log = _StubLog  # type: ignore[assignment]
+        Panel = Table = Text = Group = _StubWidget  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     TEXTUAL_AVAILABLE = True
@@ -426,18 +444,104 @@ if TEXTUAL_AVAILABLE:
             self.event = event
 
     class SummaryTiles(Static):
-        """Display stage summaries in tiles."""
+        """Display stage summaries using themed badges and timing."""
 
         stages: reactive[dict[str, str]] = reactive(dict)
+        _STATUS_MAP: Dict[str, tuple[str, str, str]] = {
+            "pending": ("⏳", "Pending", "dim"),
+            "in-progress": ("▶", "In Progress", "cyan"),
+            "completed": ("✔", "Completed", "green"),
+            "failed": ("✖", "Failed", "red"),
+            "skipped": ("⤴", "Skipped", "yellow"),
+        }
 
         def __init__(self) -> None:
             super().__init__("")
             self.stages = {}
+            self._order: list[str] = []
+            self._started: Dict[str, float] = {}
+            self._durations: Dict[str, float] = {}
+            self._theme: DashboardThemeProfile = THEME_PROFILES[DashboardTheme.MINIMAL]
+            self._plain_summary = ""
+            self._current_renderable: RenderableType | None = None
+
+        def set_theme(self, profile: DashboardThemeProfile) -> None:
+            self._theme = profile
+            self.update(self._render_tiles())
 
         def update_stage(self, stage: str, status: str) -> None:
-            self.stages = {**self.stages, stage: status}
-            lines = [f"[b]{stage}[/b]: {status}" for stage, status in self.stages.items()]
-            self.update("\n".join(lines) or "No stages yet")
+            normalized = self._normalize_status(status)
+            now = time.perf_counter()
+            if stage not in self._order:
+                self._order.append(stage)
+            if normalized == "in-progress":
+                self._started[stage] = now
+            elif normalized in {"completed", "failed", "skipped"}:
+                started = self._started.pop(stage, None)
+                if started is not None:
+                    self._durations[stage] = now - started
+            self.stages = {**self.stages, stage: normalized}
+            self.update(self._render_tiles())
+
+        def _normalize_status(self, status: str) -> str:
+            value = (status or "").lower()
+            if value in {"started", "running", "progress"}:
+                return "in-progress"
+            if value in self._STATUS_MAP:
+                return value
+            return "pending"
+
+        def _render_tiles(self) -> Panel:
+            table = Table.grid(padding=(0, 1))
+            table.add_column("Stage", ratio=1)
+            table.add_column("Status", justify="right")
+            if not self._order:
+                table.add_row(Text("Waiting for stages…", style="dim italic"), Text(""))
+            plain_lines: list[str] = []
+            for stage in self._order:
+                status = self.stages.get(stage, "pending")
+                icon, label, style = self._STATUS_MAP.get(status, self._STATUS_MAP["pending"])
+                stage_title = self._format_stage_name(stage)
+                stage_text = Text(stage_title, style="bold")
+                if stage.lower() != stage_title.lower():
+                    stage_text.append(f" [dim]({stage})[/]")
+                status_text = Text(f"{icon} {label}", style=style)
+                duration = self._durations.get(stage)
+                if duration is not None and duration > 0:
+                    status_text.append(f" · {duration:.1f}s", style="dim")
+                table.add_row(stage_text, status_text)
+                plain_lines.append(f"{stage}: {status}")
+            subtitle = "Ctrl+P · Rerun stage"
+            panel = Panel(
+                table,
+                title="Setup Progress",
+                border_style=self._theme.accent,
+                padding=(0, 1),
+                subtitle=subtitle,
+                subtitle_align="right",
+            )
+            self._plain_summary = "\n".join(plain_lines) if plain_lines else ""
+            self._current_renderable = panel
+            return panel
+
+        def _format_stage_name(self, stage: str) -> str:
+            cleaned = stage.replace("_", " ").replace("-", " ")
+            return " ".join(word.capitalize() for word in cleaned.split())
+
+        class _RenderableProxy:
+            def __init__(self, renderable: RenderableType, plain: str) -> None:
+                self._renderable = renderable
+                self._plain = plain
+
+            def __rich_console__(self, console: Any, options: Any) -> Iterable[Any]:
+                yield from console.render(self._renderable, options)
+
+            def __str__(self) -> str:
+                return self._plain or str(self._renderable)
+
+        def render(self) -> RenderableType:
+            renderable = self._current_renderable or self._render_tiles()
+            return self._RenderableProxy(renderable, self._plain_summary)
 
     class DependencyGraph(DataTable):
         """Tabular representation of task dependencies."""
@@ -445,6 +549,7 @@ if TEXTUAL_AVAILABLE:
         def __init__(self) -> None:
             super().__init__(zebra_stripes=True)
             self._rows: Dict[str, list[str]] = {}
+            self._theme: DashboardThemeProfile = THEME_PROFILES[DashboardTheme.MINIMAL]
 
         def on_mount(self) -> None:
             if not self.columns:
@@ -459,36 +564,78 @@ if TEXTUAL_AVAILABLE:
         def _refresh(self) -> None:
             self.clear()
             for task, deps in sorted(self._rows.items()):
-                self.add_row(task, ", ".join(deps) if deps else "<none>")
+                task_style = self._theme.accent if not deps else self._theme.text
+                deps_text = ", ".join(deps) if deps else "<none>"
+                self.add_row(f"[{task_style}]{task}[/]", deps_text)
+
+        def set_theme(self, profile: DashboardThemeProfile) -> None:
+            self._theme = profile
+            self.styles.background = profile.background
+            self.styles.color = profile.text
+            self._refresh()
 
     class LiveLog(Log):
         """Log panel that highlights levels."""
 
+        def __init__(self) -> None:
+            super().__init__()
+            self._theme: DashboardThemeProfile = THEME_PROFILES[DashboardTheme.MINIMAL]
+
+        def set_theme(self, profile: DashboardThemeProfile) -> None:
+            self._theme = profile
+            self.styles.background = profile.background
+            self.styles.color = profile.text
+
         def add_entry(self, level: str, message: str, *, theme: DashboardThemeProfile) -> None:
+            timestamp = time.strftime("%H:%M:%S")
+            severity = level.lower()
             color = {
-                "info": theme.text,
+                "info": theme.accent,
                 "debug": theme.text,
                 "warning": theme.warning,
                 "error": theme.error,
-            }.get(level.lower(), theme.text)
-            self.write(f"[{color}]{level.upper():>7}[/] {message}")
+            }.get(severity, theme.text)
+            icon = {"info": "ℹ", "debug": "·", "warning": "⚠", "error": "✖"}.get(severity, "•")
+            safe_message = _escape_markup(message)
+            self.write(
+                f"[dim]{timestamp}[/] "
+                f"[{color}]{icon} {severity.upper():>7}[/] "
+                f"{safe_message}"
+            )
 
     class CommandPalette(Container):
         """Simple command palette that reruns stages by name."""
 
         def __init__(self, orchestrator: "SetupOrchestrator") -> None:
-            super().__init__()
+            super().__init__(id="command-palette")
             self._orchestrator = orchestrator
+            self._theme: DashboardThemeProfile = THEME_PROFILES[DashboardTheme.MINIMAL]
+            self._help = Static("", classes="palette-help")
+            self._help_text = ""
             self._input = Input()
-            cast(Any, self._input).placeholder = "Enter stage id (tab to cancel)"
+            cast(Any, self._input).placeholder = "Enter stage id (press Enter)"
             cast(Any, self._input).display = False
+            cast(Any, self._help).display = False
 
         def compose(self) -> ComposeResult:
+            yield self._help
             yield self._input
 
         def toggle(self) -> None:
-            cast(Any, self._input).display = not cast(Any, self._input).display
-            if cast(Any, self._input).display:
+            display = not cast(Any, self._input).display
+            cast(Any, self._input).display = display
+            cast(Any, self._help).display = display
+            if display:
+                stages = getattr(self._orchestrator, "stage_order", [])
+                if stages:
+                    stage_list = ", ".join(stage.value for stage in stages)
+                    self._help_text = (
+                        f"[{self._theme.accent}]Available stages[/]: [dim]{stage_list}[/]"
+                    )
+                else:
+                    self._help_text = ""
+                if self._help_text:
+                    self._help.update(self._help_text)
                 cast(Any, self._input).focus()
 
         def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -510,7 +657,16 @@ if TEXTUAL_AVAILABLE:
                     self._orchestrator.rerun_stage(stage)
             cast(Any, self._input).value = ""
             cast(Any, self._input).display = False
+            cast(Any, self._help).display = False
             event.stop()
+
+        def set_theme(self, profile: DashboardThemeProfile) -> None:
+            self._theme = profile
+            self.styles.background = profile.background
+            self.styles.color = profile.text
+            self._help.styles.color = profile.accent
+            if self._help_text:
+                self._help.update(self._help_text)
 
     class TroubleshootingPanel(Static):
         """Textual wrapper for the troubleshooting studio."""
@@ -526,12 +682,22 @@ if TEXTUAL_AVAILABLE:
                 lines.append(f"[b]{name}[/b]\n{json.dumps(result.payload, indent=2)}")
             self.update("\n\n".join(lines))
 
+        def set_theme(self, profile: DashboardThemeProfile) -> None:
+            self.styles.background = profile.background
+            self.styles.color = profile.text
+
     class TextualDashboardApp(App):
         """Textual application wrapping dashboard widgets."""
 
         CSS = """
         Screen { background: $background; color: $text; }
-        #main { height: 1fr; }
+        #main { height: 1fr; padding: 1 2; }
+        SummaryTiles { border: tall $accent; padding: 1 2; }
+        DataTable { border: round $accent; padding: 0 1; }
+        Log { border: round $accent; padding: 0 1; }
+        #command-palette { border: double $accent; padding: 1 2; }
+        #command-palette .palette-help { color: $accent; }
+        #troubleshooting { border: round $accent; padding: 1 2; }
         """
         BINDINGS = [
             Binding("ctrl+p", "toggle_palette", "Command Palette"),
@@ -559,8 +725,17 @@ if TEXTUAL_AVAILABLE:
             self.deps = DependencyGraph()
             self.palette = CommandPalette(orchestrator)
             self.troubleshooting = TroubleshootingPanel(studio)
+            self.summary.id = "summary"
+            self.log_panel.id = "log"
+            self.deps.id = "dependencies"
+            self.troubleshooting.id = "troubleshooting"
             self._themes = list(THEME_PROFILES.values())
             self._theme_index = self._themes.index(theme.profile)
+            self.summary.set_theme(theme.profile)
+            self.deps.set_theme(theme.profile)
+            self.log_panel.set_theme(theme.profile)
+            self.palette.set_theme(theme.profile)
+            self.troubleshooting.set_theme(theme.profile)
 
         def compose(self) -> ComposeResult:
             yield Header()
@@ -597,10 +772,11 @@ if TEXTUAL_AVAILABLE:
             self._theme = DashboardThemeSettings(profile)
             self.styles.background = profile.background
             self.styles.color = profile.text
-            self.log_panel.styles.background = profile.background
-            self.summary.styles.background = profile.background
-            self.deps.styles.background = profile.background
-            self.troubleshooting.styles.background = profile.background
+            self.summary.set_theme(profile)
+            self.deps.set_theme(profile)
+            self.log_panel.set_theme(profile)
+            self.palette.set_theme(profile)
+            self.troubleshooting.set_theme(profile)
             self.refresh()
 
         def handle_dashboard_event(self, event: DashboardEvent) -> None:

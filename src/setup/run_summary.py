@@ -10,13 +10,15 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
-    from rich.console import RenderableType
+    from rich.console import RenderableType, Group
 else:  # pragma: no cover - runtime import guard
     try:
         from rich.panel import Panel
         from rich.table import Table
         from rich.text import Text
-        from rich.console import RenderableType
+        from rich.console import RenderableType, Group
+        from rich import box
+        from rich.markup import escape as rich_escape
 
         _RICH_AVAILABLE = True
     except Exception:
@@ -50,10 +52,19 @@ else:  # pragma: no cover - runtime import guard
             def fit(cls, renderable: object, *args: object, **kwargs: object) -> "_StubPanel":
                 return cls(str(renderable))
 
+        class _StubGroup(list):
+            def __init__(self, *renderables: object) -> None:
+                super().__init__(renderables)
+
+            def __str__(self) -> str:
+                return "\n".join(map(str, self))
+
         Panel = _StubPanel  # type: ignore[assignment]
         Table = _StubTable  # type: ignore[assignment]
         Text = _StubText  # type: ignore[assignment]
         RenderableType = str  # type: ignore[assignment]
+        Group = _StubGroup  # type: ignore[assignment]
+        rich_escape = lambda value: value  # type: ignore[assignment]
 
 RICH_AVAILABLE = TYPE_CHECKING or globals().get("_RICH_AVAILABLE", True)
 
@@ -165,7 +176,64 @@ class RunSummaryPanelModel:
 
         if details.row_count:
             return Panel.fit(details, title="Run Summary", border_style="magenta")
-        return Panel.fit(table, title="Run Summary", border_style="magenta")
+        from rich.table import Table as RichTable  # local import to satisfy mypy
+
+        stats = RichTable.grid(padding=(0, 2))
+        stats.add_column(justify="left")
+        stats.add_column(justify="right")
+        stats.add_row("Commands", Text(str(len(self.commands)), style="bold cyan"))
+        stats.add_row("Warnings", Text(str(len(self.warnings)), style="bold yellow"))
+        stats.add_row("Errors", Text(str(len(self.errors)), style="bold red"))
+
+        command_table = Table(
+            show_lines=False,
+            expand=True,
+            header_style="bold magenta",
+            box=box.SIMPLE_HEAVY,
+        )
+        command_table.add_column("Command", overflow="fold", ratio=2)
+        command_table.add_column("Status", no_wrap=True)
+        command_table.add_column("Duration", no_wrap=True)
+        command_table.add_column("Notes", ratio=1, overflow="fold")
+        if self.commands:
+            for record in self.commands:
+                notes: list[str] = []
+                if record.hint:
+                    notes.append(f"[cyan]{rich_escape(record.hint)}[/]")
+                if record.stderr:
+                    notes.append(f"[dim]{rich_escape(record.stderr)}[/]")
+                note_text = "\n".join(notes)
+                command_table.add_row(
+                    rich_escape(record.command_str),
+                    record.status_badge(),
+                    record.duration_text(),
+                    note_text,
+                )
+        else:
+            command_table.add_row("(no commands recorded)", "", "", "")
+
+        detail_rows = Table.grid(padding=(0, 2))
+        if self.warnings:
+            warn_text = Text("\n".join(self.warnings), style="yellow")
+            detail_rows.add_row(Text("Warnings", style="bold yellow"), warn_text)
+        if self.errors:
+            err_text = Text("\n".join(self.errors), style="red")
+            detail_rows.add_row(Text("Errors", style="bold red"), err_text)
+        hints = [record.hint for record in self.commands if record.hint]
+        if hints:
+            hints_text = Text("\n".join(hints), style="cyan")
+            detail_rows.add_row(Text("Hints", style="bold cyan"), hints_text)
+
+        sections: List[RenderableType] = [stats, command_table]
+        if detail_rows.row_count:
+            sections.append(detail_rows)
+
+        body: RenderableType
+        if len(sections) == 1:
+            body = sections[0]
+        else:
+            body = Group(*sections)
+        return Panel(body, title="Run Summary", border_style="magenta", padding=(1, 2))
 
     def latest_error(self) -> str | None:
         return self.errors[-1] if self.errors else None
