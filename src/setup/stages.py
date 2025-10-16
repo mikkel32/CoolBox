@@ -1,7 +1,6 @@
 """Builtin setup stages."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
 import os
@@ -11,6 +10,8 @@ from typing import Any, Sequence
 
 from importlib import metadata as importlib_metadata
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from packaging.markers import default_environment
 
 from .orchestrator import (
     SetupOrchestrator,
@@ -28,8 +29,6 @@ _SKIP_KEY = "setup.skip"
 _SHOULD_INSTALL_KEY = "setup.should_install"
 _MISSING_KEY = "setup.missing"
 _MODULE_KEY = "setup.module"
-
-
 def register_builtin_tasks(orchestrator: "SetupOrchestrator") -> None:
     """Register the default set of setup tasks."""
 
@@ -113,7 +112,8 @@ def _dependency_resolution(context: StageContext) -> SetupResult:
         )
     config = context.recipe.config
     requirements = context.root / config.get("requirements", "requirements.txt")
-    missing = _missing_requirements(requirements)
+    metadata_paths = _metadata_search_paths(context)
+    missing = _missing_requirements(requirements, metadata_paths=metadata_paths)
     context.set(_MISSING_KEY, missing)
     should_install = context.get(_SHOULD_INSTALL_KEY, False) or bool(missing)
     if config.get("force", False):
@@ -216,7 +216,8 @@ def _verify_install(context: StageContext) -> SetupResult:
             payload={"reason": "SKIP_SETUP"},
         )
     requirements = context.root / config.get("requirements", "requirements.txt")
-    missing = _missing_requirements(requirements)
+    metadata_paths = _metadata_search_paths(context)
+    missing = _missing_requirements(requirements, metadata_paths=metadata_paths)
     context.set("setup.missing_after", missing)
     if not missing and digest:
         try:
@@ -290,27 +291,29 @@ def _parse_requirements(req_path: Path) -> list[str]:
     return reqs
 
 
-def _missing_requirements(req_path: Path) -> list[str]:
+def _missing_requirements(
+    req_path: Path,
+    *,
+    metadata_paths: Sequence[Path] | None = None,
+) -> list[str]:
     reqs = _parse_requirements(req_path)
     if not reqs:
         return []
+    installed = _installed_packages(metadata_paths)
+    environment = default_environment()
     missing: list[str] = []
-    with ThreadPoolExecutor() as ex:
-        for result in ex.map(_check_single_requirement, reqs):
-            if result:
-                missing.append(result)
+    for req in reqs:
+        requirement = Requirement(req)
+        if requirement.marker and not requirement.marker.evaluate(environment):
+            continue
+        name = canonicalize_name(requirement.name)
+        version = installed.get(name)
+        if version is None:
+            missing.append(req)
+            continue
+        if requirement.specifier and version not in requirement.specifier:
+            missing.append(req)
     return missing
-
-
-def _check_single_requirement(req: str) -> str | None:
-    requirement = Requirement(req)
-    try:
-        version = importlib_metadata.version(requirement.name)
-    except importlib_metadata.PackageNotFoundError:
-        return req
-    if requirement.specifier and version not in requirement.specifier:
-        return req
-    return None
 
 
 def _load_setup_module(context: StageContext):
@@ -326,6 +329,67 @@ def _load_setup_module(context: StageContext):
     spec.loader.exec_module(module)
     context.set(_MODULE_KEY, module)
     return module
+
+
+def _metadata_search_paths(context: StageContext) -> list[Path]:
+    paths: list[Path] = []
+    module = context.get(_MODULE_KEY)
+    if module is None:
+        try:
+            module = _load_setup_module(context)
+        except Exception as exc:  # pragma: no cover - setup may be absent
+            context.orchestrator.logger.debug(
+                "Unable to load setup module for metadata discovery: %s", exc
+            )
+            return paths
+
+    get_venv_dir = getattr(module, "get_venv_dir", None)
+    if callable(get_venv_dir):
+        try:
+            venv_dir = Path(get_venv_dir())
+        except Exception as exc:  # pragma: no cover - defensive
+            context.orchestrator.logger.debug(
+                "Unable to resolve virtualenv directory: %s", exc
+            )
+        else:
+            paths = _candidate_site_packages(venv_dir)
+
+    return paths
+
+
+def _candidate_site_packages(venv_dir: Path) -> list[Path]:
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    candidates = [
+        venv_dir / "Lib" / "site-packages",  # Windows venv layout
+        venv_dir / "lib" / version / "site-packages",
+        venv_dir / "lib64" / version / "site-packages",
+        venv_dir / "lib" / version / "dist-packages",
+        venv_dir / "lib64" / version / "dist-packages",
+    ]
+    return [path for path in candidates if path.exists()]
+
+
+def _installed_packages(metadata_paths: Sequence[Path] | None) -> dict[str, str]:
+    search = [str(path) for path in metadata_paths or [] if path.exists()]
+    try:
+        distributions = (
+            importlib_metadata.distributions(path=search)
+            if search
+            else importlib_metadata.distributions()
+        )
+    except Exception:  # pragma: no cover - fallback to default environment
+        distributions = importlib_metadata.distributions()
+
+    packages: dict[str, str] = {}
+    for dist in distributions:
+        try:
+            name = dist.metadata["Name"]  # type: ignore[index]
+        except Exception:
+            name = getattr(dist, "name", None) or ""
+        if not name:
+            continue
+        packages[canonicalize_name(str(name))] = dist.version
+    return packages
 
 
 def _stringify(data: dict[str, Any]) -> dict[str, Any]:

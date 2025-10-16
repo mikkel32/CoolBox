@@ -111,6 +111,14 @@ class StageContext:
         return [factory(self) for factory in self.orchestrator.plugin_manager.iter_progress_columns()]
 
 
+def _parse_truthy(value: str | None) -> bool:
+    """Return ``True`` when ``value`` represents a truthy flag."""
+
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
 class SetupOrchestrator:
     """Coordinates the execution of setup stages."""
 
@@ -177,15 +185,26 @@ class SetupOrchestrator:
 
         context = StageContext(root=self.root, recipe=recipe, orchestrator=self)
         offline_flag = os.environ.get("_OFFLINE")
-        offline_enabled = False
         if offline_flag is not None:
-            offline_enabled = offline_flag not in {"0", "false", "False", ""}
+            offline_enabled = _parse_truthy(offline_flag)
+        else:
+            offline_enabled = _parse_truthy(os.environ.get("COOLBOX_OFFLINE"))
             if offline_enabled:
-                os.environ["COOLBOX_OFFLINE"] = "1"
-            else:
-                os.environ.pop("COOLBOX_OFFLINE", None)
-        elif os.environ.get("COOLBOX_OFFLINE") == "1":
-            offline_enabled = True
+                try:  # pragma: no cover - defensive import
+                    import setup as setup_module  # type: ignore
+                except Exception:  # pragma: no cover - setup unavailable
+                    pass
+                else:
+                    forced = bool(getattr(setup_module, "_OFFLINE_FORCED", False))
+                    auto_detected = bool(
+                        getattr(setup_module, "offline_auto_detected", lambda: False)()
+                    )
+                    if forced and not auto_detected:
+                        offline_enabled = False
+        if offline_enabled:
+            os.environ["COOLBOX_OFFLINE"] = "1"
+        else:
+            os.environ.pop("COOLBOX_OFFLINE", None)
         context.set("setup.offline", offline_enabled)
         if load_plugins:
             self.plugin_manager.load_entrypoints(self)

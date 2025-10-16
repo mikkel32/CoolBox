@@ -1233,8 +1233,11 @@ class ForceQuitDialog(BaseDialog):
         pids: list[int] = []
         for proc in psutil.process_iter(["pid", "cmdline"]):
             try:
-                cmd = " ".join(proc.info.get("cmdline") or [])
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                cmdline = proc.info.get("cmdline")
+                if not cmdline:
+                    cmdline = proc.cmdline()
+                cmd = " ".join(cmdline)
+            except (psutil.Error, OSError):
                 continue
             if regex.search(cmd):
                 pids.append(proc.pid)
