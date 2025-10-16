@@ -7,6 +7,7 @@ from typing import Literal, Mapping, cast
 import pytest
 
 from src.boot import BootManager
+from src.setup import load_last_run
 from src.setup.orchestrator import (
     SetupOrchestrator,
     SetupResult,
@@ -142,3 +143,90 @@ def test_setup_flow_stops_after_blocking_failure(tmp_path, telemetry_client: Tel
         if event.type is TelemetryEventType.STAGE
     }
     assert "verification" not in verification_events
+
+
+def test_recovery_resume_skips_completed_tasks(
+    tmp_path, telemetry_client: TelemetryClient
+) -> None:
+    call_counts = {"preflight": 0, "verify": 0}
+    state = {"should_fail": True}
+
+    def _resume_orchestrator() -> SetupOrchestrator:
+        orchestrator = SetupOrchestrator(root=tmp_path, telemetry=telemetry_client)
+
+        def preflight(context):
+            call_counts["preflight"] += 1
+            return {"attempt": call_counts["preflight"]}
+
+        def verify(context):
+            call_counts["verify"] += 1
+            if state["should_fail"]:
+                state["should_fail"] = False
+                return SetupResult(
+                    task="verify",
+                    stage=SetupStage.VERIFICATION,
+                    status=SetupStatus.FAILED,
+                    payload={"attempt": call_counts["verify"]},
+                    error=RuntimeError("boom"),
+                )
+            return {"attempt": call_counts["verify"]}
+
+        orchestrator.register_task(SetupTask("preflight", SetupStage.PREFLIGHT, preflight))
+        orchestrator.register_task(SetupTask("verify", SetupStage.VERIFICATION, verify))
+        return orchestrator
+
+    recipe = Recipe(
+        name="integration",
+        data={"stages": {"preflight": {}, "verification": {}}},
+    )
+    loader = _RecipeLoader(recipe)
+    manager = BootManager(
+        manifest_path=None,
+        app_factory=lambda: SimpleNamespace(run=lambda: None),
+        orchestrator_factory=_resume_orchestrator,
+        recipe_loader=loader,
+        dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=_ConsentStub(),
+    )
+    recipe_obj = manager._load_recipe(None)
+
+    with pytest.raises(RuntimeError):
+        manager._execute_setup(
+            recipe_obj,
+            stages=None,
+            task_names=None,
+            load_plugins=True,
+        )
+
+    assert call_counts["preflight"] == 1
+    assert call_counts["verify"] == 1
+    journal = load_last_run(tmp_path)
+    assert journal is not None
+
+    manager._execute_setup(
+        recipe_obj,
+        stages=[SetupStage.VERIFICATION],
+        task_names=None,
+        load_plugins=True,
+    )
+
+    assert call_counts["preflight"] == 1
+    assert call_counts["verify"] == 2
+
+    storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
+    verification_events = [
+        event
+        for event in storage.events
+        if event.type is TelemetryEventType.STAGE
+        and event.metadata.get("stage") == "verification"
+    ]
+    assert len(verification_events) >= 2
+    statuses = {event.metadata.get("status") for event in verification_events}
+    assert {"failed", "completed"}.issubset(statuses)
+
+    journal_after = load_last_run(tmp_path)
+    assert journal_after is not None
+    verify_results = [res for res in journal_after.results if res.task == "verify"]
+    assert len(verify_results) == 2
+    assert verify_results[-1].status is SetupStatus.SUCCESS

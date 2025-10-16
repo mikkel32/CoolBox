@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import heapq
+import json
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 import logging
 import time
-from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
+from typing import IO, Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
 
 from src.console.events import DashboardEvent, LogEvent, StageEvent, TaskEvent
 from src.telemetry import NullTelemetryClient, TelemetryClient
@@ -57,9 +59,14 @@ class SetupResult:
     status: SetupStatus
     payload: dict[str, Any] = field(default_factory=dict)
     error: BaseException | None = None
+    error_repr: str | None = None
     started_at: float = field(default_factory=time.time)
     finished_at: float = field(default_factory=time.time)
     attempts: int = 1
+
+    def __post_init__(self) -> None:
+        if self.error is not None and self.error_repr is None:
+            self.error_repr = repr(self.error)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -67,11 +74,146 @@ class SetupResult:
             "stage": self.stage.value,
             "status": self.status.value,
             "payload": self.payload,
-            "error": repr(self.error) if self.error else None,
+            "error": self.error_repr if self.error_repr else None,
             "attempts": self.attempts,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "SetupResult":
+        payload = dict(data.get("payload", {}))
+        started_at = float(data.get("started_at", time.time()))
+        finished_at = float(data.get("finished_at", started_at))
+        attempts = int(data.get("attempts", 1))
+        status = SetupStatus(data.get("status", SetupStatus.SUCCESS.value))
+        stage = SetupStage(data.get("stage", SetupStage.PREFLIGHT.value))
+        error_repr = data.get("error")
+        return cls(
+            task=str(data.get("task")),
+            stage=stage,
+            status=status,
+            payload=payload,
+            error=None,
+            error_repr=str(error_repr) if error_repr else None,
+            started_at=started_at,
+            finished_at=finished_at,
+            attempts=attempts,
+        )
+
+
+@dataclass(slots=True)
+class SetupRunJournal:
+    """Persisted record of a setup execution attempt."""
+
+    path: Path
+    metadata: Mapping[str, Any]
+    results: Sequence[SetupResult]
+
+    def latest_results(self) -> dict[str, SetupResult]:
+        summary: dict[str, SetupResult] = {}
+        for result in self.results:
+            summary[result.task] = result
+        return summary
+
+    def iter_events(self) -> Iterable[DashboardEvent]:
+        current_stage: SetupStage | None = None
+        stage_results: list[SetupResult] = []
+        for result in self.results:
+            if current_stage != result.stage:
+                if current_stage is not None:
+                    yield _journal_stage_event(current_stage, stage_results)
+                    stage_results = []
+                current_stage = result.stage
+                yield StageEvent(
+                    current_stage,
+                    status="started",
+                    payload={"source": "journal"},
+                )
+            stage_results.append(result)
+            yield _journal_task_event(result)
+        if current_stage is not None:
+            yield _journal_stage_event(current_stage, stage_results)
+
+
+def _journal_stage_event(stage: SetupStage, results: Sequence[SetupResult]) -> StageEvent:
+    if not results:
+        return StageEvent(stage, status="completed", payload={"source": "journal"})
+    final = results[-1]
+    if final.status is SetupStatus.FAILED:
+        status = "failed"
+    elif all(res.status is SetupStatus.SKIPPED for res in results):
+        status = "skipped"
+    else:
+        status = "completed"
+    payload = {"results": [res.as_dict() for res in results], "source": "journal"}
+    return StageEvent(stage, status=status, payload=payload)
+
+
+def _journal_task_event(result: SetupResult) -> TaskEvent:
+    status_map = {
+        SetupStatus.SUCCESS: "completed",
+        SetupStatus.FAILED: "failed",
+        SetupStatus.SKIPPED: "skipped",
+    }
+    payload_data: dict[str, Any] = {"source": "journal"}
+    if isinstance(result.payload, Mapping):
+        payload_data.update(result.payload)
+    elif result.payload:
+        payload_data["payload"] = result.payload
+    payload: Mapping[str, Any] | None = payload_data or None
+    error = result.error_repr if result.status is SetupStatus.FAILED else None
+    return TaskEvent(
+        result.task,
+        result.stage,
+        status=status_map.get(result.status, result.status.value),
+        error=error,
+        payload={"source": "journal", "payload": payload} if payload else {"source": "journal"},
+    )
+
+
+def _journal_directory(root: Path) -> Path:
+    return root / "artifacts" / "setup_runs"
+
+
+def _load_journal(path: Path) -> SetupRunJournal:
+    metadata: dict[str, Any] = {}
+    results: list[SetupResult] = []
+    if not path.exists():
+        raise FileNotFoundError(path)
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                record = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            record_type = record.get("type")
+            if record_type == "run" and not metadata:
+                metadata = {k: v for k, v in record.items() if k != "type"}
+            elif record_type in {"resume", "run"}:
+                continue
+            else:
+                results.append(SetupResult.from_dict(record))
+    return SetupRunJournal(path=path, metadata=metadata, results=tuple(results))
+
+
+def load_last_run(root: Path | None = None) -> SetupRunJournal | None:
+    """Return the most recent journaled setup run, if any."""
+
+    base = Path(root or Path.cwd()).resolve()
+    journal_dir = _journal_directory(base)
+    if not journal_dir.exists():
+        return None
+    candidates = sorted(journal_dir.glob("*.jsonl"), key=lambda entry: entry.stat().st_mtime, reverse=True)
+    for candidate in candidates:
+        try:
+            return _load_journal(candidate)
+        except Exception:  # pragma: no cover - corrupted journal entries
+            continue
+    return None
 
 
 TaskAction = Callable[["StageContext"], Optional[Mapping[str, Any]] | Optional[SetupResult]]
@@ -142,6 +284,14 @@ class SetupOrchestrator:
         self._subscribers: list[Callable[[DashboardEvent], None]] = []
         self.stage_order: tuple[SetupStage, ...] = STAGE_ORDER
         self.telemetry: TelemetryClient | NullTelemetryClient = telemetry or NullTelemetryClient()
+        self._journal_path: Path | None = None
+        self._journal_file: IO[str] | None = None
+        self._journal_metadata: dict[str, Any] | None = None
+        self._loaded_journal: SetupRunJournal | None = None
+        self._resume_journal: SetupRunJournal | None = None
+        self._resume_results: dict[str, SetupResult] = {}
+        self._resume_successes: set[str] = set()
+        self._resume_success_pending: set[str] = set()
         if tasks:
             for task in tasks:
                 self.register_task(task)
@@ -178,13 +328,17 @@ class SetupOrchestrator:
     ) -> list[SetupResult]:
         if not self._tasks:
             raise RuntimeError("No tasks registered for setup orchestration")
-        stage_filter = set(stages or [])
-        task_filter = set(task_names or [])
-        self._results = {}
+        requested_stages = list(stages or [])
+        requested_tasks = list(task_names or [])
+        stage_filter = set(requested_stages)
+        task_filter = set(requested_tasks)
+        resume_map = dict(self._resume_results)
+        self._results = resume_map
         self._attempts = {}
         self._last_recipe = recipe
+        self._resume_success_pending = set(self._resume_successes)
 
-        context = StageContext(root=self.root, recipe=recipe, orchestrator=self)
+        context = StageContext(root=self.root, recipe=recipe, orchestrator=self, results=self._results)
         offline_flag = os.environ.get("_OFFLINE")
         if offline_flag is not None:
             offline_enabled = _parse_truthy(offline_flag)
@@ -211,53 +365,66 @@ class SetupOrchestrator:
             self.plugin_manager.load_entrypoints(self)
         execution_plan = self._build_execution_plan(stage_filter, task_filter)
         results: list[SetupResult] = []
-        self.telemetry.record_run({
-            "recipe": recipe.name,
-            "stages": [stage.value for stage in self.stage_order],
-            "task_count": len(self._tasks),
-            "offline": offline_enabled,
-        })
-        continue_on_failure = bool(recipe.config.get("continue_on_failure"))
-        for stage in self.stage_order:
-            if stage_filter and stage not in stage_filter:
-                continue
-            stage_tasks = execution_plan.get(stage, [])
-            if not stage_tasks:
-                self._publish(StageEvent(stage, status="skipped", payload={"reason": "no tasks"}))
-                continue
-            try:
-                stage_results = self._run_stage(stage, stage_tasks, context)
-            except Exception as exc:
-                self._publish(
-                    StageEvent(
+        self._start_journal(
+            recipe,
+            requested_stages=requested_stages,
+            requested_tasks=requested_tasks,
+            load_plugins=load_plugins,
+        )
+        try:
+            self.telemetry.record_run({
+                "recipe": recipe.name,
+                "stages": [stage.value for stage in self.stage_order],
+                "task_count": len(self._tasks),
+                "offline": offline_enabled,
+            })
+            continue_on_failure = bool(recipe.config.get("continue_on_failure"))
+            for stage in self.stage_order:
+                if stage_filter and stage not in stage_filter:
+                    continue
+                stage_tasks = execution_plan.get(stage, [])
+                if not stage_tasks:
+                    self._publish(StageEvent(stage, status="skipped", payload={"reason": "no tasks"}))
+                    continue
+                try:
+                    stage_results = self._run_stage(stage, stage_tasks, context)
+                except Exception as exc:
+                    self._publish(
+                        StageEvent(
+                            stage,
+                            status="failed",
+                            payload={"error": repr(exc)},
+                        )
+                    )
+                    self._record_stage_telemetry(
                         stage,
                         status="failed",
-                        payload={"error": repr(exc)},
+                        duration=time.time() - context.get(f"stage.{stage.value}.started", time.time()),
+                        failure_code=f"{stage.value}:exception:{type(exc).__name__}",
+                        metadata={"error": repr(exc)},
                     )
-                )
-                self._record_stage_telemetry(
-                    stage,
-                    status="failed",
-                    duration=time.time() - context.get(f"stage.{stage.value}.started", time.time()),
-                    failure_code=f"{stage.value}:exception:{type(exc).__name__}",
-                    metadata={"error": repr(exc)},
-                )
-                raise
-            results.extend(stage_results)
-            if not continue_on_failure:
-                blocking_failure = next(
-                    (
-                        res
-                        for res in stage_results
-                        if res.status is SetupStatus.FAILED
-                        and (task_meta := self._tasks.get(res.task)) is not None
-                        and not task_meta.allow_fail
-                    ),
-                    None,
-                )
-                if blocking_failure is not None:
-                    break
-        return results
+                    raise
+                results.extend(stage_results)
+                if not continue_on_failure:
+                    blocking_failure = next(
+                        (
+                            res
+                            for res in stage_results
+                            if res.status is SetupStatus.FAILED
+                            and (task_meta := self._tasks.get(res.task)) is not None
+                            and not task_meta.allow_fail
+                        ),
+                        None,
+                    )
+                    if blocking_failure is not None:
+                        break
+            return results
+        finally:
+            self._finish_journal()
+            self._resume_results = {}
+            self._resume_successes.clear()
+            self._resume_success_pending.clear()
+            self._resume_journal = None
 
     def retry(
         self,
@@ -266,6 +433,16 @@ class SetupOrchestrator:
         stages: Sequence[SetupStage] | None = None,
         recipe: Recipe | None = None,
     ) -> list[SetupResult]:
+        if self._last_recipe is None and recipe is None:
+            journal = load_last_run(self.root)
+            if journal:
+                self._loaded_journal = journal
+                self.resume_from_journal(journal)
+                recipe_data = journal.metadata.get("recipe") if journal.metadata else None
+                recipe_name = journal.metadata.get("recipe_name") if journal.metadata else None
+                if recipe_data and isinstance(recipe_data, Mapping):
+                    recipe = Recipe(name=str(recipe_name or "recovered"), data=dict(recipe_data))
+                    self._last_recipe = recipe
         if self._last_recipe is None and recipe is None:
             raise RuntimeError("No prior recipe run recorded; call run() first")
         retry_recipe = recipe or self._last_recipe
@@ -296,6 +473,108 @@ class SetupOrchestrator:
                 subscriber(event)
             except Exception:  # pragma: no cover - best effort delivery
                 self.logger.debug("dashboard subscriber failed", exc_info=True)
+
+    def replay_events(self, events: Iterable[DashboardEvent]) -> None:
+        """Replay historical dashboard events to current subscribers."""
+
+        for event in events:
+            self._publish(event)
+
+    # --- journal helpers --------------------------------------------
+    def resume_from_journal(self, journal: SetupRunJournal | None) -> None:
+        """Prime the orchestrator with prior successful task results."""
+
+        if journal is None:
+            self._resume_journal = None
+            self._resume_results = {}
+            self._resume_successes.clear()
+            return
+        self._resume_journal = journal
+        latest = journal.latest_results()
+        successes: dict[str, SetupResult] = {}
+        for name, result in latest.items():
+            if result.status is SetupStatus.SUCCESS:
+                successes[name] = SetupResult.from_dict(result.as_dict())
+        self._resume_results = successes
+        self._resume_successes = set(successes.keys())
+
+    def _start_journal(
+        self,
+        recipe: Recipe,
+        *,
+        requested_stages: Sequence[SetupStage],
+        requested_tasks: Sequence[str],
+        load_plugins: bool,
+    ) -> None:
+        journal_dir = _journal_directory(self.root)
+        journal_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        stage_values = [stage.value for stage in requested_stages]
+        task_values = list(requested_tasks)
+        resume_entry = (
+            self._resume_journal is not None
+            and self._resume_journal.path.exists()
+        )
+        if resume_entry:
+            path = self._resume_journal.path
+            mode = "a"
+        else:
+            path = journal_dir / f"{timestamp}.jsonl"
+            mode = "w"
+        self._journal_path = path
+        self._journal_file = path.open(mode, encoding="utf-8")
+        if resume_entry:
+            self._journal_metadata = dict(self._resume_journal.metadata)
+            entry = {
+                "type": "resume",
+                "timestamp": timestamp,
+                "stages": stage_values,
+                "tasks": task_values,
+            }
+            self._write_journal_entry(entry)
+        else:
+            metadata: dict[str, Any] = {
+                "timestamp": timestamp,
+                "recipe_name": recipe.name,
+                "recipe": recipe.as_dict(),
+                "stages": stage_values,
+                "tasks": task_values,
+                "load_plugins": load_plugins,
+            }
+            if recipe.source is not None:
+                metadata["recipe_source"] = str(recipe.source)
+            self._journal_metadata = metadata
+            entry = {"type": "run"}
+            entry.update(metadata)
+            self._write_journal_entry(entry)
+
+    def _write_journal_entry(self, entry: Mapping[str, Any]) -> None:
+        if self._journal_file is None:
+            return
+        json.dump(entry, self._journal_file)
+        self._journal_file.write("\n")
+        self._journal_file.flush()
+
+    def _record_journal_result(self, result: SetupResult) -> None:
+        if self._journal_file is None:
+            return
+        entry = {"type": "result"}
+        entry.update(result.as_dict())
+        self._write_journal_entry(entry)
+
+    def _finish_journal(self) -> None:
+        if self._journal_file is not None:
+            try:
+                self._journal_file.flush()
+            finally:
+                self._journal_file.close()
+        self._journal_file = None
+        if self._journal_path is not None:
+            try:
+                self._loaded_journal = _load_journal(self._journal_path)
+            except Exception:  # pragma: no cover - defensive against corrupted journals
+                self._loaded_journal = None
+
 
     # --- helpers ------------------------------------------------------
     def _run_stage(
@@ -346,6 +625,12 @@ class SetupOrchestrator:
             self._record_task_telemetry(task_obj, result)
 
         for task in tasks:
+            if task.name in self._resume_success_pending:
+                existing = context.results.get(task.name)
+                if existing:
+                    stage_results.append(existing)
+                self._resume_success_pending.discard(task.name)
+                continue
             if task.name in disabled_tasks:
                 result = SetupResult(
                     task=task.name,
@@ -433,6 +718,7 @@ class SetupOrchestrator:
                 result.started_at = started_at
                 result.finished_at = finished_at
                 context.results[task.name] = result
+                self._record_journal_result(result)
                 stage_results.append(result)
                 self.plugin_manager.dispatch_after_task(result, context)
                 if result.status is SetupStatus.SUCCESS:
@@ -729,4 +1015,6 @@ __all__ = [
     "SetupStage",
     "STAGE_ORDER",
     "StageContext",
+    "SetupRunJournal",
+    "load_last_run",
 ]

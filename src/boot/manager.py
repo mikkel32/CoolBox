@@ -18,7 +18,14 @@ except Exception:  # pragma: no cover - fall back to JSON parsing only
 
 from src.console import DashboardLayout, DashboardTheme, LogEvent, create_dashboard
 from src.console.dashboard import TEXTUAL_AVAILABLE
-from src.setup.orchestrator import SetupOrchestrator, SetupResult, SetupStage, SetupStatus
+from src.setup import (
+    SetupOrchestrator,
+    SetupResult,
+    SetupRunJournal,
+    SetupStage,
+    SetupStatus,
+    load_last_run,
+)
 from src.setup.recipes import Recipe, RecipeLoader
 from src.setup.stages import register_builtin_tasks
 from src.utils import launch_vm_debug
@@ -341,12 +348,23 @@ class BootManager:
         task_names: Sequence[str] | None,
         load_plugins: bool,
     ) -> list[SetupResult]:
+        resume_journal: SetupRunJournal | None = None
+        if stages and self._last_recipe and recipe.name == self._last_recipe.name:
+            journal = load_last_run(self.orchestrator.root)
+            if journal and (journal.metadata.get("recipe_name") == recipe.name or not journal.metadata):
+                resume_journal = journal
+                self.logger.debug("Resuming setup from journal %s", journal.path)
+                self.orchestrator.resume_from_journal(journal)
+                self.orchestrator.replay_events(journal.iter_events())
         results = self.orchestrator.run(
             recipe,
             stages=stages,
             task_names=task_names,
             load_plugins=load_plugins,
         )
+        if resume_journal is not None:
+            # Ensure the orchestrator preserves the resume context for subsequent recovery attempts.
+            self.orchestrator.resume_from_journal(None)
         failures = [result for result in results if result.status is SetupStatus.FAILED]
         if failures:
             summary = ", ".join(
