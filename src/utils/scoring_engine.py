@@ -5,7 +5,7 @@ import os
 import time
 from collections import deque
 from dataclasses import dataclass, fields
-from typing import Deque, Dict, List, Tuple
+from typing import Any, Deque, Dict, List, Tuple, TYPE_CHECKING
 
 from .window_utils import (
     WindowInfo,
@@ -14,18 +14,23 @@ from .window_utils import (
     is_transient_pid,
 )
 
-try:  # Optional NumPy acceleration
+if TYPE_CHECKING:
     import numpy as _np
-except Exception:  # pragma: no cover - optional dependency
+else:  # pragma: no cover - narrow typing during runtime only
     _np = None
 
+try:  # Optional NumPy acceleration
+    import numpy as _np_runtime
+except Exception:  # pragma: no cover - optional dependency
+    _np_runtime = None
+
 try:  # Optional Cython helpers for heat-map updates
-    from ._heatmap import decay_and_bump as _cy_decay_and_bump
+    from ._heatmap import decay_and_bump as _cy_decay_and_bump  # type: ignore[import]
 except Exception:  # pragma: no cover - extension may be absent
     _cy_decay_and_bump = None
 
 try:  # Optional Cython helpers for sample scoring
-    from ._score_samples import update_weights as _cy_score_samples
+    from ._score_samples import update_weights as _cy_score_samples  # type: ignore[import]
 except Exception:  # pragma: no cover - extension may be absent
     _cy_score_samples = None
 
@@ -131,8 +136,10 @@ class CursorHeatmap:
         self.decay = tuning.heatmap_decay
         self.w = width // self.res + 1
         self.h = height // self.res + 1
-        if _np is not None:
-            self.grid = _np.zeros((self.h, self.w), dtype=_np.float64)
+        self.grid: Any
+        runtime_np = _np_runtime
+        if runtime_np is not None:
+            self.grid = runtime_np.zeros((self.h, self.w), dtype=runtime_np.float64)
         else:  # pragma: no cover - slow fallback
             self.grid = [[0.0 for _ in range(self.w)] for _ in range(self.h)]
         self._global_decay = 1.0
@@ -147,21 +154,22 @@ class CursorHeatmap:
             return
         gx = min(int(x / self.res), self.w - 1)
         gy = min(int(y / self.res), self.h - 1)
-        if _cy_decay_and_bump is not None and _np is not None:
+        runtime_np = _np_runtime
+        if _cy_decay_and_bump is not None and runtime_np is not None:
             self._global_decay = _cy_decay_and_bump(
                 self.grid, self.decay, self._global_decay, gx, gy
             )
             return
         self._global_decay *= self.decay
         if self._global_decay < 1e-6:
-            if _np is not None:
+            if runtime_np is not None:
                 self.grid *= self._global_decay
             else:  # pragma: no cover - slow fallback
                 for row in self.grid:
                     for i in range(len(row)):
                         row[i] *= self._global_decay
             self._global_decay = 1.0
-        if _np is not None:
+        if runtime_np is not None:
             self.grid[gy, gx] += 1.0 / self._global_decay
         else:  # pragma: no cover - slow fallback
             self.grid[gy][gx] += 1.0 / self._global_decay
@@ -229,14 +237,17 @@ class WindowTracker:
     def best_with_confidence(self) -> Tuple[WindowInfo | None, float]:
         if not self.scores:
             return None, 0.0
-        if _np is not None:
-            pids = _np.fromiter(self.scores.keys(), dtype=_np.int64)
-            scores = _np.fromiter(self.scores.values(), dtype=_np.float64)
+        runtime_np = _np_runtime
+        if runtime_np is not None:
+            pids = runtime_np.fromiter(self.scores.keys(), dtype=runtime_np.int64)
+            scores = runtime_np.fromiter(
+                self.scores.values(), dtype=runtime_np.float64
+            )
             idx = int(scores.argmax())
             best_pid = int(pids[idx])
             best_score = float(scores[idx])
             if scores.size > 1:
-                second_score = float(_np.partition(scores, -2)[-2])
+                second_score = float(runtime_np.partition(scores, -2)[-2])
             else:
                 second_score = 0.0
         else:  # pragma: no cover - fallback path
@@ -278,11 +289,12 @@ class ScoringEngine:
         if is_transient_pid(active):
             active = None
 
-        relevant_samples = [
-            s
-            for s in samples
-            if s.pid not in (self.own_pid, None) and not is_transient_pid(s.pid)
-        ]
+        relevant_samples: List[WindowInfo] = []
+        for sample in samples:
+            pid = sample.pid
+            if pid is None or pid == self.own_pid or is_transient_pid(pid):
+                continue
+            relevant_samples.append(sample)
         if _cy_score_samples is not None:
             weights = _cy_score_samples(
                 relevant_samples,
@@ -300,9 +312,12 @@ class ScoringEngine:
         else:
             power = 1.0
             for info in reversed(relevant_samples):
+                pid = info.pid
+                if pid is None:
+                    continue
                 vel_factor = 1.0 / (1.0 + velocity * self.tuning.velocity_scale)
                 w = self.tuning.sample_weight * power * vel_factor
-                if info.pid == active:
+                if pid == active:
                     w *= self.tuning.active_bonus
                 if info.rect and self.tuning.area_weight:
                     area = info.rect[2] * info.rect[3]
@@ -340,7 +355,7 @@ class ScoringEngine:
                     heat = self.heatmap.region_score(info.rect)
                     area = info.rect[2] * info.rect[3] or 1
                     w += self.tuning.heatmap_weight * heat / float(area)
-                weights[info.pid] = weights.get(info.pid, 0.0) + w
+                weights[pid] = weights.get(pid, 0.0) + w
                 power *= self.tuning.sample_decay
 
             power = 1.0
@@ -389,21 +404,21 @@ class ScoringEngine:
         if self.tuning.zorder_weight:
             if len(samples) <= 1:
                 for info in samples:
-                    if info.pid is None:
+                    pid = info.pid
+                    if pid is None:
                         continue
-                    weights[info.pid] = weights.get(
-                        info.pid, 0.0
-                    ) + self.tuning.zorder_weight
+                    weights[pid] = weights.get(pid, 0.0) + self.tuning.zorder_weight
             else:
                 prime_window_cache()
                 stack = list_windows_at(
                     int(cursor_x), int(cursor_y), len(samples)
                 )
                 for idx, info in enumerate(stack):
-                    if info.pid is None:
+                    pid = info.pid
+                    if pid is None:
                         continue
-                    weights[info.pid] = weights.get(
-                        info.pid, 0.0
+                    weights[pid] = weights.get(
+                        pid, 0.0
                     ) + self.tuning.zorder_weight / (idx + 1)
 
         if self.tuning.gaze_weight:

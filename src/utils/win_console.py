@@ -4,6 +4,7 @@ from __future__ import annotations
 import platform
 import subprocess
 from pathlib import Path
+from typing import Any, TYPE_CHECKING, cast
 
 __all__ = [
     "hide_console",
@@ -13,18 +14,40 @@ __all__ = [
     "spawn_detached",
 ]
 
+if TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from ctypes import LibraryLoader
+else:  # pragma: no cover - runtime fallback when ctypes extensions missing
+    LibraryLoader = Any
+
+
+def _get_windll() -> LibraryLoader | None:
+    """Return the ``ctypes.windll`` loader when available."""
+
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+
+        return cast(LibraryLoader | None, getattr(ctypes, "windll", None))
+    except Exception:
+        return None
+
 
 def hide_console(*, detach: bool = False) -> None:
     """Hide the current console window if running on Windows."""
-    if platform.system() != "Windows":
+    windll = _get_windll()
+    if windll is None:
+        return
+    kernel32 = getattr(windll, "kernel32", None)
+    user32 = getattr(windll, "user32", None)
+    if kernel32 is None or user32 is None:
         return
     try:
-        import ctypes
-        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        hwnd = cast(Any, kernel32).GetConsoleWindow()
         if hwnd:
-            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+            cast(Any, user32).ShowWindow(hwnd, 0)  # SW_HIDE
             if detach:
-                ctypes.windll.kernel32.FreeConsole()
+                cast(Any, kernel32).FreeConsole()
     except Exception:
         # Best-effort; ignore any failure.
         pass

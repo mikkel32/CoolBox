@@ -8,6 +8,7 @@ def info_label(master: ctk.CTkBaseClass, text: str, *, font=None) -> ctk.CTkLabe
     if font is None:
         font = getattr(master, "font", None)
     label = ctk.CTkLabel(master, text=text, text_color="gray", font=font)
-    if hasattr(master, "_mark_font_role"):
-        master._mark_font_role(label, "normal")
+    marker = getattr(master, "_mark_font_role", None)
+    if callable(marker):
+        marker(label, "normal")
     return label

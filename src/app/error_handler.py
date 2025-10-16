@@ -426,7 +426,7 @@ def _show_error_dialog(message: str, details: str) -> None:
             ttk.Button(dialog, text="Open Log", command=open_log).pack(pady=(0, 5))  # type: ignore[attr-defined]
 
         ttk.Button(dialog, text="OK", command=dialog.destroy).pack(pady=(0, 10))  # type: ignore[attr-defined]
-        dialog.transient(cast("tk.Misc", root)); dialog.grab_set(); root.wait_window(dialog)
+        dialog.transient(cast(Any, root)); dialog.grab_set(); root.wait_window(dialog)
     except Exception as dialog_error:
         logger.exception("Failed to display error dialog")
         try:

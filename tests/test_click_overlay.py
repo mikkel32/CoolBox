@@ -1,3 +1,12 @@
+# pyright: reportGeneralTypeIssues=false, reportAttributeAccessIssue=false, reportFunctionMemberAccess=false, reportArgumentType=false, reportCallIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
+
+"""Tests for the click overlay UI helpers.
+
+These tests rely heavily on monkeypatching and runtime mutation of Tkinter
+widgets, which Pyright cannot model accurately. Disable the general type
+diagnostics so the suite remains focused on behavioural assertions.
+"""
+
 import os
 import time
 import unittest

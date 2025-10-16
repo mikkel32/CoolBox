@@ -1,18 +1,21 @@
 """
 Tools view - Various utilities and tools
 """
-import customtkinter as ctk
-from tkinter import filedialog, messagebox, simpledialog
+from __future__ import annotations
 
+import base64
+import json
+import platform
+import re
 import socket
 import subprocess
-import platform
-import webbrowser
-import json
-import base64
-from pathlib import Path
-import re
 import threading
+import webbrowser
+from pathlib import Path
+from typing import Callable, Literal, TYPE_CHECKING, cast
+
+import customtkinter as ctk
+from tkinter import filedialog, messagebox, simpledialog
 try:
     from PIL import ImageGrab
 except ImportError:  # pragma: no cover - runtime dependency check
@@ -22,6 +25,14 @@ except ImportError:  # pragma: no cover - runtime dependency check
     ImageGrab = pil.ImageGrab  # type: ignore[attr-defined]
 from .base_view import BaseView
 from ..components.widgets import info_label
+
+if TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from src.utils.network import PortInfo, PortResult
+
+
+ToolCallback = Callable[[], None]
+ProgressCallback = Callable[[float | None], None]
+HashAlgorithm = Literal["md5", "sha1", "sha256"]
 
 
 class ToolsView(BaseView):
@@ -54,7 +65,7 @@ class ToolsView(BaseView):
                 str,
                 ctk.CTkLabel,
                 ctk.CTkLabel,
-                callable,
+                ToolCallback,
                 str,
                 str,
             ]
@@ -78,9 +89,9 @@ class ToolsView(BaseView):
     def refresh_theme(self) -> None:  # type: ignore[override]
         super().refresh_theme()
 
-    def get_tools(self) -> list[tuple[str, str, callable]]:
+    def get_tools(self) -> list[tuple[str, str, ToolCallback]]:
         """Return a list of available tools and their launch callbacks."""
-        tools: list[tuple[str, str, callable]] = []
+        tools: list[tuple[str, str, ToolCallback]] = []
         for _, _, _, name_lbl, desc_lbl, cmd, *_ in self._tool_items:
             tools.append((name_lbl.cget("text"), desc_lbl.cget("text"), cmd))
         return tools
@@ -254,7 +265,7 @@ class ToolsView(BaseView):
             )
         )
 
-    def _safe_launch(self, name: str, func: callable) -> None:
+    def _safe_launch(self, name: str, func: ToolCallback) -> None:
         """Run *func* in a background thread and surface errors gracefully."""
 
         self.app.thread_manager.run_tool(
@@ -442,7 +453,7 @@ class ToolsView(BaseView):
                     return
                 dest = Path(dest_parent) / Path(src).name
                 try:
-                    copy_dir(src, dest, overwrite=True)
+                    copy_dir(src, str(dest), overwrite=True)
                     output.insert("end", f"Copied {src} -> {dest}\n")
                 except Exception as exc:
                     messagebox.showerror("File Manager", str(exc))
@@ -470,7 +481,7 @@ class ToolsView(BaseView):
                     return
                 dest = Path(dest_parent) / Path(src).name
                 try:
-                    move_dir(src, dest, overwrite=True)
+                    move_dir(src, str(dest), overwrite=True)
                     output.insert("end", f"Moved {src} -> {dest}\n")
                 except Exception as exc:
                     messagebox.showerror("File Manager", str(exc))
@@ -885,7 +896,8 @@ class ToolsView(BaseView):
                 messagebox.showwarning("Hash", "Choose a file", parent=window)
                 return
             try:
-                digest = calc_hash(path, algo_var.get())
+                algo = cast(HashAlgorithm, algo_var.get())
+                digest = calc_hash(path, algo)
                 output.delete("1.0", "end")
                 output.insert("1.0", digest)
             except Exception as exc:
@@ -974,6 +986,7 @@ class ToolsView(BaseView):
                     return
             from src.utils import async_scan_ports, async_scan_port_list
 
+            open_ports: "PortResult"
             if start_end:
                 s, e = start_end
                 open_ports = asyncio.run(
@@ -1021,18 +1034,21 @@ class ToolsView(BaseView):
                     messagebox.showinfo("Port Scanner", msg)
                     return
                 if with_banner and isinstance(open_ports, dict):
+                    banner_ports = cast(dict[int, "PortInfo"], open_ports)
                     ports_str = ", ".join(
                         f"{p}({info.service}:{info.banner or ''})"
-                        for p, info in open_ports.items()
+                        for p, info in banner_ports.items()
                     )
                 elif with_services and isinstance(open_ports, dict):
+                    service_ports = cast(dict[int, str], open_ports)
                     ports_str = ", ".join(
-                        f"{p}({svc})" for p, svc in open_ports.items()
+                        f"{p}({svc})" for p, svc in service_ports.items()
                     )
                 elif with_latency and isinstance(open_ports, dict):
+                    latency_ports = cast(dict[int, "PortInfo"], open_ports)
                     ports_str = ", ".join(
                         f"{p}({info.latency * 1000:.1f}ms)" if info.latency is not None else str(p)
-                        for p, info in open_ports.items()
+                        for p, info in latency_ports.items()
                     )
                 else:
                     ports_str = ", ".join(str(p) for p in open_ports)
@@ -1105,6 +1121,7 @@ class ToolsView(BaseView):
             with_banner = self.app.config.get("scan_banner", False)
             with_latency = self.app.config.get("scan_latency", False)
             ping_first = self.app.config.get("scan_ping", False)
+            scan_prog: ProgressCallback
             if ping_first:
                 def ping_prog(val: float | None) -> None:
                     if val is None:
@@ -1130,15 +1147,17 @@ class ToolsView(BaseView):
                     )
                     return
 
-                def scan_prog(val: float | None) -> None:
+                def scan_prog_inner(val: float | None) -> None:
                     if val is None:
                         progress(1.0)
                     else:
                         progress(0.5 + val * 0.5)
+                scan_prog = scan_prog_inner
             else:
                 hosts_to_scan = hosts
                 scan_prog = progress
 
+            results: dict[str, "PortResult"]
             if start_end:
                 s, e = start_end
                 results = asyncio.run(
@@ -1179,18 +1198,21 @@ class ToolsView(BaseView):
                         lines.append(f"{host}: none")
                         continue
                     if with_banner and isinstance(ports, dict):
+                        banner_ports = cast(dict[int, "PortInfo"], ports)
                         ports_str = ", ".join(
                             f"{p}({info.service}:{info.banner or ''})"
-                            for p, info in ports.items()
+                            for p, info in banner_ports.items()
                         )
                     elif with_services and isinstance(ports, dict):
+                        service_ports = cast(dict[int, str], ports)
                         ports_str = ", ".join(
-                            f"{p}({svc})" for p, svc in ports.items()
+                            f"{p}({svc})" for p, svc in service_ports.items()
                         )
                     elif with_latency and isinstance(ports, dict):
+                        latency_ports = cast(dict[int, "PortInfo"], ports)
                         ports_str = ", ".join(
                             f"{p}({info.latency * 1000:.1f}ms)" if info.latency is not None else str(p)
-                            for p, info in ports.items()
+                            for p, info in latency_ports.items()
                         )
                     else:
                         ports_str = ", ".join(str(p) for p in ports)

@@ -1,6 +1,7 @@
 import os
 import tkinter as tk
 import unittest
+from typing import cast
 from unittest import mock
 
 from src.views.force_quit_dialog import ForceQuitDialog
@@ -76,8 +77,9 @@ class TestForceQuitCache(unittest.TestCase):
             mock.patch.object(ForceQuitDialog, "_configure_overlay", return_value=None),
         ):
             dialog = ForceQuitDialog(app)
-            self.assertTrue(dialog._overlay.warmed)
-            dialog._overlay.choose()
+            overlay = cast(DummyOverlay, dialog._overlay)
+            self.assertTrue(overlay.warmed)
+            overlay.choose()
             dialog.destroy()
             app.window.destroy()
 

@@ -199,9 +199,11 @@ try:
 except Exception as exc:
     print(f"Warning: helper utilities unavailable ({exc}). Using fallbacks.", file=sys.stderr)
     _helper_console = None
+
     def get_system_info() -> str:  # type: ignore
         python = f"Python {sys.version.split()[0]} ({sys.executable})"
-        return "\n".join([python, f"Platform: {sys.platform}", f"CWD: {Path.cwd()}"])
+        details = [python, f"Platform: {sys.platform}", f"CWD: {Path.cwd()}"]
+        return "\n".join(details)
 
 # ---------- logging ----------
 logger = logging.getLogger("coolbox.setup")
@@ -590,17 +592,21 @@ def check_outdated(*, requirements: Path | None, upgrade: bool = False) -> None:
 
 def show_info() -> None:
     info = get_system_info()
-    table = Table(title="CoolBox — System Info", box=box.MINIMAL_DOUBLE_HEAD)
-    for k, v in info.items(): table.add_row(k, str(v))
-    console.print(table)
+    if isinstance(info, dict):
+        table = Table(title="CoolBox — System Info", box=box.MINIMAL_DOUBLE_HEAD)
+        for k, v in info.items():
+            table.add_row(k, str(v))
+        console.print(table)
+    else:
+        console.print(info)
 
 def run_tests(extra: Sequence[str]) -> None:
     py = ensure_venv()
     with _progress() as prog:
-        prog.add_task("Running tests", total=1)
+        task_id = prog.add_task("Running tests", total=1)
         try: _run([py, "-m", "pytest", "-q", *extra])
         except Exception as e: SUMMARY.add_error(f"pytest failed: {e}")
-        finally: prog.advance(0)
+        finally: prog.advance(task_id)
 
 def doctor() -> None:
     problems: list[str] = []

@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+
 import customtkinter as ctk
 
 try:  # pragma: no cover - optional OS modules
@@ -8,13 +9,15 @@ try:  # pragma: no cover - optional OS modules
 except Exception:  # pragma: no cover
     ctypes = None
 try:  # pragma: no cover - optional OS modules
-    from Quartz import (
+    from Quartz import (  # type: ignore[import-not-found]
         CGDisplayCopyDisplayMode,
         CGMainDisplayID,
         CGDisplayModeGetRefreshRate,
     )
 except Exception:  # pragma: no cover
     CGDisplayCopyDisplayMode = None
+    CGMainDisplayID = None
+    CGDisplayModeGetRefreshRate = None
 
 
 def center_window(window: ctk.CTkToplevel) -> None:

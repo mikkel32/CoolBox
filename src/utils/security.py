@@ -19,7 +19,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Tuple, TypeVar, Protocol
+from typing import Any, Callable, Iterable, List, Optional, Tuple, TypeVar, Protocol
 
 from src.app import error_handler as eh
 from src.utils import defender as defender_utils
@@ -29,6 +29,8 @@ from src.utils import firewall as firewall_utils
 # ----------------------------- Platform guard ------------------------------
 
 _IS_WINDOWS = platform.system() == "Windows"
+
+_windll: Any | None = getattr(ctypes, "windll", None) if _IS_WINDOWS else None
 
 # Creation flags to suppress any console windows on Windows
 CREATE_NO_WINDOW = 0x08000000 if _IS_WINDOWS else 0
@@ -48,7 +50,10 @@ def is_admin() -> bool:
     if not _IS_WINDOWS:
         return False
     try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        loader = _windll
+        if loader is None:
+            return False
+        return bool(loader.shell32.IsUserAnAdmin())
     except Exception:
         return False
 
@@ -77,7 +82,10 @@ def relaunch_security_center(args: Optional[List[str]] = None) -> bool:
         params = " ".join(
             f'"{p}"' for p in [str(script), *(args or [])]
         )
-        rc = ctypes.windll.shell32.ShellExecuteW(
+        loader = _windll
+        if loader is None:
+            return False
+        rc = loader.shell32.ShellExecuteW(
             None, "runas", sys.executable, params, None, 1
         )
         return rc > 32
@@ -864,7 +872,9 @@ def _service_query(name: str) -> Tuple[Optional[str], Optional[str]]:
     if not _IS_WINDOWS or not _SC_EXE or not os.path.exists(_SC_EXE):
         return None, None
 
-    q = _run([_SC_EXE, "query", name])
+    assert _SC_EXE is not None
+    sc_exe = _SC_EXE
+    q = _run([sc_exe, "query", name])
     if q.code != 0:
         return None, None
 
@@ -872,7 +882,7 @@ def _service_query(name: str) -> Tuple[Optional[str], Optional[str]]:
     m_state = re.search(r"STATE\s*:\s*\d+\s+([A-Z_]+)", q.out)
     state = m_state.group(1) if m_state else None
 
-    q2 = _run([_SC_EXE, "qc", name])
+    q2 = _run([sc_exe, "qc", name])
     start_type = None
     if q2.code == 0:
         # START_TYPE         : 2   AUTO_START
@@ -892,7 +902,9 @@ def ensure_defender_autostart() -> bool:
     """Set WinDefend to AUTO_START using sc.exe, avoiding PowerShell alias issues."""
     if not _IS_WINDOWS or not is_admin():
         return False
-    res = _run([_SC_EXE, "config", "WinDefend", "start=", "auto"])
+    assert _SC_EXE is not None
+    sc_exe = _SC_EXE
+    res = _run([sc_exe, "config", "WinDefend", "start=", "auto"])
     # sc.exe uses a quirky syntax: "start= auto" must be split; above is safe.
     if res.code != 0:
         return False
@@ -907,7 +919,9 @@ def start_defender_service() -> bool:
     state = defender_service_status()
     if state == "RUNNING":
         return True
-    res = _run([_SC_EXE, "start", "WinDefend"])
+    assert _SC_EXE is not None
+    sc_exe = _SC_EXE
+    res = _run([sc_exe, "start", "WinDefend"])
     if res.code != 0:
         # It might already be starting; re-check
         state = defender_service_status()
@@ -923,7 +937,9 @@ def stop_defender_service() -> bool:
     """
     if not _IS_WINDOWS or not is_admin():
         return False
-    res = _run([_SC_EXE, "stop", "WinDefend"])
+    assert _SC_EXE is not None
+    sc_exe = _SC_EXE
+    res = _run([sc_exe, "stop", "WinDefend"])
     if res.code != 0:
         state = defender_service_status()
         return state == "STOPPED"

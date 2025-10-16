@@ -2,6 +2,8 @@
 
 import os
 import unittest
+from typing import Any, cast
+
 import customtkinter as ctk
 from unittest.mock import patch
 
@@ -20,6 +22,8 @@ class TestCoolBoxApp(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_sidebar_tooltips_show_and_hide(self) -> None:
         app = CoolBoxApp()
+        self.assertIsNotNone(app.sidebar)
+        assert app.sidebar is not None
         tooltip = app.sidebar._tooltips["home"]
         tooltip.show(100, 100)
         app.window.update()
@@ -33,6 +37,8 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_toolbar_tooltips_show_and_hide(self) -> None:
         app = CoolBoxApp()
         # Use the first created tooltip
+        self.assertIsNotNone(app.toolbar)
+        assert app.toolbar is not None
         tooltip = app.toolbar._tooltips[0]
         tooltip.show(50, 50)
         app.window.update()
@@ -56,8 +62,12 @@ class TestCoolBoxApp(unittest.TestCase):
         app = CoolBoxApp()
         app.config.add_recent_file("foo.txt")
         app.refresh_recent_files()
+        self.assertIsNotNone(app.menu_bar)
+        assert app.menu_bar is not None
         menu = app.menu_bar.recent_menu
-        labels = [menu.entrycget(i, "label") for i in range(menu.index("end") + 1)]
+        end = menu.index("end")
+        end_idx = end if isinstance(end, int) else -1
+        labels = [menu.entrycget(i, "label") for i in range(end_idx + 1)]
         self.assertIn("foo.txt", labels)
         app.destroy()
 
@@ -65,27 +75,33 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_menubar_sync(self) -> None:
         app = CoolBoxApp()
         app.toggle_fullscreen()
+        self.assertIsNotNone(app.menu_bar)
+        assert app.menu_bar is not None
         self.assertEqual(app.menu_bar.fullscreen_var.get(), app.window.attributes("-fullscreen"))
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_quick_settings_dialog(self) -> None:
         app = CoolBoxApp()
+        self.assertIsNotNone(app.menu_bar)
+        assert app.menu_bar is not None
         app.menu_bar._open_quick_settings()
         dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
         self.assertTrue(dialogs)
-        for d in dialogs:
-            d.destroy()
+        for dialog in dialogs:
+            cast(Any, dialog).destroy()
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_toolbar_quick_settings(self) -> None:
         app = CoolBoxApp()
+        self.assertIsNotNone(app.toolbar)
+        assert app.toolbar is not None
         app.toolbar._open_quick_settings()
         dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
         self.assertTrue(dialogs)
-        for d in dialogs:
-            d.destroy()
+        for dialog in dialogs:
+            cast(Any, dialog).destroy()
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -94,8 +110,8 @@ class TestCoolBoxApp(unittest.TestCase):
         app.open_quick_settings()
         dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
         self.assertTrue(dialogs)
-        for d in dialogs:
-            d.destroy()
+        for dialog in dialogs:
+            cast(Any, dialog).destroy()
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -106,7 +122,8 @@ class TestCoolBoxApp(unittest.TestCase):
         app.open_quick_settings()
         second = app.quick_settings_window
         self.assertIs(first, second)
-        second.destroy()
+        if second is not None:
+            second.destroy()
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -115,8 +132,8 @@ class TestCoolBoxApp(unittest.TestCase):
         app.open_force_quit()
         dialogs = [w for w in app.window.winfo_children() if isinstance(w, ctk.CTkToplevel)]
         self.assertTrue(dialogs)
-        for d in dialogs:
-            d.destroy()
+        for dialog in dialogs:
+            cast(Any, dialog).destroy()
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -127,7 +144,8 @@ class TestCoolBoxApp(unittest.TestCase):
         app.open_force_quit()
         second = app.force_quit_window
         self.assertIs(first, second)
-        second.destroy()
+        if second is not None:
+            second.destroy()
         app.destroy()
 
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -155,8 +173,10 @@ class TestCoolBoxApp(unittest.TestCase):
         for p in patches:
             p.start()
         app.open_security_center()
-        self.assertIsNotNone(app.security_center_window)
-        app.security_center_window.destroy()
+        window = app.security_center_window
+        self.assertIsNotNone(window)
+        if window is not None:
+            window.destroy()
         for p in patches:
             p.stop()
         app.destroy()
@@ -166,10 +186,10 @@ class TestCoolBoxApp(unittest.TestCase):
         app = CoolBoxApp()
         flag = {"called": False}
         with patch("src.utils.security.is_admin", lambda: False), \
-             patch(
-                 "src.utils.security.relaunch_security_center",
-                 lambda: flag.__setitem__("called", True) or True,
-             ):
+            patch(
+                "src.utils.security.relaunch_security_center",
+                lambda: flag.__setitem__("called", True) or True,
+            ):
             app.open_security_center()
         self.assertTrue(flag["called"])  # relaunch attempted
         self.assertIsNone(app.security_center_window)
@@ -193,7 +213,8 @@ class TestCoolBoxApp(unittest.TestCase):
         app.open_security_center()
         second = app.security_center_window
         self.assertIs(first, second)
-        second.destroy()
+        if second is not None:
+            second.destroy()
         for p in patches:
             p.stop()
         app.destroy()
@@ -211,9 +232,10 @@ class TestCoolBoxApp(unittest.TestCase):
                 pass
 
         with patch("src.views.tools_view.messagebox.askyesno", side_effect=[True, True]), \
-             patch("src.utils.launch_vm_debug") as launch, \
-             patch("threading.Thread", DummyThread):
-            app.views["tools"]._launch_vm_debug()
+            patch("src.utils.launch_vm_debug") as launch, \
+            patch("threading.Thread", DummyThread):
+            tools_view = cast(Any, app.views["tools"])
+            tools_view._launch_vm_debug()
             launch.assert_called_once_with(open_code=True)
 
         app.destroy()

@@ -1,15 +1,16 @@
+import json
 import os
+import subprocess
 import sys
 import threading
 import warnings
-import subprocess
-import json
-import pytest
 from types import SimpleNamespace
+from typing import Any, cast
+
+import pytest
 
 from src.app import error_handler as eh
 from src.utils.logging_config import setup_logging
-
 
 # Ensure lightweight mode so the GUI toolkit is not required
 os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
@@ -34,12 +35,15 @@ def test_warning_and_unraisable_capture(tmp_path, monkeypatch):
     warnings.warn("be careful", UserWarning)
     assert any("be careful" in w for w in eh.RECENT_WARNINGS)
 
-    info = SimpleNamespace(
-        exc_type=RuntimeError,
-        exc_value=RuntimeError("boom"),
-        exc_traceback=None,
-        err_msg=None,
-        object=None,
+    info = cast(
+        Any,
+        SimpleNamespace(
+            exc_type=RuntimeError,
+            exc_value=RuntimeError("boom"),
+            exc_traceback=None,
+            err_msg=None,
+            object=None,
+        ),
     )
     sys.unraisablehook(info)
     assert any("boom" in e for e in eh.RECENT_ERRORS)

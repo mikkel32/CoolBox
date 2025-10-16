@@ -15,12 +15,12 @@ except ImportError:  # pragma: no cover - runtime dependency check
     pyperclip = ensure_pyperclip()
 import tkinter as tk
 try:
-    from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+    from matplotlib.backends._backend_tk import NavigationToolbar2Tk
 except ImportError:  # pragma: no cover - runtime dependency check
     from ..ensure_deps import ensure_matplotlib
 
     ensure_matplotlib()
-    from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+    from matplotlib.backends._backend_tk import NavigationToolbar2Tk
 
 from ..utils.system_utils import get_system_info, get_system_metrics
 from ..components import LineChart, Gauge, BarChart
@@ -37,7 +37,7 @@ class SystemInfoDialog(BaseDialog):
         # six gauges displayed side by side. Increasing the width ensures the
         # interface is fully visible on start-up.
 
-        self._after_id: int | None = None
+        self._after_id: str | None = None
         self.interval_var = tk.IntVar(value=1)
         self.paused = False
         self._create_layout()

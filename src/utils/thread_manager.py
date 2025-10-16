@@ -4,7 +4,7 @@ import threading
 import time
 import logging
 from queue import Empty, SimpleQueue
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 
 class ThreadManager:
@@ -77,7 +77,7 @@ class ThreadManager:
     def run_tool(
         self,
         name: str,
-        func: callable,
+        func: Callable[[], Any],
         *,
         window,
         status_bar: Any | None = None,
@@ -116,7 +116,8 @@ class ThreadManager:
                             )
                         )
                     if status_bar is not None:
-                        window.after(0, lambda: status_bar.set_message(msg, "error"))
+                        bar = status_bar
+                        window.after(0, lambda bar=bar: bar.set_message(msg, "error"))
                     self.post_exception(window, exc)
                 else:
                     for warn in captured:
@@ -130,17 +131,18 @@ class ThreadManager:
                         )
                     self.log_queue.put(f"INFO:{name} completed")
                     if status_bar is not None:
+                        bar = status_bar
                         if captured:
                             window.after(
                                 0,
-                                lambda: status_bar.set_message(
+                                lambda bar=bar: bar.set_message(
                                     f"{name} completed with warnings", "warning"
                                 ),
                             )
                         else:
                             window.after(
                                 0,
-                                lambda: status_bar.set_message(
+                                lambda bar=bar: bar.set_message(
                                     f"{name} completed", "success"
                                 ),
                             )

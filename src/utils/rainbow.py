@@ -9,12 +9,14 @@ from contextlib import contextmanager
 from typing import Iterable, Tuple, List, Sequence
 
 try:
-    from rich.console import Console, Control
+    from rich.console import Console
+    from rich.control import Control
     from rich.text import Text
 except ImportError:  # pragma: no cover
     from ..ensure_deps import ensure_rich  # type: ignore
     ensure_rich()
-    from rich.console import Console, Control
+    from rich.console import Console
+    from rich.control import Control
     from rich.text import Text
 
 

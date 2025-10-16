@@ -1,9 +1,13 @@
 """
 Settings view - Application preferences
 """
-import customtkinter as ctk
-from tkinter import messagebox, colorchooser
 import json
+import tkinter as tk
+from tkinter import messagebox, colorchooser
+from typing import Any, Iterable, cast
+
+import customtkinter as ctk
+
 from src.utils.system_utils import slugify
 from .base_view import BaseView
 
@@ -656,12 +660,25 @@ class SettingsView(BaseView):
         texts = " ".join(self._gather_texts(frame))
         self._sections.append((frame, f"{title} {texts}".lower()))
 
-    def _gather_texts(self, widget: ctk.CTkBaseClass) -> list[str]:
+    def _gather_texts(self, widget: ctk.CTkBaseClass | tk.Widget) -> list[str]:
         parts: list[str] = []
-        if hasattr(widget, "cget") and "text" in widget.keys():
-            txt = widget.cget("text")
-            if txt:
-                parts.append(str(txt))
+        if hasattr(widget, "cget"):
+            keys = getattr(widget, "keys", None)
+            available: list[str] | None = None
+            if callable(keys):
+                try:
+                    available = [
+                        str(item) for item in cast(Iterable[Any], keys())
+                    ]
+                except Exception:
+                    available = None
+            if available and "text" in available:
+                try:
+                    txt = widget.cget("text")  # type: ignore[call-arg]
+                except Exception:
+                    txt = None
+                if txt:
+                    parts.append(str(txt))
         for child in widget.winfo_children():
             parts.extend(self._gather_texts(child))
         return parts

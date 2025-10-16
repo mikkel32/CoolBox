@@ -1,5 +1,6 @@
 import tkinter as tk
 from types import SimpleNamespace
+from typing import cast
 
 from src.views.force_quit_dialog import ForceQuitDialog
 
@@ -21,14 +22,14 @@ def test_kill_actions_enable_once() -> None:
         _action_buttons=[Dummy(), Dummy()],
     )
 
-    ForceQuitDialog._update_kill_actions(dialog)
+    ForceQuitDialog._update_kill_actions(cast(ForceQuitDialog, dialog))
     assert dialog.kill_selected_btn.state == tk.DISABLED
 
     dialog.process_snapshot[1] = object()
-    ForceQuitDialog._update_kill_actions(dialog)
+    ForceQuitDialog._update_kill_actions(cast(ForceQuitDialog, dialog))
     assert dialog.kill_selected_btn.state == tk.NORMAL
 
     dialog._enum_progress = 0.0
-    ForceQuitDialog._update_kill_actions(dialog)
+    ForceQuitDialog._update_kill_actions(cast(ForceQuitDialog, dialog))
     assert dialog.kill_selected_btn.state == tk.NORMAL
 

@@ -564,7 +564,7 @@ class ClickOverlay(tk.Toplevel):
 
     def __init__(
         self,
-        parent: tk.Misc,
+        parent: tk.Misc | None,
         *,
         highlight: str = DEFAULT_HIGHLIGHT,
         show_crosshair: bool = True,

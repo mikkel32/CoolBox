@@ -137,6 +137,8 @@ def get_system_metrics() -> Dict[str, Any]:
     disk = psutil.disk_usage("/")
     net = psutil.net_io_counters()
     disk_io = psutil.disk_io_counters()
+    disk_read = disk_io.read_bytes if disk_io is not None else 0
+    disk_write = disk_io.write_bytes if disk_io is not None else 0
     freq = psutil.cpu_freq()
     per_core_freq: list[float] = []
     try:
@@ -171,8 +173,8 @@ def get_system_metrics() -> Dict[str, Any]:
         "disk_total": disk.total / (1024**3),
         "sent": net.bytes_sent,
         "recv": net.bytes_recv,
-        "read_bytes": disk_io.read_bytes,
-        "write_bytes": disk_io.write_bytes,
+        "read_bytes": disk_read,
+        "write_bytes": disk_write,
         "cpu_freq": freq.current if freq else None,
         "cpu_freq_per_core": per_core_freq,
         "cpu_temp": temp,

@@ -10,7 +10,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue, Empty, Full
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import Any, ClassVar, Protocol, TYPE_CHECKING
 from collections import deque
 import heapq
 import random
@@ -21,6 +21,22 @@ except ImportError:  # pragma: no cover - runtime dependency check
     from ..ensure_deps import ensure_psutil
 
     psutil = ensure_psutil()
+
+if TYPE_CHECKING:
+    from psutil import Process as ProcessType
+else:  # pragma: no cover - used only for type checking
+    ProcessType = psutil.Process
+
+
+class SampledProcess(Protocol):
+    @property
+    def pid(self) -> int: ...
+
+    def cpu_times(self) -> Any: ...
+
+    def memory_info(self) -> Any: ...
+
+    def io_counters(self) -> Any: ...
 
 
 @dataclass(slots=True)
@@ -949,7 +965,7 @@ class ProcessWatcher(threading.Thread):
     def _should_skip_cpu(
         self,
         pid: int,
-        proc: psutil.Process,
+        proc: SampledProcess,
         prev: ProcessEntry | None,
         ts: float,
         bulk: dict[int, float] | None = None,
@@ -1076,7 +1092,7 @@ class ProcessWatcher(threading.Thread):
     def _proc_cpu_time(
         self,
         pid: int,
-        proc: psutil.Process,
+        proc: SampledProcess,
         bulk: dict[int, float] | None = None,
     ) -> float:
         """Return cumulative CPU time for *pid* with a fast `/proc` path."""
@@ -1139,7 +1155,7 @@ class ProcessWatcher(threading.Thread):
                 results[pid] = val
         return results
 
-    def _next_batch(self, attrs: list[str]) -> tuple[list[psutil.Process], bool]:
+    def _next_batch(self, attrs: list[str]) -> tuple[list[ProcessType], bool]:
         """Return the next batch of processes and whether a full cycle ended."""
         if self._proc_iter is None:
             self._proc_pids = psutil.pids()
@@ -1148,7 +1164,7 @@ class ProcessWatcher(threading.Thread):
             self._proc_iter = psutil.process_iter(attrs=attrs)
             self._processed_batches = 0
             self._total_batches = max(1, math.ceil(self.process_count / self.batch_size))
-        procs: list[psutil.Process] = []
+        procs: list[ProcessType] = []
         cycle_end = False
         try:
             for _ in range(self.batch_size):
@@ -1161,7 +1177,7 @@ class ProcessWatcher(threading.Thread):
 
     def _maybe_sample_cpu(
         self,
-        proc: psutil.Process,
+        proc: SampledProcess,
         prev: ProcessEntry | None,
         ts: float,
         mem: float,
@@ -1301,7 +1317,7 @@ class ProcessWatcher(threading.Thread):
                 basic_attrs.append("io_counters")
 
             proc_data: dict[int, tuple[
-                psutil.Process,
+                ProcessType,
                 ProcessEntry | None,
                 float,
                 int,
@@ -1365,7 +1381,7 @@ class ProcessWatcher(threading.Thread):
 
             def collect(
                 data: tuple[
-                    psutil.Process,
+                    ProcessType,
                     ProcessEntry | None,
                     float,
                     int,
@@ -1422,8 +1438,8 @@ class ProcessWatcher(threading.Thread):
                             files=prev.files,
                             conns=prev.conns,
                             io_rate=prev.io_rate,
-                            samples=list(prev.samples),
-                            io_samples=list(prev.io_samples),
+                            samples=deque(prev.samples),
+                            io_samples=deque(prev.io_samples),
                             max_samples=self.sample_size,
                         )
                     )
@@ -1476,8 +1492,8 @@ class ProcessWatcher(threading.Thread):
                             files=prev.files,
                             conns=prev.conns,
                             io_rate=round(io_rate, 1),
-                            samples=list(prev.samples),
-                            io_samples=list(prev.io_samples),
+                            samples=deque(prev.samples),
+                            io_samples=deque(prev.io_samples),
                             max_samples=self.sample_size,
                         )
                     )
@@ -1537,8 +1553,8 @@ class ProcessWatcher(threading.Thread):
                     files=0,
                     conns=0,
                     io_rate=0.0,
-                    samples=[],
-                    io_samples=[],
+                    samples=deque(),
+                    io_samples=deque(),
                     max_samples=self.sample_size,
                 )
                 entry.add_sample(entry.cpu, entry.io_rate, entry.mem)
@@ -1563,8 +1579,8 @@ class ProcessWatcher(threading.Thread):
                 self._normal_counts[pid] = 0
                 return entry, True, trending_flag
 
-            heap: list[tuple[tuple[float, float, int], ProcessEntry]] = []
-            entries: list[ProcessEntry] = []
+            heap: list[tuple[tuple[float, float, int], ProcessEntry, bool]] = []
+            entries: list[tuple[ProcessEntry, bool]] = []
             detail_candidates: list[ProcessEntry] = []
             now_ts = time.monotonic()
 
@@ -1698,11 +1714,17 @@ class ProcessWatcher(threading.Thread):
                             return pid, sum(1 for _ in os.scandir(proc_path))
                         proc = psutil.Process(pid)
                         with proc.oneshot():
-                            if hasattr(proc, "num_handles"):
-                                return pid, proc.num_handles()
-                            if hasattr(proc, "num_fds"):
-                                return pid, proc.num_fds()
-                            return pid, len(proc.open_files())
+                            handle_fn = getattr(proc, "num_handles", None)
+                            if callable(handle_fn):
+                                handles = handle_fn()
+                                if isinstance(handles, int):
+                                    return pid, handles
+                            fd_fn = getattr(proc, "num_fds", None)
+                            if callable(fd_fn):
+                                fds = fd_fn()
+                                if isinstance(fds, int):
+                                    return pid, fds
+                        return pid, len(proc.open_files())
                     except Exception:
                         return None
 

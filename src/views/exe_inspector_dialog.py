@@ -3,12 +3,12 @@ from __future__ import annotations
 """Dialog showing executable details with a terminal style interface."""
 
 import datetime
-import shlex
 import random
+import shlex
+import threading
 import time
 from pathlib import Path
-from typing import List, Dict
-import threading
+from typing import Callable, Dict, List
 
 import customtkinter as ctk
 
@@ -535,14 +535,20 @@ class ExeInspectorDialog(BaseDialog):
         for text, cmd, color in actions:
             self._create_action_button(actions_scroll, text, cmd, color)
 
-    def _create_action_button(self, parent: ctk.CTkFrame, text: str, command, color: str) -> None:
+    def _create_action_button(
+        self,
+        parent: ctk.CTkBaseClass | ctk.CTkScrollableFrame,
+        text: str,
+        command: Callable[[], None],
+        color: str,
+    ) -> None:
         """Create a single action button."""
         btn_outer = ctk.CTkFrame(parent, fg_color=self.bg_glass_3, corner_radius=10)
         btn_outer.pack(fill="x", pady=5)
-        
+
         btn_glass = ctk.CTkFrame(btn_outer, fg_color=self.bg_glass_2, corner_radius=8)
         btn_glass.pack(fill="both", expand=True, padx=1, pady=1)
-        
+
         btn = ctk.CTkButton(
             btn_glass,
             text=text,
@@ -555,7 +561,7 @@ class ExeInspectorDialog(BaseDialog):
             corner_radius=6,
             height=40,
             anchor="w",
-            command=command
+            command=command,
         )
         btn.pack(fill="x", padx=2, pady=2)
 
@@ -583,7 +589,7 @@ class ExeInspectorDialog(BaseDialog):
                 corner_radius=6,
                 width=110,
                 height=42,
-                command=command
+                command=command,
             )
             btn.pack(padx=1, pady=1)
 
@@ -661,6 +667,7 @@ class ExeInspectorDialog(BaseDialog):
         """Animate stats."""
         def update():
             for stat, config in self.stats_frames.items():
+                bar_color = config["color"]
                 if stat == "CPU":
                     val = random.randint(20, 70)
                     config["value"].configure(text=f"{val}%")
@@ -677,21 +684,20 @@ class ExeInspectorDialog(BaseDialog):
                     val = random.randint(38, 75)
                     config["value"].configure(text=f"{val}°C")
                     width = int(180 * val / 100)
-                    
+
                     # Change color based on temp
                     if val < 50:
-                        color = self.accent_cyan
+                        bar_color = self.accent_cyan
                     elif val < 65:
-                        color = self.accent_orange
+                        bar_color = self.accent_orange
                     else:
-                        color = self.accent_red
-                    config["bar"].configure(fg_color=color)
-                
+                        bar_color = self.accent_red
+                    config["bar"].configure(fg_color=bar_color)
+
                 # Update bar width by destroying and recreating
                 bar_parent = config["bar"].master
                 config["bar"].destroy()
                 # Use the appropriate color for the bar
-                bar_color = config["color"] if stat != "TEMP" else color
                 new_bar = ctk.CTkFrame(bar_parent, fg_color=bar_color, height=8, width=width, corner_radius=4)
                 new_bar.place(x=1, y=1)
                 config["bar"] = new_bar
@@ -872,7 +878,7 @@ Type 'help' for command list.
         self._on_enter()
 
     # ------------------------------------------------------------------ command handling
-    def _history_up(self, event=None) -> None:
+    def _history_up(self, event=None) -> str:
         """History up."""
         if self.command_history and self.history_index < len(self.command_history) - 1:
             self.history_index += 1
@@ -880,7 +886,7 @@ Type 'help' for command list.
             self.entry.insert(0, self.command_history[-(self.history_index + 1)])
         return "break"
 
-    def _history_down(self, event=None) -> None:
+    def _history_down(self, event=None) -> str:
         """History down."""
         if self.history_index > 0:
             self.history_index -= 1
@@ -891,7 +897,7 @@ Type 'help' for command list.
             self.entry.delete(0, "end")
         return "break"
 
-    def _autocomplete(self, event=None) -> None:
+    def _autocomplete(self, event=None) -> str:
         """Autocomplete."""
         current = self.entry.get()
         commands = [
@@ -906,8 +912,10 @@ Type 'help' for command list.
         if matches:
             self.entry.delete(0, "end")
             self.entry.insert(0, matches[0])
-            self.entry.selection_range(len(current), "end")
-            
+            selector = getattr(self.entry, "selection_range", None)
+            if callable(selector):
+                selector(len(current), "end")
+
             # Flash
             self.entry.configure(text_color=self.accent_cyan)
             self.after(150, lambda: self.entry.configure(text_color=self.text_bright))

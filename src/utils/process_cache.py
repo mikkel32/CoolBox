@@ -12,7 +12,7 @@ import os
 import sys
 import threading
 from collections.abc import Mapping
-from typing import Dict
+from typing import Any, TYPE_CHECKING, cast
 
 try:
     import psutil
@@ -22,6 +22,11 @@ except Exception:  # pragma: no cover - runtime dependency check
     psutil = ensure_psutil()
 
 __all__ = ["ProcessCache"]
+
+if TYPE_CHECKING:
+    from psutil import Process as PsutilProcess
+else:  # pragma: no cover - runtime only alias
+    PsutilProcess = psutil.Process
 
 
 class ProcessCache:
@@ -38,13 +43,14 @@ class ProcessCache:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._procs: Dict[int, psutil.Process] = {}
+        self._procs: dict[int, PsutilProcess] = {}
         self._dirty = True
         self._watch_failed = False
+        self._kq: Any | None = None
         self._start_watchers()
 
     # -- public API -----------------------------------------------------
-    def snapshot(self) -> Mapping[int, psutil.Process]:
+    def snapshot(self) -> Mapping[int, PsutilProcess]:
         """Return a mapping of ``pid`` to :class:`psutil.Process`.
 
         The snapshot is rebuilt only when flagged as dirty, either because an
@@ -87,20 +93,39 @@ class ProcessCache:
     def _start_kqueue(self) -> None:
         import select
 
-        self._kq = select.kqueue()
-        flags = select.KQ_EV_ADD | select.KQ_EV_ENABLE
-        fflags = (select.KQ_NOTE_FORK | select.KQ_NOTE_EXIT | getattr(select, "KQ_NOTE_EXEC", 0))
+        kqueue_factory = getattr(select, "kqueue", None)
+        kevent_factory = getattr(select, "kevent", None)
+        if kqueue_factory is None or kevent_factory is None:
+            raise RuntimeError("kqueue support is unavailable on this platform")
+
+        self._kq = kqueue_factory()
+        kq = cast(Any, self._kq)
+        flags = getattr(select, "KQ_EV_ADD", 0) | getattr(select, "KQ_EV_ENABLE", 0)
+        fflags = (
+            getattr(select, "KQ_NOTE_FORK", 0)
+            | getattr(select, "KQ_NOTE_EXIT", 0)
+            | getattr(select, "KQ_NOTE_EXEC", 0)
+        )
         # Track children of init (PID 1) to learn about new processes
-        kev = select.kevent(1, filter=select.KQ_FILTER_PROC, flags=flags, fflags=fflags)
-        self._kq.control([kev], 0)
+        kev = kevent_factory(
+            1,
+            filter=getattr(select, "KQ_FILTER_PROC", 0),
+            flags=flags,
+            fflags=fflags,
+        )
+        kq.control([kev], 0)
         threading.Thread(target=self._kqueue_loop, daemon=True).start()
 
     def _kqueue_loop(self) -> None:
         import select
 
+        if self._kq is None:
+            return
+        kq = cast(Any, self._kq)
+
         while True:
             try:
-                events = self._kq.control(None, 1)
+                events = kq.control(None, 1)
             except Exception:
                 with self._lock:
                     self._watch_failed = True
@@ -111,7 +136,8 @@ class ProcessCache:
             with self._lock:
                 for ev in events:
                     pid = ev.ident
-                    if ev.fflags & select.KQ_NOTE_EXIT:
+                    note_exit = getattr(select, "KQ_NOTE_EXIT", 0)
+                    if ev.fflags & note_exit:
                         self._procs.pop(pid, None)
                     else:
                         # For fork/exec we simply mark cache dirty and rebuild

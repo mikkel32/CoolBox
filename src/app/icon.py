@@ -5,7 +5,7 @@ import sys
 import tempfile
 import ctypes
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     from PIL import Image, ImageTk
@@ -17,9 +17,13 @@ except ImportError:  # pragma: no cover - runtime dependency check
     ImageTk = pil.ImageTk  # type: ignore[attr-defined]
 
 if TYPE_CHECKING:
-    from ctypes import LibraryLoader, WinDLL
+    from ctypes import LibraryLoader
 
-_windll: "LibraryLoader[WinDLL] | None"
+    _WindllType = LibraryLoader[Any]
+else:
+    _WindllType = ctypes.LibraryLoader[Any]  # type: ignore[misc]
+
+_windll: _WindllType | None
 try:  # pragma: no cover - attribute missing on non-Windows
     _windll = getattr(ctypes, "windll")
 except AttributeError:  # pragma: no cover - non-Windows Python build

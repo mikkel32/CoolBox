@@ -4,6 +4,7 @@ Toolbar component with common actions
 
 import customtkinter as ctk
 from tkinter import filedialog
+from typing import Any, Callable
 
 from ..utils import file_manager
 from ..utils.system_utils import open_path
@@ -202,22 +203,33 @@ class Toolbar(ctk.CTkFrame):
                 self.app.status_bar.set_message("Enter search query", "warning")
             return
 
-        results: list[tuple[str, str, callable]] = []
+        results: list[tuple[str, str, Callable[[], Any]]] = []
 
         tools_view = self.app.views.get("tools")
         if hasattr(tools_view, "get_tools"):
             for name, desc, cmd in tools_view.get_tools():
                 if query in name.lower() or query in desc.lower():
-                    results.append(
-                        ("Tool", name, lambda c=cmd: (self.app.switch_view("tools"), c()))
-                    )
+
+                    def make_tool_action(command: Callable[[], Any]) -> Callable[[], Any]:
+                        def _run() -> Any:
+                            self.app.switch_view("tools")
+                            return command()
+
+                        return _run
+
+                    results.append(("Tool", name, make_tool_action(cmd)))
 
         settings_view = self.app.views.get("settings")
         if hasattr(settings_view, "_sections"):
             for frame, text in settings_view._sections:
                 if query in text:
                     heading = frame.winfo_children()[0] if frame.winfo_children() else None
-                    title = heading.cget("text") if hasattr(heading, "cget") else "Settings"
+                    if heading is not None:
+                        cget = getattr(heading, "cget", None)
+                        raw_title: Any = cget("text") if callable(cget) else "Settings"
+                        title = str(raw_title)
+                    else:
+                        title = "Settings"
 
                     def open_sec(fr=frame, t=query):
                         self.app.switch_view("settings")

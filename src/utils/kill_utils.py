@@ -9,14 +9,17 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from threading import Event, Thread
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 
-try:
-    import psutil
-except ImportError:  # pragma: no cover - runtime dependency check
-    from ..ensure_deps import ensure_psutil
+if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
+    import psutil  # type: ignore
+else:
+    try:
+        import psutil  # type: ignore  # noqa: F401
+    except ImportError:  # pragma: no cover - runtime dependency check
+        from ..ensure_deps import ensure_psutil
 
-    psutil = ensure_psutil()
+        psutil = ensure_psutil()
 
 _psutil_process = psutil.Process
 from rich.progress import (
@@ -215,6 +218,7 @@ def kill_process(
     if thread is not None:
         spinner_done.set()
         thread.join()
+        assert watchdog is not None
         if elapsed > watchdog:
             proceed = True
             if on_timeout is not None:

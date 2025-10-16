@@ -8,14 +8,25 @@ tests (and environments without the optional dependency) can still import
 ``UIHelperMixin`` without error.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable, cast
+
 import customtkinter as ctk
 
-try:  # pragma: no cover - import is trivial but failure handling is important
-    from src.components.tooltip import Tooltip
-except Exception:  # pragma: no cover - best effort fallback for stubs
-    Tooltip = None  # type: ignore[assignment]
-
 from src.utils.ui import center_window
+
+if TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from src.components.tooltip import Tooltip as TooltipType
+else:  # pragma: no cover - runtime fallback when stubs are missing
+    TooltipType = ctk.CTkToplevel
+
+try:  # pragma: no cover - import is trivial but failure handling is important
+    from src.components.tooltip import Tooltip as _Tooltip
+except Exception:  # pragma: no cover - best effort fallback for stubs
+    _Tooltip = None
+
+Tooltip = cast(type[TooltipType] | None, _Tooltip)
 
 
 class UIHelperMixin:
@@ -52,16 +63,17 @@ class UIHelperMixin:
 
     def apply_fonts(self, parent: ctk.CTkBaseClass | None = None) -> None:
         """Recursively apply fonts to *parent* and its children."""
-        parent = parent or self
-        if hasattr(parent, "configure"):
-            self._apply_font(parent)
-        for child in parent.winfo_children():
-            self.apply_fonts(child)
+        target = parent if parent is not None else cast(ctk.CTkBaseClass, self)
+        if hasattr(target, "configure"):
+            self._apply_font(target)
+        for child in target.winfo_children():
+            if isinstance(child, ctk.CTkBaseClass):
+                self.apply_fonts(child)
 
-    def create_container(self, parent=None):
+    def create_container(self, parent: ctk.CTkBaseClass | None = None):
         """Return a padded container frame."""
-        parent = parent or self
-        container = ctk.CTkFrame(parent)
+        target = parent if parent is not None else cast(ctk.CTkBaseClass, self)
+        container = ctk.CTkFrame(target)
         container.pack(fill="both", expand=True, padx=self.padx, pady=self.pady)
         return container
 
@@ -261,8 +273,8 @@ class UIHelperMixin:
         label: str,
         variable: ctk.DoubleVar | ctk.IntVar,
         row: int,
-        from_: float,
-        to: float,
+        from_: float | int,
+        to: float | int,
         **slider_kwargs,
     ) -> tuple[ctk.CTkSlider, ctk.CTkLabel]:
         """Create a labeled slider row returning the slider and value label."""
@@ -270,7 +282,11 @@ class UIHelperMixin:
         self._mark_font_role(lbl, "normal")
         lbl.grid(row=row, column=0, sticky="w", padx=self.gpadx, pady=self.gpady)
         slider = ctk.CTkSlider(
-            parent, variable=variable, from_=from_, to=to, **slider_kwargs
+            parent,
+            variable=variable,
+            from_=cast(int, from_),
+            to=cast(int, to),
+            **slider_kwargs,
         )
         self._mark_font_role(slider, "normal")
         slider.grid(row=row, column=1, sticky="ew", padx=self.gpadx, pady=self.gpady)
@@ -349,10 +365,10 @@ class UIHelperMixin:
 
     def create_search_box(
         self,
-        parent: ctk.CTkFrame,
+        parent: ctk.CTkBaseClass | ctk.CTkScrollableFrame,
         variable: ctk.StringVar,
         placeholder: str,
-        callback,
+        callback: Callable[[], None],
     ) -> ctk.CTkEntry:
         """Return an entry configured for search filtering."""
         entry = ctk.CTkEntry(
@@ -367,13 +383,14 @@ class UIHelperMixin:
 
     def create_scrollable_container(self) -> ctk.CTkScrollableFrame:
         """Return a scrollable frame with standard padding."""
-        frame = ctk.CTkScrollableFrame(self)
+        parent = cast(ctk.CTkBaseClass, self)
+        frame = ctk.CTkScrollableFrame(parent)
         frame.pack(fill="both", expand=True, padx=self.padx, pady=self.pady)
         return frame
 
     def add_tooltip(
         self, widget: ctk.CTkBaseClass, text: str
-    ) -> "Tooltip | None":
+    ) -> TooltipType | None:
         """Attach a tooltip to *widget* and return it.
 
         When the optional :class:`Tooltip` widget is unavailable (for example
@@ -386,7 +403,8 @@ class UIHelperMixin:
         """
         if Tooltip is None:
             return None
-        tip = Tooltip(self, text)
+        parent = cast(ctk.CTkBaseClass, self)
+        tip = Tooltip(parent, text)
         try:
             widget.bind(
                 "<Enter>",
@@ -403,7 +421,7 @@ class UIHelperMixin:
                     btn.bind("<Leave>", lambda e, t=tip: t.hide())
         return tip
 
-    def _show_tooltip(self, widget: ctk.CTkBaseClass, tooltip: Tooltip) -> None:
+    def _show_tooltip(self, widget: ctk.CTkBaseClass, tooltip: TooltipType) -> None:
         x = widget.winfo_rootx() + widget.winfo_width() // 2
         y = widget.winfo_rooty() + widget.winfo_height() + 10
         tooltip.show(x, y)
@@ -431,28 +449,29 @@ class UIHelperMixin:
     # ------------------------------------------------------------------ theme helpers
     def apply_theme(self, parent: ctk.CTkBaseClass | None = None) -> None:
         """Recursively apply accent colors to buttons and inputs."""
-        parent = parent or self
-        if isinstance(parent, ctk.CTkButton):
-            parent.configure(fg_color=self.accent, hover_color=self.accent)
-        elif isinstance(parent, ctk.CTkSegmentedButton):
-            parent.configure(fg_color=self.accent, selected_color=self.accent)
-        elif isinstance(parent, ctk.CTkOptionMenu):
-            parent.configure(
+        target = parent if parent is not None else cast(ctk.CTkBaseClass, self)
+        if isinstance(target, ctk.CTkButton):
+            target.configure(fg_color=self.accent, hover_color=self.accent)
+        elif isinstance(target, ctk.CTkSegmentedButton):
+            target.configure(fg_color=self.accent, selected_color=self.accent)
+        elif isinstance(target, ctk.CTkOptionMenu):
+            target.configure(
                 fg_color=self.accent,
                 button_color=self.accent,
                 button_hover_color=self.accent,
             )
-        elif isinstance(parent, ctk.CTkSwitch):
-            parent.configure(progress_color=self.accent, fg_color=self.accent)
-        elif isinstance(parent, ctk.CTkCheckBox):
-            parent.configure(border_color=self.accent, fg_color=self.accent)
-        elif isinstance(parent, ctk.CTkRadioButton):
-            parent.configure(border_color=self.accent, fg_color=self.accent)
-        elif isinstance(parent, ctk.CTkSlider):
-            parent.configure(progress_color=self.accent)
-        elif isinstance(parent, ctk.CTkEntry):
-            parent.configure(border_color=self.accent)
-        elif isinstance(parent, ctk.CTkProgressBar):
-            parent.configure(progress_color=self.accent)
-        for child in parent.winfo_children():
-            self.apply_theme(child)
+        elif isinstance(target, ctk.CTkSwitch):
+            target.configure(progress_color=self.accent, fg_color=self.accent)
+        elif isinstance(target, ctk.CTkCheckBox):
+            target.configure(border_color=self.accent, fg_color=self.accent)
+        elif isinstance(target, ctk.CTkRadioButton):
+            target.configure(border_color=self.accent, fg_color=self.accent)
+        elif isinstance(target, ctk.CTkSlider):
+            target.configure(progress_color=self.accent)
+        elif isinstance(target, ctk.CTkEntry):
+            target.configure(border_color=self.accent)
+        elif isinstance(target, ctk.CTkProgressBar):
+            target.configure(progress_color=self.accent)
+        for child in target.winfo_children():
+            if isinstance(child, ctk.CTkBaseClass):
+                self.apply_theme(child)

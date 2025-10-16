@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import importlib
 import sys
 import threading
 import time
@@ -15,7 +16,7 @@ import warnings
 from collections import deque
 from dataclasses import dataclass
 from ctypes import wintypes
-from typing import Any, List, Callable
+from typing import Any, List, Callable, TYPE_CHECKING, cast
 
 try:  # pragma: no cover - optional dependency
     from Xlib import X, Xatom, display as xlib_display
@@ -31,8 +32,26 @@ except Exception:  # noqa: F401
     _NET_CLIENT_LIST_STACKING = None
     _WM_PID = None
     _WM_NAME = None
+    X = None  # type: ignore[assignment]
+    Xatom = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:  # pragma: no cover - typing helpers
+    from ctypes import LibraryLoader
+else:  # pragma: no cover - runtime fallback when ctypes extensions missing
+    LibraryLoader = Any
 
 logger = logging.getLogger(__name__)
+
+if sys.platform.startswith("win"):
+    _CTYPES_WINDLL: LibraryLoader | None = cast(
+        LibraryLoader | None, getattr(ctypes, "windll", None)
+    )
+    _CTYPES_WINFUNCTYPE: Callable[..., Any] | None = cast(
+        Callable[..., Any] | None, getattr(ctypes, "WINFUNCTYPE", None)
+    )
+else:
+    _CTYPES_WINDLL = None
+    _CTYPES_WINFUNCTYPE = None
 
 # Cache populated by a background enumeration thread.  The cache is intentionally
 # long lived so repeated overlay updates can reuse results without blocking.
@@ -56,6 +75,40 @@ _TRANSIENT_PIDS: set[int] = set()
 _CFG_LOADED = False
 
 
+def _get_windll() -> LibraryLoader | None:
+    """Return the cached ``ctypes.windll`` loader when available."""
+
+    if not sys.platform.startswith("win"):
+        return None
+    return _CTYPES_WINDLL
+
+
+def _get_winfunctype() -> Callable[..., Any] | None:
+    """Return ``ctypes.WINFUNCTYPE`` when present on this platform."""
+
+    if not sys.platform.startswith("win"):
+        return None
+    return _CTYPES_WINFUNCTYPE
+
+
+def _get_user32() -> Any | None:
+    """Return the ``user32`` library when available."""
+
+    windll = _get_windll()
+    if windll is None:
+        return None
+    return getattr(windll, "user32", None)
+
+
+def _get_kernel32() -> Any | None:
+    """Return the ``kernel32`` library when available."""
+
+    windll = _get_windll()
+    if windll is None:
+        return None
+    return getattr(windll, "kernel32", None)
+
+
 def _load_thresholds() -> None:
     """Load size thresholds from ``Config`` lazily to avoid import cycles."""
 
@@ -77,8 +130,14 @@ def _close_window_handle(info: WindowInfo) -> None:
     """Release any OS resources held for ``info``."""
 
     if sys.platform.startswith("win") and info.icon:
+        windll = _get_windll()
+        if windll is None:
+            return
+        user32 = getattr(windll, "user32", None)
+        if user32 is None:
+            return
         try:
-            ctypes.windll.user32.DestroyIcon(wintypes.HICON(int(info.icon)))
+            cast(Any, user32).DestroyIcon(wintypes.HICON(int(info.icon)))
         except Exception:
             pass
 
@@ -115,7 +174,13 @@ def _get_window_icon(hwnd: wintypes.HWND) -> int | None:
 
     if not sys.platform.startswith("win"):
         return None
-    user32 = ctypes.windll.user32
+    windll = _get_windll()
+    if windll is None:
+        return None
+    user32 = getattr(windll, "user32", None)
+    if user32 is None:
+        return None
+    user32 = cast(Any, user32)
     WM_GETICON = 0x007F
     ICON_SMALL2 = 2
     GCL_HICON = -14
@@ -194,12 +259,19 @@ def has_cursor_window_support(*, warn: bool = False) -> bool:
 def _get_active_window_uncached() -> WindowInfo:
     """Return information about the currently active window without caching."""
     if sys.platform.startswith("win"):
-        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        windll = _get_windll()
+        if windll is None:
+            return WindowInfo(None)
+        user32 = getattr(windll, "user32", None)
+        if user32 is None:
+            return WindowInfo(None)
+        user32 = cast(Any, user32)
+        hwnd = user32.GetForegroundWindow()
         if not hwnd:
             return WindowInfo(None)
         rect = wintypes.RECT()
         geom = None
-        if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
             geom = (
                 rect.left,
                 rect.top,
@@ -207,9 +279,9 @@ def _get_active_window_uncached() -> WindowInfo:
                 rect.bottom - rect.top,
             )
         pid = wintypes.DWORD()
-        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         title_buf = ctypes.create_unicode_buffer(1024)
-        length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
+        length = user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
         icon = _get_window_icon(hwnd)
         info = WindowInfo(
@@ -308,10 +380,18 @@ def _dispatch_active(info: WindowInfo) -> None:
 
 def _win_active_thread() -> None:
     global _WIN_THREAD_ID
-    user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
+    user32 = _get_user32()
+    kernel32 = _get_kernel32()
+    if user32 is None or kernel32 is None:
+        return
+    user32 = cast(Any, user32)
+    kernel32 = cast(Any, kernel32)
 
-    WinEventProc = ctypes.WINFUNCTYPE(
+    winfunctype = _get_winfunctype()
+    if winfunctype is None:
+        return
+
+    WinEventProc = winfunctype(
         None,
         wintypes.HANDLE,
         wintypes.DWORD,
@@ -375,7 +455,12 @@ def _win_active_thread() -> None:
 
 
 def _mac_active_thread() -> None:
-    import Quartz
+    try:
+        quartz_mod = importlib.import_module("Quartz")
+    except Exception:
+        logger.exception("Quartz import failed")
+        return
+    Quartz = cast(Any, quartz_mod)
 
     def _callback(proxy, type_, event, refcon):
         _dispatch_active(_get_active_window_uncached())
@@ -448,7 +533,9 @@ def subscribe_active_window(
                 _ACTIVE_STOP.set()
                 if sys.platform.startswith("win") and _WIN_THREAD_ID is not None:
                     try:
-                        ctypes.windll.user32.PostThreadMessageW(_WIN_THREAD_ID, 0x0012, 0, 0)
+                        user32 = _get_user32()
+                        if user32 is not None:
+                            cast(Any, user32).PostThreadMessageW(_WIN_THREAD_ID, 0x0012, 0, 0)
                     except Exception:
                         pass
                 if _ACTIVE_THREAD is not None:
@@ -471,12 +558,16 @@ def subscribe_window_change(
 
     if sys.platform.startswith("win"):
         try:
-            user32 = ctypes.windll.user32
+            user32 = _get_user32()
+            winfunctype = _get_winfunctype()
+            if user32 is None or winfunctype is None:
+                return None
+            user32 = cast(Any, user32)
             WINEVENT_OUTOFCONTEXT = 0x0000
             EVENT_MIN = 0x00000001
             EVENT_MAX = 0x7FFFFFFF
 
-            WinEventProcType = ctypes.WINFUNCTYPE(
+            WinEventProcType = winfunctype(
                 None,
                 wintypes.HANDLE,
                 wintypes.DWORD,
@@ -535,15 +626,19 @@ def subscribe_window_change(
 def get_window_under_cursor() -> WindowInfo:
     """Return information about the window under the mouse cursor."""
     if sys.platform.startswith("win"):
-        pt = wintypes.POINT()
-        if not ctypes.windll.user32.GetCursorPos(ctypes.byref(pt)):
+        user32 = _get_user32()
+        if user32 is None:
             return WindowInfo(None)
-        hwnd = ctypes.windll.user32.WindowFromPoint(pt)
+        user32 = cast(Any, user32)
+        pt = wintypes.POINT()
+        if not user32.GetCursorPos(ctypes.byref(pt)):
+            return WindowInfo(None)
+        hwnd = user32.WindowFromPoint(pt)
         if not hwnd:
             return WindowInfo(None)
         rect = wintypes.RECT()
         geom = None
-        if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
             geom = (
                 rect.left,
                 rect.top,
@@ -551,9 +646,9 @@ def get_window_under_cursor() -> WindowInfo:
                 rect.bottom - rect.top,
             )
         pid = wintypes.DWORD()
-        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         title_buf = ctypes.create_unicode_buffer(1024)
-        length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
+        length = user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
         icon = _get_window_icon(hwnd)
         info = WindowInfo(
@@ -568,19 +663,24 @@ def get_window_under_cursor() -> WindowInfo:
 
     if sys.platform == "darwin":
         try:
-            import Quartz
+            quartz_mod = importlib.import_module("Quartz")
+        except Exception:
+            return WindowInfo(None)
 
+        Quartz = cast(Any, quartz_mod)
+        pid = None
+        title = None
+        handle = None
+        x = y = w = h = 0
+        found = False
+
+        try:
             event = Quartz.CGEventCreate(None)
             loc = Quartz.CGEventGetLocation(event)
             windows = Quartz.CGWindowListCopyWindowInfo(
                 Quartz.kCGWindowListOptionOnScreenOnly,
                 Quartz.kCGNullWindowID,
             )
-            pid = None
-            title = None
-            handle = None
-            x = y = w = h = 0
-            found = False
             for win in windows:
                 bounds = win.get("kCGWindowBounds")
                 if not bounds:
@@ -595,15 +695,15 @@ def get_window_under_cursor() -> WindowInfo:
                     handle = int(win.get("kCGWindowNumber", 0))
                     found = True
                     break
-            if not found:
-                return WindowInfo(None)
-            info = WindowInfo(pid, (x, y, w, h), title, handle)
-            _remember_window(info)
-            return info
         except Exception:
             return WindowInfo(None)
+        if not found:
+            return WindowInfo(None)
+        info = WindowInfo(pid, (x, y, w, h), title, handle)
+        _remember_window(info)
+        return info
 
-    if _X_DISPLAY is not None:
+    if _X_DISPLAY is not None and _X_ROOT is not None:
         try:
             pointer = _X_ROOT.query_pointer()
             wins = _fallback_list_windows_at(pointer.root_x, pointer.root_y)
@@ -663,13 +763,17 @@ def get_window_at(x: int, y: int) -> WindowInfo:
     """Return information about the window at ``(x, y)`` in screen coordinates."""
 
     if sys.platform.startswith("win"):
+        user32 = _get_user32()
+        if user32 is None:
+            return WindowInfo(None)
+        user32 = cast(Any, user32)
         pt = wintypes.POINT(x, y)
-        hwnd = ctypes.windll.user32.WindowFromPoint(pt)
+        hwnd = user32.WindowFromPoint(pt)
         if not hwnd:
             return WindowInfo(None)
         rect = wintypes.RECT()
         geom = None
-        if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
             geom = (
                 rect.left,
                 rect.top,
@@ -677,9 +781,9 @@ def get_window_at(x: int, y: int) -> WindowInfo:
                 rect.bottom - rect.top,
             )
         pid = wintypes.DWORD()
-        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         title_buf = ctypes.create_unicode_buffer(1024)
-        length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
+        length = user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
         icon = _get_window_icon(hwnd)
         info = WindowInfo(
@@ -694,15 +798,20 @@ def get_window_at(x: int, y: int) -> WindowInfo:
 
     if sys.platform == "darwin":
         try:
-            import Quartz
+            quartz_mod = importlib.import_module("Quartz")
+        except Exception:
+            return WindowInfo(None)
 
+        Quartz = cast(Any, quartz_mod)
+        pid = None
+        title = None
+        wx = wy = ww = wh = 0
+
+        try:
             windows = Quartz.CGWindowListCopyWindowInfo(
                 Quartz.kCGWindowListOptionOnScreenOnly,
                 Quartz.kCGNullWindowID,
             )
-            pid = None
-            title = None
-            wx = wy = ww = wh = 0
             for win in windows:
                 bounds = win.get("kCGWindowBounds")
                 if not bounds:
@@ -715,11 +824,11 @@ def get_window_at(x: int, y: int) -> WindowInfo:
                     pid = int(win.get("kCGWindowOwnerPID", 0))
                     title = win.get("kCGWindowName")
                     break
-            if pid is None:
-                return WindowInfo(None)
-            return WindowInfo(pid, (wx, wy, ww, wh), title)
         except Exception:
             return WindowInfo(None)
+        if pid is None:
+            return WindowInfo(None)
+        return WindowInfo(pid, (wx, wy, ww, wh), title)
 
     wins = _fallback_list_windows_at(x, y)
     return wins[0] if wins else WindowInfo(None)
@@ -730,17 +839,23 @@ def _enumerate_win_windows() -> List[WindowInfo]:
 
     windows: List[WindowInfo] = []
 
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+    winfunctype = _get_winfunctype()
+    user32 = _get_user32()
+    if winfunctype is None or user32 is None:
+        return windows
+    user32 = cast(Any, user32)
+
+    @winfunctype(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
     def enum_proc(hwnd: wintypes.HWND, _lparam: wintypes.LPARAM) -> bool:
-        if not ctypes.windll.user32.IsWindowVisible(hwnd):
+        if not user32.IsWindowVisible(hwnd):
             return True
         rect = wintypes.RECT()
-        if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
             return True
         pid = wintypes.DWORD()
-        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         title_buf = ctypes.create_unicode_buffer(1024)
-        length = ctypes.windll.user32.GetWindowTextW(hwnd, title_buf, 1024)
+        length = user32.GetWindowTextW(hwnd, title_buf, 1024)
         title = title_buf.value if length else None
         icon = _get_window_icon(hwnd)
         info = WindowInfo(
@@ -753,7 +868,7 @@ def _enumerate_win_windows() -> List[WindowInfo]:
         windows.append(info)
         return True
 
-    ctypes.windll.user32.EnumWindows(enum_proc, 0)
+    user32.EnumWindows(enum_proc, 0)
     return windows
 
 
@@ -761,8 +876,12 @@ def _enumerate_x11_windows() -> List[WindowInfo]:
     """Enumerate windows using a persistent X11 connection."""
 
     windows: List[WindowInfo] = []
+    if _X_DISPLAY is None or _X_ROOT is None or Xatom is None or X is None:
+        return windows
     try:
         root = _X_ROOT
+        if _NET_CLIENT_LIST_STACKING is None:
+            return windows
         prop = root.get_full_property(_NET_CLIENT_LIST_STACKING, Xatom.WINDOW)
         ids = list(prop.value) if prop else []
         for wid in reversed(ids):  # front to back
@@ -771,9 +890,13 @@ def _enumerate_x11_windows() -> List[WindowInfo]:
             abs_pos = win.translate_coords(root, 0, 0)
             wx, wy = abs_pos.x, abs_pos.y
             ww, wh = geom.width, geom.height
-            pid_prop = win.get_full_property(_WM_PID, Xatom.CARDINAL)
+            if _WM_PID is None or _WM_NAME is None:
+                pid_prop = None
+                name_prop = None
+            else:
+                pid_prop = win.get_full_property(_WM_PID, Xatom.CARDINAL)
+                name_prop = win.get_full_property(_WM_NAME, X.AnyPropertyType)
             pid = int(pid_prop.value[0]) if pid_prop and pid_prop.value else None
-            name_prop = win.get_full_property(_WM_NAME, X.AnyPropertyType)
             title = None
             if name_prop and name_prop.value:
                 try:
@@ -834,7 +957,7 @@ def _refresh_windows() -> List[WindowInfo]:
     """Return a full window list using the best available method."""
     if sys.platform.startswith("win"):
         return _enumerate_win_windows()
-    if _X_DISPLAY is not None:
+    if _X_DISPLAY is not None and _X_ROOT is not None and Xatom is not None and X is not None:
         return _enumerate_x11_windows()
     return _enumerate_subproc_windows()
 
@@ -984,9 +1107,13 @@ def make_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
             WS_EX_LAYERED = 0x80000
             WS_EX_TRANSPARENT = 0x20
             WS_EX_NOACTIVATE = 0x08000000
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            user32 = _get_user32()
+            if user32 is None:
+                return False
+            user32 = cast(Any, user32)
+            style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             style |= WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
 
             # make the window visually transparent using a color key so drawn
             # elements like the crosshair remain visible while the background
@@ -996,7 +1123,7 @@ def make_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
             except Exception:  # pragma: no cover - defensive
                 r, g, b = 0, 0, 0
             colorref = b << 16 | g << 8 | r
-            ctypes.windll.user32.SetLayeredWindowAttributes(
+            user32.SetLayeredWindowAttributes(
                 hwnd, colorref, 255, 0x1
             )
             return True
@@ -1054,9 +1181,13 @@ def remove_window_clickthrough(win: Any, *, warn: bool = False) -> bool:
             WS_EX_LAYERED = 0x80000
             WS_EX_TRANSPARENT = 0x20
             WS_EX_NOACTIVATE = 0x08000000
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            user32 = _get_user32()
+            if user32 is None:
+                return False
+            user32 = cast(Any, user32)
+            style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             style &= ~(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE)
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
             return True
 
         if sys.platform == "darwin":
@@ -1097,15 +1228,19 @@ def set_window_colorkey(win: Any, *, warn: bool = False) -> bool:
             hwnd = wintypes.HWND(int(win.winfo_id()))
             GWL_EXSTYLE = -20
             WS_EX_LAYERED = 0x80000
-            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            user32 = _get_user32()
+            if user32 is None:
+                return False
+            user32 = cast(Any, user32)
+            style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
             style |= WS_EX_LAYERED
-            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
             try:
                 r, g, b = (c >> 8 for c in win.winfo_rgb(win.cget("bg")))
             except Exception:
                 r, g, b = 0, 0, 0
             colorref = b << 16 | g << 8 | r
-            ctypes.windll.user32.SetLayeredWindowAttributes(
+            user32.SetLayeredWindowAttributes(
                 hwnd, colorref, 255, 0x1
             )
             return True

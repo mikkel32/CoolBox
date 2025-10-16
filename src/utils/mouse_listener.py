@@ -19,7 +19,7 @@ import atexit
 import sys
 import threading
 from contextlib import contextmanager
-from typing import Any, Callable, Optional, TYPE_CHECKING, Protocol
+from typing import Any, Callable, Optional, TYPE_CHECKING, Protocol, cast
 from collections.abc import Generator
 
 import logging
@@ -70,10 +70,12 @@ if sys.platform.startswith("win"):
     import ctypes
     from ctypes import wintypes
 
-    _WINFUNCTYPE = getattr(ctypes, "WINFUNCTYPE", None)
+    _WINFUNCTYPE = cast(Callable[..., Any] | None, getattr(ctypes, "WINFUNCTYPE", None))
     _windll = getattr(ctypes, "windll", None)
 
     if callable(_WINFUNCTYPE) and _windll is not None:
+        winfunctype = cast(Callable[..., Any], _WINFUNCTYPE)
+        windll = cast(Any, _windll)
         WH_MOUSE_LL = 14
         WH_KEYBOARD_LL = 13
         WM_MOUSEMOVE = 0x0200
@@ -103,10 +105,10 @@ if sys.platform.startswith("win"):
                 ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
             ]
 
-        LowLevelMouseProc = _WINFUNCTYPE(  # type: ignore[operator]
+        LowLevelMouseProc = winfunctype(
             wintypes.LPARAM, wintypes.INT, wintypes.WPARAM, wintypes.LPARAM
         )
-        LowLevelKeyboardProc = _WINFUNCTYPE(  # type: ignore[operator]
+        LowLevelKeyboardProc = winfunctype(
             wintypes.LPARAM, wintypes.INT, wintypes.WPARAM, wintypes.LPARAM
         )
 
@@ -126,8 +128,8 @@ if sys.platform.startswith("win"):
                 self.on_click = on_click
                 self.on_key = on_key
                 self._stop = threading.Event()
-                self._user32 = _windll.user32
-                self._kernel32 = _windll.kernel32
+                self._user32 = windll.user32
+                self._kernel32 = windll.kernel32
                 self._mouse_hook = None
                 self._key_hook = None
 
@@ -376,8 +378,9 @@ class GlobalMouseListener:
                 except Exception:  # pragma: no cover - start failures are rare
                     self._mouse_listener = None
             else:
-                self._mouse_listener.on_move = move_cb
-                self._mouse_listener.on_click = click_cb
+                listener = cast(Any, self._mouse_listener)
+                setattr(listener, "on_move", move_cb)
+                setattr(listener, "on_click", click_cb)
                 started = True
 
         if keyboard is not None and (on_key or self._keyboard_listener is not None):
@@ -390,7 +393,8 @@ class GlobalMouseListener:
                 except Exception:  # pragma: no cover - start failures are rare
                     self._keyboard_listener = None
             else:
-                self._keyboard_listener.on_press = key_cb
+                listener = cast(Any, self._keyboard_listener)
+                setattr(listener, "on_press", key_cb)
                 started = True
 
         running = (

@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
-psutil_stub = types.ModuleType("psutil")
+psutil_stub = cast(Any, types.ModuleType("psutil"))
 psutil_stub.net_if_addrs = lambda: {}
 psutil_stub.Process = object  # type: ignore[assignment]
 psutil_stub.pid_exists = lambda pid: True

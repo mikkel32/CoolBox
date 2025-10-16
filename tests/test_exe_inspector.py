@@ -9,12 +9,14 @@ import os
 import pytest
 import sys
 import types
+from typing import Any, cast
 
-src = types.ModuleType("src")
-utils = types.ModuleType("src.utils")
-hash_utils = types.ModuleType("src.utils.hash_utils")
-process_utils = types.ModuleType("src.utils.process_utils")
-security = types.ModuleType("src.utils.security")
+src = cast(Any, types.ModuleType("src"))
+utils = cast(Any, types.ModuleType("src.utils"))
+hash_utils = cast(Any, types.ModuleType("src.utils.hash_utils"))
+process_utils = cast(Any, types.ModuleType("src.utils.process_utils"))
+security = cast(Any, types.ModuleType("src.utils.security"))
+
 hash_utils.calc_hash = lambda p, algo="sha256": hashlib.sha256(
     Path(p).read_bytes()
 ).hexdigest()
@@ -421,10 +423,11 @@ def test_tui_refresh(monkeypatch, tmp_path) -> None:
     info = {"Path": str(exe)}
     app = inspector.InspectorApp(info, [], {}, None)
     dummy = SimpleNamespace(clear=lambda: None, add_row=lambda *a, **k: None)
-    app.info_table = dummy
-    app.procs_table = dummy
-    app.port_table = dummy
-    app.strings_table = dummy
+    stub_table = cast(Any, dummy)
+    app.info_table = stub_table
+    app.procs_table = stub_table
+    app.port_table = stub_table
+    app.strings_table = stub_table
     monkeypatch.setattr(
         inspector,
         "_processes_for",
@@ -445,9 +448,12 @@ def test_tui_filter() -> None:
 def test_tui_command(monkeypatch) -> None:
     called = []
     app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
-    app.cmd_table = SimpleNamespace(add_row=lambda text: called.append(text))
-    app.cmd_input = SimpleNamespace(value="", display=False)
-    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd")
+    app.cmd_table = cast(Any, SimpleNamespace(add_row=lambda text: called.append(text)))
+    app.cmd_input = cast(Any, SimpleNamespace(value="", display=False))
+    dummy_event = cast(
+        inspector.Input.Submitted,
+        SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd"),
+    )
     monkeypatch.setattr(
         inspector,
         "run_command_ex",
@@ -461,9 +467,12 @@ def test_tui_command(monkeypatch) -> None:
 def test_tui_command_no_output(monkeypatch) -> None:
     called = []
     app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
-    app.cmd_table = SimpleNamespace(add_row=lambda text: called.append(text))
-    app.cmd_input = SimpleNamespace(value="", display=False)
-    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd")
+    app.cmd_table = cast(Any, SimpleNamespace(add_row=lambda text: called.append(text)))
+    app.cmd_input = cast(Any, SimpleNamespace(value="", display=False))
+    dummy_event = cast(
+        inspector.Input.Submitted,
+        SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd"),
+    )
     monkeypatch.setattr(
         inspector,
         "run_command_ex",
@@ -477,9 +486,12 @@ def test_tui_command_no_output(monkeypatch) -> None:
 def test_tui_command_error(monkeypatch) -> None:
     called = []
     app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
-    app.cmd_table = SimpleNamespace(add_row=lambda text: called.append(text))
-    app.cmd_input = SimpleNamespace(value="", display=False)
-    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd")
+    app.cmd_table = cast(Any, SimpleNamespace(add_row=lambda text: called.append(text)))
+    app.cmd_input = cast(Any, SimpleNamespace(value="", display=False))
+    dummy_event = cast(
+        inspector.Input.Submitted,
+        SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="cmd"),
+    )
     monkeypatch.setattr(
         inspector,
         "run_command_ex",
@@ -493,11 +505,18 @@ def test_tui_command_error(monkeypatch) -> None:
 def test_tui_command_clear(monkeypatch) -> None:
     events = []
     app = inspector.InspectorApp({"Path": "x"}, [], {}, None)
-    app.cmd_table = SimpleNamespace(
-        add_row=lambda text: events.append(text), clear=lambda: events.append("CLEAR")
+    app.cmd_table = cast(
+        Any,
+        SimpleNamespace(
+            add_row=lambda text: events.append(text),
+            clear=lambda: events.append("CLEAR"),
+        ),
     )
-    app.cmd_input = SimpleNamespace(value="", display=False)
-    dummy_event = SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="clear")
+    app.cmd_input = cast(Any, SimpleNamespace(value="", display=False))
+    dummy_event = cast(
+        inspector.Input.Submitted,
+        SimpleNamespace(input=SimpleNamespace(id="cmd-input"), value="clear"),
+    )
 
     def fail(*args, **kwargs):
         raise AssertionError("command should not run")

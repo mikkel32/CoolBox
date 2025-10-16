@@ -152,7 +152,7 @@ def test_stop_logs_when_join_times_out(monkeypatch):
 
     assert mouse_inst is not None
     assert keyboard_inst is not None
-    assert mouse_inst.join_timeout is not None
-    assert keyboard_inst.join_timeout is not None
+    assert getattr(mouse_inst, "join_timeout", None) is not None
+    assert getattr(keyboard_inst, "join_timeout", None) is not None
     assert any("mouse listener" in m and "failed" in m for m in messages)
     assert any("keyboard listener" in m and "failed" in m for m in messages)

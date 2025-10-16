@@ -6,6 +6,15 @@ from unittest import mock
 import shutil
 import re
 import ctypes
+from typing import Any, Callable, cast
+
+"""Tests for the force quit dialog interactions.
+
+Like the click overlay suite, these tests monkeypatch Tkinter internals and
+platform-specific helpers extensively. Disable general Pyright diagnostics for
+the file so behavioural coverage remains the priority.
+"""
+
 import os
 import tkinter as tk
 from tkinter import ttk
@@ -18,6 +27,28 @@ from queue import Queue
 
 from src.views.force_quit_dialog import ForceQuitDialog
 from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+
+
+def _make_after_idle_stub() -> tuple[Any, mock.Mock]:
+    tracker = mock.Mock()
+
+    def run(func: Callable[..., object], *args: object) -> str:
+        tracker(func, *args)
+        func(*args)
+        return "idle"
+
+    return cast(Any, run), tracker
+
+
+def _make_after_stub() -> tuple[Any, mock.Mock]:
+    tracker = mock.Mock()
+
+    def run(delay: int | str, cb: Callable[..., object], *args: object) -> str:
+        tracker(delay, cb, *args)
+        cb(*args)
+        return "after"
+
+    return cast(Any, run), tracker
 
 
 class TestForceQuit(unittest.TestCase):
@@ -63,6 +94,7 @@ class TestForceQuit(unittest.TestCase):
             ),
         ]
         proc = subprocess.Popen(cmd)
+        children: list[psutil.Process] = []
         for _ in range(10):
             children = psutil.Process(proc.pid).children()
             if children:
@@ -126,7 +158,8 @@ class TestForceQuit(unittest.TestCase):
         if not conns:
             server.terminate()
             self.skipTest("no connections found")
-        port = conns[0].laddr.port
+        conn = cast(Any, conns[0])
+        port = int(conn.laddr.port)
         count = ForceQuitDialog.force_kill_by_port(port)
         time.sleep(0.1)
         self.assertGreaterEqual(count, 1)
@@ -139,7 +172,8 @@ class TestForceQuit(unittest.TestCase):
         if not conns:
             server.terminate()
             self.skipTest("no connections found")
-        port = conns[0].laddr.port
+        conn = cast(Any, conns[0])
+        port = int(conn.laddr.port)
         client = subprocess.Popen(
             [
                 sys.executable,
@@ -1185,9 +1219,9 @@ class TestForceQuit(unittest.TestCase):
                 time.sleep(0.5)
         elif sys.platform.startswith("win"):
             try:
-                hwnd = ctypes.windll.user32.FindWindowW(None, "FKAW")
+                hwnd = cast(Any, ctypes).windll.user32.FindWindowW(None, "FKAW")
                 if hwnd:
-                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    cast(Any, ctypes).windll.user32.SetForegroundWindow(hwnd)
                     time.sleep(0.5)
             except Exception:
                 pass
@@ -1228,10 +1262,11 @@ class TestForceQuit(unittest.TestCase):
         proc = subprocess.Popen(
             [sys.executable, "-c", script], stdout=subprocess.PIPE, text=True
         )
+        assert proc.stdout is not None
         coords = proc.stdout.readline()
         x, y = (int(v) + 10 for v in coords.split())
         if sys.platform.startswith("win"):
-            ctypes.windll.user32.SetCursorPos(x, y)
+            cast(Any, ctypes).windll.user32.SetCursorPos(x, y)
         elif sys.platform.startswith("linux"):
             xdotool = shutil.which("xdotool")
             if xdotool:
@@ -1250,7 +1285,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._populate = mock.Mock()
         dialog.withdraw = mock.Mock()
         dialog.deiconify = mock.Mock()
-        dialog.after_idle = mock.Mock()
+        dialog.after_idle, after_idle_tracker = _make_after_idle_stub()
         overlay = mock.Mock()
         overlay.choose.return_value = (None, None)
         overlay.canvas = mock.Mock()
@@ -1265,7 +1300,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._configure_overlay()
         overlay.apply_defaults.assert_called_once()
 
-        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
+        dialog.after, after_tracker = _make_after_stub()
         with mock.patch("src.views.force_quit_dialog.messagebox") as MB:
             dialog._kill_by_click()
             if dialog._overlay_thread:
@@ -1273,11 +1308,11 @@ class TestForceQuit(unittest.TestCase):
             dialog._watcher.pause.assert_called_once()
             dialog._watcher.resume.assert_called_once()
             MB.showerror.assert_not_called()
-            dialog.after_idle.assert_called_with(dialog._update_hover)
+            after_idle_tracker.assert_called_with(dialog._update_hover)
             overlay.choose.assert_called_once()
             overlay.reset.assert_called_once()
             overlay.apply_defaults.assert_called_once()
-        assert dialog.after.call_args_list[0].args[0] == 0
+        assert after_tracker.call_args_list[0].args[0] == 0
 
     def test_kill_by_click_exception_cleanup(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1289,7 +1324,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._populate = mock.Mock()
         dialog.withdraw = mock.Mock()
         dialog.deiconify = mock.Mock()
-        dialog.after_idle = mock.Mock()
+        dialog.after_idle, after_idle_tracker = _make_after_idle_stub()
         dialog._update_hover = mock.Mock()
         dialog._highlight_pid = mock.Mock()
         dialog._highlight_pid = mock.Mock()
@@ -1307,7 +1342,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._configure_overlay()
         overlay.apply_defaults.assert_called_once()
 
-        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
+        dialog.after, after_tracker = _make_after_stub()
         hook = threading.excepthook
         threading.excepthook = lambda args: None
         try:
@@ -1323,9 +1358,9 @@ class TestForceQuit(unittest.TestCase):
         dialog._watcher.resume.assert_called_once()
         overlay.reset.assert_called_once()
         dialog._highlight_pid.assert_called_with(None, None)
-        dialog.after_idle.assert_called_with(dialog._update_hover)
+        after_idle_tracker.assert_called_with(dialog._update_hover)
         overlay.apply_defaults.assert_called_once()
-        assert dialog.after.call_args_list[0].args[0] == 0
+        assert after_tracker.call_args_list[0].args[0] == 0
 
     def test_kill_by_click_skip_confirm(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1338,7 +1373,7 @@ class TestForceQuit(unittest.TestCase):
         dialog.withdraw = mock.Mock()
         dialog.deiconify = mock.Mock()
         dialog.force_kill = mock.Mock(return_value=True)
-        dialog.after_idle = mock.Mock()
+        dialog.after_idle, after_idle_tracker = _make_after_idle_stub()
         overlay = mock.Mock()
         overlay.choose.return_value = (123, "foo")
         overlay.canvas = mock.Mock()
@@ -1351,7 +1386,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._overlay = overlay
         dialog.app = SimpleNamespace(config={})
 
-        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
+        dialog.after, after_tracker = _make_after_stub()
         with (
             mock.patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
             mock.patch("src.views.force_quit_dialog.messagebox") as MB,
@@ -1364,7 +1399,7 @@ class TestForceQuit(unittest.TestCase):
             MB.showinfo.assert_called_once()
             dialog.force_kill.assert_called_once_with(123)
         overlay.apply_defaults.assert_called_once()
-        assert dialog.after.call_args_list[0].args[0] == 0
+        assert after_tracker.call_args_list[0].args[0] == 0
 
     def test_kill_by_click_per_run_isolation(self) -> None:
         dialog = ForceQuitDialog.__new__(ForceQuitDialog)
@@ -1376,7 +1411,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._populate = mock.Mock()
         dialog.withdraw = mock.Mock()
         dialog.deiconify = mock.Mock()
-        dialog.after_idle = mock.Mock()
+        dialog.after_idle, after_idle_tracker = _make_after_idle_stub()
         dialog._update_hover = mock.Mock()
         overlay = mock.Mock()
         overlay.canvas = mock.Mock()
@@ -1403,20 +1438,20 @@ class TestForceQuit(unittest.TestCase):
         dialog.app = SimpleNamespace(config={})
         dialog._configure_overlay()
         self.assertEqual(overlay.apply_defaults.call_count, 1)
-        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
+        dialog.after, after_tracker = _make_after_stub()
         with mock.patch("src.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
             if dialog._overlay_thread:
                 dialog._overlay_thread.join(timeout=1)
             self.assertEqual(overlay.interval, default_interval)
-            assert dialog.after.call_args_list[0].args[0] == 0
-            dialog.after.reset_mock()
+            assert after_tracker.call_args_list[0].args[0] == 0
+            after_tracker.reset_mock()
             overlay.interval = 0.5
             dialog._kill_by_click()
             if dialog._overlay_thread:
                 dialog._overlay_thread.join(timeout=1)
             self.assertEqual(overlay.interval, default_interval)
-            assert dialog.after.call_args_list[0].args[0] == 0
+            assert after_tracker.call_args_list[0].args[0] == 0
 
         self.assertEqual(overlay.apply_defaults.call_count, 1)
         self.assertEqual(overlay.reset.call_count, 2)
@@ -1432,7 +1467,7 @@ class TestForceQuit(unittest.TestCase):
         dialog.force_kill = mock.Mock(return_value=True)
         dialog.withdraw = mock.Mock()
         dialog.deiconify = mock.Mock()
-        dialog.after_idle = mock.Mock()
+        dialog.after_idle, after_idle_tracker = _make_after_idle_stub()
         dialog._update_hover = mock.Mock()
         overlay = mock.Mock()
         overlay.canvas = mock.Mock()
@@ -1460,14 +1495,14 @@ class TestForceQuit(unittest.TestCase):
         overlay.close.side_effect = close_side_effect
         dialog._overlay = overlay
         dialog.app = SimpleNamespace(config={})
-        dialog.after = mock.Mock(side_effect=lambda delay, cb, *args: cb(*args))
+        dialog.after, after_tracker = _make_after_stub()
         dialog._configure_overlay()
         start = time.time()
         with mock.patch("src.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
         elapsed = time.time() - start
         self.assertLess(elapsed, 0.1)
-        assert dialog.after.call_args_list[0].args[0] == 0
+        assert after_tracker.call_args_list[0].args[0] == 0
         dialog.cancel_kill_by_click()
         overlay.close.assert_called_once()
         blocker.set()
@@ -1528,8 +1563,9 @@ class TestForceQuit(unittest.TestCase):
         dialog._hover_iid = None
         dialog.hover_color = "#eee"
         tree.tag_configure("hover", background=dialog.hover_color)
+        bbox = cast(tuple[int, int, int, int], tree.bbox("1"))
         event = tk.Event()
-        event.y = tree.bbox("1")[1] + 1
+        event.y = bbox[1] + 1
         dialog._on_hover(event)
         self.assertIn("hover", tree.item("1", "tags"))
         dialog._set_hover_row(None)
@@ -1546,7 +1582,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._hover_iid = None
         dialog.hover_color = "#eee"
         tree.tag_configure("hover", background=dialog.hover_color)
-        bbox = tree.bbox("1")
+        bbox = cast(tuple[int, int, int, int], tree.bbox("1"))
         root.update_idletasks()
         dialog.winfo_pointerxy = lambda: (
             tree.winfo_rootx() + bbox[0] + 2,

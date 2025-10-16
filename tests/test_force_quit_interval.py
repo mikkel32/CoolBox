@@ -3,6 +3,7 @@ import sys
 import types
 import tkinter as tk
 import unittest
+from typing import Any, cast
 from unittest import mock
 
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
@@ -28,7 +29,8 @@ class _DummyWidget:
         pass
 
 
-dummy_ctk = types.ModuleType("customtkinter")
+dummy_ctk_mod = types.ModuleType("customtkinter")
+dummy_ctk = cast(Any, dummy_ctk_mod)
 dummy_ctk.CTkTabview = _DummyWidget
 dummy_ctk.CTkScrollableFrame = _DummyWidget
 dummy_ctk.CTkButton = _DummyWidget
@@ -40,7 +42,7 @@ dummy_ctk.BooleanVar = tk.BooleanVar
 dummy_ctk.CTkLabel = _DummyWidget
 dummy_ctk.CTkCheckBox = _DummyWidget
 dummy_ctk.CTkTextbox = _DummyWidget
-sys.modules.setdefault("customtkinter", dummy_ctk)
+sys.modules.setdefault("customtkinter", dummy_ctk_mod)
 
 from src.views.force_quit_dialog import ForceQuitDialog
 

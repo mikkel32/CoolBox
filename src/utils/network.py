@@ -23,6 +23,7 @@ from typing import (
     AsyncIterator,
     Awaitable,
     TypeVar,
+    cast,
 )
 import platform
 from .process_utils import run_command as _run_cmd
@@ -134,7 +135,10 @@ def _flags_key(*, with_services: bool, with_banner: bool, with_latency: bool) ->
 
 
 # In-memory cache for host resolution results
-_HOST_CACHE: Dict[tuple[str, int | None], tuple[str, int, float]] = {}
+_HOST_CACHE: Dict[
+    tuple[str, socket.AddressFamily | None],
+    tuple[str, socket.AddressFamily, float],
+] = {}
 _HOST_CACHE_TTL = float(os.environ.get("HOST_CACHE_TTL", 300))
 
 # Cache of port number -> service name mappings used when returning
@@ -275,7 +279,7 @@ class AutoScanInfo:
     best-effort lookup based on the MAC address prefix.
     """
 
-    ports: List[int] | Dict[int, str] | Dict[int, PortInfo]
+    ports: PortResult
     hostname: str | None = None
     mac: str | None = None
     connections: Dict[int, int] | None = None
@@ -306,6 +310,10 @@ class AutoScanInfo:
         return score
 
 
+PortResult = List[int] | Dict[int, str] | Dict[int, PortInfo]
+AutoScanResult = PortResult | AutoScanInfo
+
+
 def _get_service_name(port: int) -> str:
     """Return the service name for ``port`` if known."""
     name = _SERVICE_CACHE.get(port)
@@ -328,28 +336,44 @@ def _read_banner(sock: socket.socket, limit: int = 100) -> str | None:
     return data.decode(errors="ignore").strip() or None
 
 
-def _resolve_host(host: str, family: int | None = None) -> tuple[str, int]:
+def _resolve_host(
+    host: str, family: socket.AddressFamily | int | None = None
+) -> tuple[str, socket.AddressFamily]:
     """Resolve ``host`` and return address and family.
 
     When *family* is ``None`` IPv4 is preferred when available. Results are
     cached for ``_HOST_CACHE_TTL`` seconds to avoid repeated DNS lookups.
     """
-    key = (host, family)
+    normalized_family: socket.AddressFamily | None
+    if family is None:
+        normalized_family = None
+    elif isinstance(family, socket.AddressFamily):
+        normalized_family = family
+    else:
+        try:
+            normalized_family = socket.AddressFamily(family)
+        except ValueError:
+            normalized_family = None
+
+    key = (host, normalized_family)
     cached = _HOST_CACHE.get(key)
     if cached and time.time() - cached[2] < _HOST_CACHE_TTL:
         return cached[0], cached[1]
 
     try:
-        infos = socket.getaddrinfo(host, None, family=family or 0)
-        if family is None:
+        infos = socket.getaddrinfo(host, None, family=normalized_family or 0)
+        if normalized_family is None:
             ipv4 = next((i for i in infos if i[0] == socket.AF_INET), None)
             info = ipv4 or infos[0]
         else:
-            info = next((i for i in infos if i[0] == family), infos[0])
-        addr, resolved_family = info[4][0], info[0]
+            info = next((i for i in infos if i[0] == normalized_family), infos[0])
+        addr = cast(str, info[4][0])
+        resolved_family = socket.AddressFamily(info[0])
     except Exception:
         resolved_family = (
-            socket.AF_INET6 if family == socket.AF_INET6 else socket.AF_INET
+            socket.AF_INET6
+            if normalized_family == socket.AF_INET6
+            else socket.AF_INET
         )
         addr = host
 
@@ -357,25 +381,43 @@ def _resolve_host(host: str, family: int | None = None) -> tuple[str, int]:
     return addr, resolved_family
 
 
-async def _async_resolve_host(host: str, family: int | None = None) -> tuple[str, int]:
+async def _async_resolve_host(
+    host: str, family: socket.AddressFamily | int | None = None
+) -> tuple[str, socket.AddressFamily]:
     """Asynchronously resolve ``host`` and return ``(address, family)``."""
 
-    key = (host, family)
+    normalized_family: socket.AddressFamily | None
+    if family is None:
+        normalized_family = None
+    elif isinstance(family, socket.AddressFamily):
+        normalized_family = family
+    else:
+        try:
+            normalized_family = socket.AddressFamily(family)
+        except ValueError:
+            normalized_family = None
+
+    key = (host, normalized_family)
     cached = _HOST_CACHE.get(key)
     if cached and time.time() - cached[2] < _HOST_CACHE_TTL:
         return cached[0], cached[1]
 
     loop = asyncio.get_running_loop()
     try:
-        infos = await loop.getaddrinfo(host, None, family=family or 0)
-        if family is None:
+        infos = await loop.getaddrinfo(host, None, family=normalized_family or 0)
+        if normalized_family is None:
             ipv4 = next((i for i in infos if i[0] == socket.AF_INET), None)
             info = ipv4 or infos[0]
         else:
-            info = next((i for i in infos if i[0] == family), infos[0])
-        addr, resolved_family = info[4][0], info[0]
+            info = next((i for i in infos if i[0] == normalized_family), infos[0])
+        addr = cast(str, info[4][0])
+        resolved_family = socket.AddressFamily(info[0])
     except Exception:
-        resolved_family = socket.AF_INET6 if family == socket.AF_INET6 else socket.AF_INET
+        resolved_family = (
+            socket.AF_INET6
+            if normalized_family == socket.AF_INET6
+            else socket.AF_INET
+        )
         addr = host
 
     _HOST_CACHE[key] = (addr, resolved_family, time.time())
@@ -478,6 +520,15 @@ _ARP_CACHE_TS: float = time.time() if _ARP_CACHE_DATA else 0.0
 
 # Cached ping results keyed by host so repeat checks skip spawning new processes.
 _PING_CACHE: dict[str, tuple[bool, int | None, float | None, float]] = {}
+
+# Result type used by :func:`_async_ping_host` to represent optional TTL and
+# latency measurements without losing type safety.
+PingResult = (
+    bool
+    | tuple[bool, int | None]
+    | tuple[bool, float | None]
+    | tuple[bool, int | None, float | None]
+)
 
 
 def _refresh_arp_cache(force: bool = False) -> None:
@@ -1247,7 +1298,7 @@ async def _async_ping_host(
     *,
     return_ttl: bool = False,
     return_latency: bool = False,
-) -> bool | tuple[bool, int | None] | tuple[bool, int | None, float]:
+) -> PingResult:
     """Asynchronously ping ``host`` and optionally return the TTL and latency."""
 
     cached = _PING_CACHE.get(host)
@@ -1396,9 +1447,7 @@ async def async_auto_scan_iter(
     http_concurrency: int = _DEFAULT_HTTP_CONCURRENCY,
     include_arp: bool = True,
     cancel_event: Any | None = None,
-) -> AsyncIterator[
-    tuple[str, List[int] | Dict[int, str] | Dict[int, PortInfo] | AutoScanInfo]
-]:
+) -> AsyncIterator[tuple[str, AutoScanResult]]:
     """Yield auto scan results one host at a time.
 
     This works like :func:`async_auto_scan` but yields each host's result
@@ -1412,16 +1461,17 @@ async def async_auto_scan_iter(
     detect_weight = 1.0 / (port_count + 1)
     scan_weight = 1.0 - detect_weight
 
+    det_prog: Callable[[float | None], None] | None = None
+
     if progress is not None:
 
-        def det_prog(val: float | None) -> None:
+        def _det_prog(val: float | None) -> None:
             if val is None:
                 progress(detect_weight)
             else:
                 progress(val * detect_weight)
 
-    else:
-        det_prog = None
+        det_prog = _det_prog
 
     filter_result = await async_detect_local_hosts(
         progress=det_prog,
@@ -1473,12 +1523,12 @@ async def async_auto_scan_iter(
                 + sum(progress_map.values()) / len(progress_map) * scan_weight
             )
 
-    async def scan_host(
-        host: str,
-    ) -> tuple[str, List[int] | Dict[int, str] | Dict[int, PortInfo] | AutoScanInfo]:
+    async def scan_host(host: str) -> tuple[str, AutoScanResult]:
         def sub_prog(val: float | None) -> None:
             progress_map[host] = 1.0 if val is None else val
             update_scan()
+
+        result_ports: PortResult
 
         if ports is not None:
             result_ports = await async_scan_port_list(
@@ -1529,30 +1579,36 @@ async def async_auto_scan_iter(
         if with_mac or with_vendor:
             tasks["mac"] = asyncio.create_task(async_get_mac_address(host))
         if with_http_info:
-            ports_iter = (
-                result_ports.keys() if isinstance(result_ports, dict) else result_ports
-            )
+            if isinstance(result_ports, dict):
+                ports_iter: list[int] = [int(p) for p in result_ports.keys()]
+            else:
+                ports_iter = [int(p) for p in result_ports]
             tasks["http"] = asyncio.create_task(
                 async_collect_http_info({host: ports_iter}, http_concurrency, cancel_event)
             )
         if tasks:
             results_all = await asyncio.gather(*tasks.values(), return_exceptions=True)
             for key, val in zip(tasks, results_all):
-                if isinstance(val, Exception):
+                if isinstance(val, BaseException):
                     continue
                 if key == "hostname":
-                    info.hostname = val
+                    info.hostname = cast(str | None, val)
                 elif key == "mac":
+                    mac_val = cast(str | None, val)
                     if with_mac:
-                        info.mac = val
+                        info.mac = mac_val
                     if with_vendor:
-                        info.vendor = get_mac_vendor(val)
+                        info.vendor = get_mac_vendor(mac_val)
                 elif key == "http":
-                    info.http_info = val.get(host) if isinstance(val, dict) else None
+                    http_map = cast(dict[str, dict[int, HTTPInfo]] | None, val)
+                    info.http_info = (
+                        http_map.get(host) if isinstance(http_map, dict) else None
+                    )
         if with_connections and _is_local_host(host):
-            port_list = (
-                result_ports.keys() if isinstance(result_ports, dict) else result_ports
-            )
+            if isinstance(result_ports, dict):
+                port_list = [int(p) for p in result_ports.keys()]
+            else:
+                port_list = [int(p) for p in result_ports]
             info.connections = _get_connection_counts(port_list)
         ttl_val = host_ttls.get(host) if host_ttls else None
         if with_os:
@@ -1571,9 +1627,7 @@ async def async_auto_scan_iter(
     for h in hosts:
         host_q.put_nowait(h)
 
-    result_q: asyncio.Queue[
-        tuple[str, List[int] | Dict[int, str] | Dict[int, PortInfo] | AutoScanInfo]
-    ] = asyncio.Queue()
+    result_q: asyncio.Queue[tuple[str, AutoScanResult]] = asyncio.Queue()
 
     async def worker() -> None:
         while not host_q.empty() and not _cancelled(cancel_event):
@@ -1640,7 +1694,7 @@ async def async_auto_scan(
     http_concurrency: int = _DEFAULT_HTTP_CONCURRENCY,
     include_arp: bool = True,
     cancel_event: Any | None = None,
-) -> Dict[str, List[int]] | Dict[str, Dict[int, str]] | Dict[str, Dict[int, PortInfo]]:
+) -> Dict[str, AutoScanResult]:
     """Automatically scan detected hosts on local networks.
 
     ``ports`` overrides ``start``/``end`` and allows scanning an arbitrary
@@ -1661,9 +1715,7 @@ async def async_auto_scan(
     gathered metadata.
     """
 
-    results: Dict[
-        str, List[int] | Dict[int, str] | Dict[int, PortInfo] | AutoScanInfo
-    ] = {}
+    results: Dict[str, AutoScanResult] = {}
     async for host, info in async_auto_scan_iter(
         start,
         end,
@@ -1728,9 +1780,7 @@ async def async_scan_hosts_iter(
     with_risk_score: bool = False,
     http_concurrency: int = _DEFAULT_HTTP_CONCURRENCY,
     cancel_event: Any | None = None,
-) -> AsyncIterator[
-    tuple[str, List[int] | Dict[int, str] | Dict[int, PortInfo] | AutoScanInfo]
-]:
+) -> AsyncIterator[tuple[str, AutoScanResult]]:
     """Yield scan results for ``hosts`` one at a time."""
 
     host_list = list(dict.fromkeys(hosts))
@@ -1747,16 +1797,17 @@ async def async_scan_hosts_iter(
             progress(1.0)
         return
 
+    det_prog: Callable[[float | None], None] | None = None
+
     if progress is not None:
 
-        def det_prog(val: float | None) -> None:
+        def _det_prog(val: float | None) -> None:
             if val is None:
                 progress(detect_weight)
             else:
                 progress(val * detect_weight)
 
-    else:
-        det_prog = None
+        det_prog = _det_prog
 
     host_ttls: Dict[str, int | None] | None = None
     host_lat: Dict[str, float | None] | None = None
@@ -1799,9 +1850,7 @@ async def async_scan_hosts_iter(
                 + sum(progress_map.values()) / len(progress_map) * scan_weight
             )
 
-    async def scan_host(
-        host: str,
-    ) -> tuple[str, List[int] | Dict[int, str] | Dict[int, PortInfo] | AutoScanInfo]:
+    async def scan_host(host: str) -> tuple[str, AutoScanResult]:
         def sub_prog(val: float | None) -> None:
             progress_map[host] = 1.0 if val is None else val
             update_scan()
@@ -1855,30 +1904,36 @@ async def async_scan_hosts_iter(
         if with_mac or with_vendor:
             tasks["mac"] = asyncio.create_task(async_get_mac_address(host))
         if with_http_info:
-            ports_iter = (
-                result_ports.keys() if isinstance(result_ports, dict) else result_ports
-            )
+            if isinstance(result_ports, dict):
+                ports_iter: list[int] = [int(p) for p in result_ports.keys()]
+            else:
+                ports_iter = [int(p) for p in result_ports]
             tasks["http"] = asyncio.create_task(
                 async_collect_http_info({host: ports_iter}, http_concurrency, cancel_event)
             )
         if tasks:
             results_all = await asyncio.gather(*tasks.values(), return_exceptions=True)
             for key, val in zip(tasks, results_all):
-                if isinstance(val, Exception):
+                if isinstance(val, BaseException):
                     continue
                 if key == "hostname":
-                    info.hostname = val
+                    info.hostname = cast(str | None, val)
                 elif key == "mac":
+                    mac_val = cast(str | None, val)
                     if with_mac:
-                        info.mac = val
+                        info.mac = mac_val
                     if with_vendor:
-                        info.vendor = get_mac_vendor(val)
+                        info.vendor = get_mac_vendor(mac_val)
                 elif key == "http":
-                    info.http_info = val.get(host) if isinstance(val, dict) else None
+                    http_map = cast(dict[str, dict[int, HTTPInfo]] | None, val)
+                    info.http_info = (
+                        http_map.get(host) if isinstance(http_map, dict) else None
+                    )
         if with_connections and _is_local_host(host):
-            port_list = (
-                result_ports.keys() if isinstance(result_ports, dict) else result_ports
-            )
+            if isinstance(result_ports, dict):
+                port_list = [int(p) for p in result_ports.keys()]
+            else:
+                port_list = [int(p) for p in result_ports]
             info.connections = _get_connection_counts(port_list)
         ttl_val = host_ttls.get(host) if host_ttls else None
         if with_os:
@@ -1897,9 +1952,7 @@ async def async_scan_hosts_iter(
     for h in host_list:
         host_q.put_nowait(h)
 
-    result_q: asyncio.Queue[
-        tuple[str, List[int] | Dict[int, str] | Dict[int, PortInfo] | AutoScanInfo]
-    ] = asyncio.Queue()
+    result_q: asyncio.Queue[tuple[str, AutoScanResult]] = asyncio.Queue()
 
     async def worker() -> None:
         while not host_q.empty() and not _cancelled(cancel_event):
@@ -1988,16 +2041,17 @@ async def async_scan_hosts_detailed(
             progress(1.0)
         return {}
 
+    det_prog: Callable[[float | None], None] | None = None
+
     if progress is not None:
 
-        def det_prog(val: float | None) -> None:
+        def _det_prog(val: float | None) -> None:
             if val is None:
                 progress(detect_weight)
             else:
                 progress(val * detect_weight)
 
-    else:
-        det_prog = None
+        det_prog = _det_prog
 
     host_ttls: Dict[str, int | None] | None = None
     host_lat: Dict[str, float | None] | None = None
@@ -2031,16 +2085,17 @@ async def async_scan_hosts_detailed(
             progress(None)
         return {}
 
+    scan_prog: Callable[[float | None], None] | None = None
+
     if progress is not None:
 
-        def scan_prog(val: float | None) -> None:
+        def _scan_prog(val: float | None) -> None:
             if val is None:
                 progress(1.0)
             else:
                 progress(detect_weight + val * scan_weight)
 
-    else:
-        scan_prog = None
+        scan_prog = _scan_prog
 
     if ports is not None:
         results = await async_scan_targets_list(
@@ -2108,9 +2163,10 @@ async def async_scan_hosts_detailed(
             if with_vendor:
                 info.vendor = get_mac_vendor(mac_val)
         if with_connections and _is_local_host(host):
-            port_list = (
-                ports_open.keys() if isinstance(ports_open, dict) else ports_open
-            )
+            if isinstance(ports_open, dict):
+                port_list = [int(p) for p in ports_open.keys()]
+            else:
+                port_list = [int(p) for p in ports_open]
             info.connections = _get_connection_counts(port_list)
         ttl_val = host_ttls.get(host) if host_ttls else None
         if with_os:
@@ -2124,12 +2180,16 @@ async def async_scan_hosts_detailed(
     if with_http_info and not _cancelled(cancel_event):
         host_ports = {
             host: (
-                info.ports.keys() if isinstance(info.ports, dict) else info.ports
+                [int(p) for p in info.ports.keys()]
+                if isinstance(info.ports, dict)
+                else [int(p) for p in info.ports]
             )
             for host, info in detailed.items()
         }
         http_results = await async_collect_http_info(
-            host_ports, http_concurrency, cancel_event
+            cast(dict[str, Iterable[int]], host_ports),
+            http_concurrency,
+            cancel_event,
         )
         for host, ports in http_results.items():
             if _cancelled(cancel_event):
@@ -2162,7 +2222,7 @@ def scan_ports(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> List[int] | Dict[int, str] | Dict[int, PortInfo]:
+) -> PortResult:
     """Scan *host* from *start* to *end* and return open ports.
 
     If *progress* is provided it will be called with values between 0 and 1
@@ -2238,7 +2298,7 @@ async def async_scan_ports(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> List[int] | Dict[int, str] | Dict[int, PortInfo]:
+) -> PortResult:
     """Asynchronously scan *host* and return a list of open ports.
 
     ``concurrency`` limits the number of simultaneous connection attempts,
@@ -2335,7 +2395,7 @@ def scan_targets(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> Dict[str, List[int] | Dict[int, str] | Dict[int, PortInfo]]:
+) -> Dict[str, PortResult]:
     """Scan multiple ``hosts`` and return a mapping of host->open ports.
 
     ``family`` behaves the same as in :func:`scan_ports` and allows forcing
@@ -2343,7 +2403,7 @@ def scan_targets(
     """
 
     host_list = list(hosts)
-    results: Dict[str, List[int]] = {}
+    results: Dict[str, PortResult] = {}
     total = len(host_list)
     completed = 0
 
@@ -2383,7 +2443,7 @@ async def async_scan_targets(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> Dict[str, List[int] | Dict[int, str] | Dict[int, PortInfo]]:
+) -> Dict[str, PortResult]:
     """Asynchronously scan multiple hosts.
 
     ``family`` behaves the same as in :func:`async_scan_ports`. ``timeout`` is
@@ -2393,11 +2453,7 @@ async def async_scan_targets(
     """
 
     host_list = list(hosts)
-    results: (
-        Dict[str, List[int]]
-        | Dict[str, Dict[int, str]]
-        | Dict[str, Dict[int, PortInfo]]
-    ) = {}
+    results: Dict[str, PortResult] = {}
     total = len(host_list)
 
     progress_map: Dict[str, float] = {h: 0.0 for h in host_list}
@@ -2456,19 +2512,27 @@ async def async_scan_targets(
 def auto_scan_info_to_dict(info: AutoScanInfo) -> Dict[str, Any]:
     """Return ``info`` serialized to a JSON-serializable dict."""
 
+    ports_payload: Dict[str, Any] | list[int] | list[str]
     if isinstance(info.ports, dict):
-        ports: Dict[str, Any] = {
-            str(p): {
-                "service": pi.service,
-                **({"banner": pi.banner} if pi.banner is not None else {}),
-                **({"latency": pi.latency} if pi.latency is not None else {}),
+        first_value = next(iter(info.ports.values()), None)
+        if isinstance(first_value, PortInfo):
+            port_map = cast(Dict[int, PortInfo], info.ports)
+            ports_payload = {
+                str(p): {
+                    "service": pi.service,
+                    **({"banner": pi.banner} if pi.banner is not None else {}),
+                    **({"latency": pi.latency} if pi.latency is not None else {}),
+                }
+                for p, pi in port_map.items()
             }
-            for p, pi in info.ports.items()
-        }
+        else:
+            str_map = cast(Dict[int, str], info.ports)
+            ports_payload = {str(p): svc for p, svc in str_map.items()}
     else:
-        ports = [int(p) for p in info.ports]
+        port_list = cast(List[int], info.ports)
+        ports_payload = [int(p) for p in port_list]
 
-    result: Dict[str, Any] = {"ports": ports}
+    result: Dict[str, Any] = {"ports": ports_payload}
     if info.hostname is not None:
         result["hostname"] = info.hostname
     if info.mac is not None:
@@ -2520,7 +2584,7 @@ def scan_port_list(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> List[int] | Dict[int, str] | Dict[int, PortInfo]:
+) -> PortResult:
     """Scan a specific list of ``ports`` on ``host``."""
 
     port_list = sorted(set(int(p) for p in ports))
@@ -2592,7 +2656,7 @@ async def async_scan_port_list(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> List[int] | Dict[int, str] | Dict[int, PortInfo]:
+) -> PortResult:
     """Asynchronously scan ``ports`` on ``host``."""
 
     port_list = sorted(set(int(p) for p in ports))
@@ -2687,7 +2751,7 @@ def scan_top_ports(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> List[int] | Dict[int, str] | Dict[int, PortInfo]:
+) -> PortResult:
     """Scan the Nmap ``top`` ports on ``host``."""
 
     return scan_port_list(
@@ -2715,7 +2779,7 @@ async def async_scan_top_ports(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> List[int] | Dict[int, str] | Dict[int, PortInfo]:
+) -> PortResult:
     """Asynchronously scan the Nmap ``top`` ports."""
 
     return await async_scan_port_list(
@@ -2743,15 +2807,11 @@ def scan_targets_list(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> Dict[str, List[int] | Dict[int, str] | Dict[int, PortInfo]]:
+) -> Dict[str, PortResult]:
     """Scan ``hosts`` for a specific list of ``ports``."""
 
     host_list = list(hosts)
-    results: (
-        Dict[str, List[int]]
-        | Dict[str, Dict[int, str]]
-        | Dict[str, Dict[int, PortInfo]]
-    ) = {}
+    results: Dict[str, PortResult] = {}
     total = len(host_list)
     completed = 0
 
@@ -2789,7 +2849,7 @@ async def async_scan_targets_list(
     with_services: bool = False,
     with_banner: bool = False,
     with_latency: bool = False,
-) -> Dict[str, List[int] | Dict[int, str] | Dict[int, PortInfo]]:
+) -> Dict[str, PortResult]:
     """Asynchronously scan ``ports`` on multiple ``hosts``.
 
     When ``progress`` is supplied it reflects combined progress across all hosts
@@ -2797,11 +2857,7 @@ async def async_scan_targets_list(
     """
 
     host_list = list(hosts)
-    results: (
-        Dict[str, List[int]]
-        | Dict[str, Dict[int, str]]
-        | Dict[str, Dict[int, PortInfo]]
-    ) = {}
+    results: Dict[str, PortResult] = {}
     total = len(host_list)
 
     progress_map: Dict[str, float] = {h: 0.0 for h in host_list}

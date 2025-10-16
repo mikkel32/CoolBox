@@ -137,8 +137,8 @@ class ForceQuitDialog(BaseDialog):
         else:
             on_top = bool(cfg.get("force_quit_on_top", False))
         self.attributes("-topmost", on_top)
-        self._after_id: int | None = None
-        self._debounce_id: int | None = None
+        self._after_id: str | None = None
+        self._debounce_id: str | None = None
         self.process_snapshot: dict[int, ProcessEntry] = {}
         self._row_cache: dict[int, tuple[tuple, tuple]] = {}
         self._changed_tags: dict[int, int] = {}
@@ -1336,6 +1336,7 @@ class ForceQuitDialog(BaseDialog):
                 continue
         time.sleep(duration)
         pids: list[int] = []
+        cpu_count = psutil.cpu_count() or 1
         for proc in psutil.process_iter(["pid", "cpu_times"]):
             try:
                 start = snapshot.get(proc.pid)
@@ -1344,7 +1345,7 @@ class ForceQuitDialog(BaseDialog):
                 cpu = (
                     (sum(proc.cpu_times()) - start)
                     / duration
-                    / psutil.cpu_count()
+                    / cpu_count
                     * 100
                 )
                 if cpu > threshold:
@@ -2275,9 +2276,10 @@ class ForceQuitDialog(BaseDialog):
             exc: Optional[BaseException],
             tb: Optional[Any],
         ) -> bool:
-            if getattr(self.overlay, "on_hover", None) is not None:
+            callback = getattr(self.overlay, "on_hover", None)
+            if callable(callback):
                 try:
-                    self.overlay.on_hover(None, None)
+                    callback(None, None)
                 except Exception:
                     pass
             try:

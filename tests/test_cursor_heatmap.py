@@ -13,10 +13,11 @@ sys.modules.setdefault("utils", utils_pkg)
 spec = importlib.util.spec_from_file_location(
     "utils.scoring_engine", base / "utils/scoring_engine.py"
 )
+if spec is None or spec.loader is None:
+    raise RuntimeError("Failed to load scoring_engine module spec")
 scoring_engine = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
 sys.modules["utils.scoring_engine"] = scoring_engine
-spec.loader.exec_module(scoring_engine)  # type: ignore[union-attr]
+spec.loader.exec_module(scoring_engine)
 CursorHeatmap = scoring_engine.CursorHeatmap
 Tuning = scoring_engine.Tuning
 

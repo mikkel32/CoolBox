@@ -20,7 +20,7 @@ exit status without parsing exceptions.
 import subprocess
 import asyncio
 import logging
-from typing import Sequence, Optional, Tuple
+from typing import IO, Mapping, Sequence
 
 from .win_console import hidden_creation_flags
 
@@ -43,8 +43,8 @@ def run_command(
     check: bool = True,
     creationflags: int | None = None,
     cwd: str | None = None,
-    env: dict[str, str] | None = None,
-) -> Tuple[Optional[str], Exception | None]:
+    env: Mapping[str, str] | None = None,
+) -> tuple[str | None, Exception | None]:
     """Execute *cmd* suppressing console windows.
 
     Parameters
@@ -85,8 +85,9 @@ def run_command(
             timeout=timeout,
             **kwargs,
         )
-        if check and proc.returncode != 0:
-            err = subprocess.CalledProcessError(proc.returncode, cmd, output=proc.stdout)
+        returncode = proc.returncode if proc.returncode is not None else -1
+        if check and returncode != 0:
+            err = subprocess.CalledProcessError(returncode, cmd, output=proc.stdout)
             logger.exception("Command %s failed with code %s", cmd, proc.returncode)
             return (proc.stdout if capture else ""), err
         return (proc.stdout if capture else ""), None
@@ -106,8 +107,8 @@ async def run_command_async(
     check: bool = True,
     creationflags: int | None = None,
     cwd: str | None = None,
-    env: dict[str, str] | None = None,
-) -> Tuple[Optional[str], Exception | None]:
+    env: Mapping[str, str] | None = None,
+) -> tuple[str | None, Exception | None]:
     """Asynchronously execute *cmd* hiding any console window.
 
     Parameters are identical to :func:`run_command`.
@@ -142,8 +143,9 @@ async def run_command_async(
         logger.exception("Command %s timed out", cmd)
         return None, e
 
-    if check and proc.returncode != 0:
-        err = subprocess.CalledProcessError(proc.returncode, cmd, output=out)
+    returncode = proc.returncode if proc.returncode is not None else -1
+    if check and returncode != 0:
+        err = subprocess.CalledProcessError(returncode, cmd, output=out)
         logger.exception("Command %s failed with code %s", cmd, proc.returncode)
         return (out.decode() if capture else ""), err
     return (out.decode() if capture else ""), None
@@ -157,8 +159,8 @@ def run_command_ex(
     check: bool = True,
     creationflags: int | None = None,
     cwd: str | None = None,
-    env: dict[str, str] | None = None,
-) -> Tuple[Optional[str], int | Exception | None]:
+    env: Mapping[str, str] | None = None,
+) -> tuple[str | None, int | Exception | None]:
     """Execute ``cmd`` returning output and the exit status."""
 
     if creationflags is None:
@@ -201,8 +203,8 @@ async def run_command_async_ex(
     check: bool = True,
     creationflags: int | None = None,
     cwd: str | None = None,
-    env: dict[str, str] | None = None,
-) -> Tuple[Optional[str], int | Exception | None]:
+    env: Mapping[str, str] | None = None,
+) -> tuple[str | None, int | Exception | None]:
     """Asynchronously execute ``cmd`` returning output and the exit status."""
 
     if creationflags is None:
@@ -243,12 +245,12 @@ def run_command_background(
     cmd: Sequence[str],
     *,
     creationflags: int | None = None,
-    stdout: object | None = subprocess.DEVNULL,
-    stderr: object | None = subprocess.DEVNULL,
+    stdout: IO[bytes] | int | None = subprocess.DEVNULL,
+    stderr: IO[bytes] | int | None = subprocess.DEVNULL,
     start_new_session: bool = False,
     cwd: str | None = None,
-    env: dict[str, str] | None = None,
-) -> Tuple[bool, Exception | None]:
+    env: Mapping[str, str] | None = None,
+) -> tuple[bool, Exception | None]:
     """Launch ``cmd`` detached from the current process.
 
     Parameters

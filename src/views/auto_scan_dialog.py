@@ -1,19 +1,28 @@
-import customtkinter as ctk
-from tkinter import messagebox, filedialog
-import socket
+from __future__ import annotations
+
 import asyncio
+import socket
 import threading
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
 
 from ..utils import (
     AutoScanInfo,
+    HTTPInfo,
+    PortInfo,
     async_auto_scan_iter,
+    auto_scan_results_to_dict,
     parse_ports,
     ports_as_range,
-    auto_scan_results_to_dict,
 )
 
 
 from .base_dialog import BaseDialog
+
+
+ScanPortResult = list[int] | dict[int, str] | dict[int, PortInfo]
+ScanResultValue = AutoScanInfo | ScanPortResult
+ScanResultMap = dict[str, ScanResultValue]
 
 
 class AutoNetworkScanDialog(BaseDialog):
@@ -25,7 +34,8 @@ class AutoNetworkScanDialog(BaseDialog):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        self.last_results: dict[str, AutoScanInfo | list | dict] | None = None
+        self.last_results: ScanResultMap = {}
+        self.cancel_event: threading.Event | None = None
 
         self.add_title(self, "Auto Network Scan", use_pack=False).grid(
             row=0, column=0, columnspan=2, pady=(10, 5)
@@ -204,21 +214,29 @@ class AutoNetworkScanDialog(BaseDialog):
         for child in self.rows_frame.winfo_children():
             child.destroy()
 
-        results = self.last_results or {}
+        results = self.last_results
         items = list(results.items())
         mode = self.sort_var.get().lower()
         if mode == "risk":
-            def risk_val(it: tuple[str, AutoScanInfo | list | dict]) -> int:
+
+            def risk_val(it: tuple[str, ScanResultValue]) -> int:
                 res = it[1]
                 if isinstance(res, AutoScanInfo) and res.risk_score is not None:
                     return res.risk_score
                 return -1
+
             items.sort(key=risk_val, reverse=True)
         elif mode == "ports":
-            def port_count(it: tuple[str, AutoScanInfo | list | dict]) -> int:
+
+            def port_count(it: tuple[str, ScanResultValue]) -> int:
                 res = it[1]
-                ports_obj = res.ports if isinstance(res, AutoScanInfo) else res
+                ports_obj: ScanPortResult
+                if isinstance(res, AutoScanInfo):
+                    ports_obj = res.ports
+                else:
+                    ports_obj = res
                 return len(ports_obj)
+
             items.sort(key=port_count, reverse=True)
         else:
             items.sort(key=lambda x: x[0])
@@ -238,11 +256,14 @@ class AutoNetworkScanDialog(BaseDialog):
             row.grid_columnconfigure(1, weight=1)
 
             host_text = host
-            text_color = None
-            ports_data: list | dict = result
-            connections = None
+            text_color: str | None = None
+            connections: dict[int, int] | None = None
+            ports_data: ScanPortResult
+            http_map: dict[int, HTTPInfo] | None = None
+
             if isinstance(result, AutoScanInfo):
                 ports_data = result.ports
+                http_map = result.http_info
                 if self.hostname_var.get() and result.hostname:
                     host_text += f" ({result.hostname})"
                 if self.mac_var.get() and result.mac:
@@ -252,7 +273,7 @@ class AutoNetworkScanDialog(BaseDialog):
                 if self.ping_var.get() and result.ping_latency is not None:
                     host_text += f" [{result.ping_latency * 1000:.1f}ms]"
                 if self.conn_var.get():
-                    connections = result.connections or {}
+                    connections = result.connections or None
                 if self.os_var.get() and result.os_guess:
                     host_text += f" {{{result.os_guess}}}"
                 if self.ttl_var_disp.get() and result.ttl is not None:
@@ -267,12 +288,20 @@ class AutoNetworkScanDialog(BaseDialog):
                         text_color = "#ffaa00"
                     else:
                         text_color = "#22dd22"
+            else:
+                ports_data = result
 
             ctk.CTkLabel(row, text=host_text, anchor="w", text_color=text_color).grid(
                 row=0, column=0, sticky="w", padx=(0, 10)
             )
 
-            def fmt_port(p: int, info=None, svc=None, http=None) -> str:
+            def fmt_port(
+                p: int,
+                *,
+                info: PortInfo | None = None,
+                svc: str | None = None,
+                http: HTTPInfo | None = None,
+            ) -> str:
                 if info is not None:
                     base = (
                         f"{p}({info.service}:{info.banner or ''})"
@@ -302,30 +331,17 @@ class AutoNetworkScanDialog(BaseDialog):
                         base += f"[{cnt}]"
                 return base
 
-            http_map = result.http_info if isinstance(result, AutoScanInfo) else None
             if not ports_data:
                 ports_str = "none"
             elif isinstance(ports_data, dict):
-                if self.banner_var.get():
-                    ports_str = ", ".join(
-                        fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
-                        for p, info in ports_data.items()
-                    )
-                elif self.services_var.get():
-                    ports_str = ", ".join(
-                        fmt_port(p, svc=svc, http=http_map.get(p) if http_map else None)
-                        for p, svc in ports_data.items()
-                    )
-                elif self.latency_var.get():
-                    ports_str = ", ".join(
-                        fmt_port(p, info=info, http=http_map.get(p) if http_map else None)
-                        for p, info in ports_data.items()
-                    )
-                else:
-                    ports_str = ", ".join(
-                        fmt_port(p, http=http_map.get(p) if http_map else None)
-                        for p in ports_data
-                    )
+                parts: list[str] = []
+                for port_num, meta in ports_data.items():
+                    http_info = http_map.get(port_num) if http_map else None
+                    if isinstance(meta, PortInfo):
+                        parts.append(fmt_port(port_num, info=meta, http=http_info))
+                    else:
+                        parts.append(fmt_port(port_num, svc=str(meta), http=http_info))
+                ports_str = ", ".join(parts)
             else:
                 ports_str = ", ".join(
                     fmt_port(p, http=http_map.get(p) if http_map else None)
@@ -396,36 +412,75 @@ class AutoNetworkScanDialog(BaseDialog):
         def run() -> None:
             if self.app.status_bar is not None:
                 self.app.status_bar.set_message("Scanning local network...", "info")
-            kwargs = dict(
-                concurrency=conc,
-                cache_ttl=ttl,
-                timeout=timeout,
-                family=fam,
-                with_services=self.services_var.get(),
-                with_banner=self.banner_var.get(),
-                with_latency=self.latency_var.get(),
-                with_hostname=self.hostname_var.get(),
-                with_mac=self.mac_var.get(),
-                with_connections=self.conn_var.get(),
-                with_os=self.os_var.get(),
-                with_ttl=self.ttl_var_disp.get(),
-                with_ping_latency=self.ping_var.get(),
-                with_vendor=self.vendor_var.get(),
-                with_http_info=self.http_var.get(),
-                with_device_type=self.device_var.get(),
-                with_risk_score=self.risk_var.get(),
-                ping_concurrency=self.app.config.get("scan_ping_concurrency", conc),
-                ping_timeout=self.app.config.get("scan_ping_timeout", timeout),
-                cancel_event=self.cancel_event,
+            ping_concurrency_cfg = self.app.config.get("scan_ping_concurrency", conc)
+            ping_timeout_cfg = self.app.config.get("scan_ping_timeout", timeout)
+            if isinstance(ping_concurrency_cfg, (int, float)):
+                ping_concurrency = int(ping_concurrency_cfg)
+            else:
+                ping_concurrency = conc
+            ping_timeout = (
+                float(ping_timeout_cfg)
+                if isinstance(ping_timeout_cfg, (int, float))
+                else timeout
             )
-            results: dict[str, AutoScanInfo | list | dict] = {}
+
+            results: ScanResultMap = {}
 
             async def run_scan() -> None:
                 if start_end:
                     s, e = start_end
-                    ait = async_auto_scan_iter(s, e, update, **kwargs)
+                    ait = async_auto_scan_iter(
+                        s,
+                        e,
+                        update,
+                        concurrency=conc,
+                        cache_ttl=ttl,
+                        timeout=timeout,
+                        family=fam,
+                        with_services=self.services_var.get(),
+                        with_banner=self.banner_var.get(),
+                        with_latency=self.latency_var.get(),
+                        with_hostname=self.hostname_var.get(),
+                        with_mac=self.mac_var.get(),
+                        with_connections=self.conn_var.get(),
+                        with_os=self.os_var.get(),
+                        with_ttl=self.ttl_var_disp.get(),
+                        with_ping_latency=self.ping_var.get(),
+                        with_vendor=self.vendor_var.get(),
+                        with_http_info=self.http_var.get(),
+                        with_device_type=self.device_var.get(),
+                        with_risk_score=self.risk_var.get(),
+                        ping_concurrency=ping_concurrency,
+                        ping_timeout=ping_timeout,
+                        cancel_event=self.cancel_event,
+                    )
                 else:
-                    ait = async_auto_scan_iter(ports[0], ports[-1], update, ports=ports, **kwargs)
+                    ait = async_auto_scan_iter(
+                        ports[0],
+                        ports[-1],
+                        update,
+                        concurrency=conc,
+                        cache_ttl=ttl,
+                        timeout=timeout,
+                        family=fam,
+                        ports=ports,
+                        with_services=self.services_var.get(),
+                        with_banner=self.banner_var.get(),
+                        with_latency=self.latency_var.get(),
+                        with_hostname=self.hostname_var.get(),
+                        with_mac=self.mac_var.get(),
+                        with_connections=self.conn_var.get(),
+                        with_os=self.os_var.get(),
+                        with_ttl=self.ttl_var_disp.get(),
+                        with_ping_latency=self.ping_var.get(),
+                        with_vendor=self.vendor_var.get(),
+                        with_http_info=self.http_var.get(),
+                        with_device_type=self.device_var.get(),
+                        with_risk_score=self.risk_var.get(),
+                        ping_concurrency=ping_concurrency,
+                        ping_timeout=ping_timeout,
+                        cancel_event=self.cancel_event,
+                    )
                 async for host, info in ait:
                     results[host] = info
                     self.last_results = results.copy()
@@ -434,13 +489,13 @@ class AutoNetworkScanDialog(BaseDialog):
             try:
                 asyncio.run(run_scan())
             finally:
-                if self.cancel_event.is_set():
+                if self.cancel_event is not None and self.cancel_event.is_set():
                     self.after(0, self.progress.grid_remove)
                     self.after(0, self.progress_label.grid_remove)
 
             def show() -> None:
                 self.last_results = results
-                if self.cancel_event and self.cancel_event.is_set():
+                if self.cancel_event is not None and self.cancel_event.is_set():
                     self.progress_label.configure(text="Cancelled")
                 else:
                     self.progress_label.configure(text="Scan complete")
@@ -572,21 +627,8 @@ class AutoNetworkScanDialog(BaseDialog):
                 if self.risk_var.get():
                     headers.append("risk")
                 writer.writerow(headers)
-                for host, result in self.last_results.items():
-                    hostname = ""
-                    mac = ""
-                    vendor = ""
-                    os_guess = ""
-                    ports = result
-                    if isinstance(result, AutoScanInfo):
-                        ports = result.ports
-                        hostname = result.hostname or ""
-                        mac = result.mac or ""
-                        vendor = result.vendor or ""
-                        os_guess = result.os_guess or ""
-                        http_map = result.http_info or {}
-                    else:
-                        http_map = {}
+                for host, info in self._results_as_infos().items():
+                    ports = info.ports
                     port_list = (
                         ",".join(str(p) for p in ports)
                         if isinstance(ports, list)
@@ -594,45 +636,35 @@ class AutoNetworkScanDialog(BaseDialog):
                     )
                     row = [host, port_list]
                     if self.hostname_var.get():
-                        row.append(hostname)
+                        row.append(info.hostname or "")
                     if self.mac_var.get():
-                        row.append(mac)
+                        row.append(info.mac or "")
                     if self.vendor_var.get():
-                        row.append(vendor)
+                        row.append(info.vendor or "")
                     if self.os_var.get():
-                        row.append(os_guess)
+                        row.append(info.os_guess or "")
                     if self.ping_var.get():
                         row.append(
-                            f"{result.ping_latency:.3f}"
-                            if isinstance(result, AutoScanInfo)
-                            and result.ping_latency is not None
+                            f"{info.ping_latency:.3f}"
+                            if info.ping_latency is not None
                             else ""
                         )
                     if self.ttl_var_disp.get():
-                        row.append(
-                            str(result.ttl)
-                            if isinstance(result, AutoScanInfo)
-                            and result.ttl is not None
-                            else ""
-                        )
+                        row.append(str(info.ttl) if info.ttl is not None else "")
                     if self.http_var.get():
-                        info_parts = [
-                            f"{p}:{(http_map.get(p).server or '')}"
-                            for p in sorted(http_map)
-                        ]
-                        row.append(";".join(info_parts))
+                        http_map = info.http_info or {}
+                        http_parts: list[str] = []
+                        for port_num in sorted(http_map):
+                            http_info = http_map[port_num]
+                            detail = http_info.server or http_info.title or ""
+                            http_parts.append(f"{port_num}:{detail}")
+                        row.append(";".join(http_parts))
                     if self.device_var.get():
-                        row.append(
-                            result.device_type
-                            if isinstance(result, AutoScanInfo)
-                            and result.device_type
-                            else ""
-                        )
+                        row.append(info.device_type or "")
                     if self.risk_var.get():
                         row.append(
-                            str(result.risk_score)
-                            if isinstance(result, AutoScanInfo)
-                            and result.risk_score is not None
+                            str(info.risk_score)
+                            if info.risk_score is not None
                             else ""
                         )
                     writer.writerow(row)
@@ -654,7 +686,7 @@ class AutoNetworkScanDialog(BaseDialog):
         try:
             import json
 
-            data = auto_scan_results_to_dict(self.last_results)
+            data = auto_scan_results_to_dict(self._results_as_infos())
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2)
             messagebox.showinfo("Auto Network Scan", f"Saved to {path}", parent=self)
@@ -664,3 +696,14 @@ class AutoNetworkScanDialog(BaseDialog):
     def _cancel_scan(self) -> None:
         if hasattr(self, "cancel_event") and self.cancel_event is not None:
             self.cancel_event.set()
+
+    def _results_as_infos(self) -> dict[str, AutoScanInfo]:
+        """Return the current results normalized to :class:`AutoScanInfo`."""
+
+        normalized: dict[str, AutoScanInfo] = {}
+        for host, result in self.last_results.items():
+            if isinstance(result, AutoScanInfo):
+                normalized[host] = result
+            else:
+                normalized[host] = AutoScanInfo(result)
+        return normalized

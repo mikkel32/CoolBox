@@ -1,17 +1,18 @@
 import types
+from typing import Any, Callable, cast
 from unittest import mock
 
 from src.views.force_quit_dialog import ForceQuitDialog
 
 
-def test_populate_debounce():
+def test_populate_debounce() -> None:
     dialog = ForceQuitDialog.__new__(ForceQuitDialog)
     delays: list[int] = []
-    callbacks = []
+    callbacks: list[Callable[[], Any]] = []
 
-    def fake_after(delay: int, func):
-        delays.append(delay)
-        callbacks.append(func)
+    def fake_after(ms: int, func: Callable[..., Any], *args: Any) -> str:
+        delays.append(ms)
+        callbacks.append(lambda: func(*args))
         return f"id{len(callbacks)}"
 
     cancelled = []
@@ -19,8 +20,8 @@ def test_populate_debounce():
     def fake_after_cancel(ident: str) -> None:
         cancelled.append(ident)
 
-    dialog.after = fake_after
-    dialog.after_cancel = fake_after_cancel
+    dialog.after = cast(Any, fake_after)
+    dialog.after_cancel = cast(Any, fake_after_cancel)
     dialog._apply_filter_sort = mock.Mock()
     dialog._debounce_id = None
 
@@ -34,12 +35,14 @@ def test_populate_debounce():
     dialog._apply_filter_sort.assert_called_once()
 
 
-def test_hover_immediate():
+def test_hover_immediate() -> None:
     dialog = ForceQuitDialog.__new__(ForceQuitDialog)
     dialog.tree = mock.Mock()
     dialog._set_hover_row = mock.Mock()
-    dialog.after = mock.Mock()
-    dialog.after_cancel = mock.Mock()
+    after_mock = mock.Mock()
+    after_cancel_mock = mock.Mock()
+    dialog.after = cast(Any, after_mock)
+    dialog.after_cancel = cast(Any, after_cancel_mock)
 
     dialog.tree.identify_row.side_effect = ["row1", "row2"]
 
@@ -49,11 +52,11 @@ def test_hover_immediate():
     dialog._on_hover(evt2)
 
     assert dialog._set_hover_row.call_args_list == [mock.call("row1"), mock.call("row2")]
-    dialog.after.assert_not_called()
-    dialog.after_cancel.assert_not_called()
+    after_mock.assert_not_called()
+    after_cancel_mock.assert_not_called()
 
 
-def test_update_hover_no_global_pointer_calls():
+def test_update_hover_no_global_pointer_calls() -> None:
     dialog = ForceQuitDialog.__new__(ForceQuitDialog)
     dialog.tree = mock.Mock()
     dialog._set_hover_row = mock.Mock()
