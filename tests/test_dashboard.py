@@ -42,6 +42,9 @@ def test_orchestrator_publishes_events(tmp_path: Path) -> None:
         return {"ok": True}
 
     orchestrator.register_task(
+        SetupTask("deps", SetupStage.PREFLIGHT, task_action)
+    )
+    orchestrator.register_task(
         SetupTask("preflight.ok", SetupStage.PREFLIGHT, task_action, dependencies=("deps",))
     )
     recipe = Recipe(name="test", data={})

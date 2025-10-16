@@ -1,6 +1,7 @@
 """Core setup orchestrator implementation."""
 from __future__ import annotations
 
+import heapq
 import os
 from dataclasses import dataclass, field
 from enum import Enum
@@ -208,6 +209,7 @@ class SetupOrchestrator:
         context.set("setup.offline", offline_enabled)
         if load_plugins:
             self.plugin_manager.load_entrypoints(self)
+        execution_plan = self._build_execution_plan(stage_filter, task_filter)
         results: list[SetupResult] = []
         self.telemetry.record_run({
             "recipe": recipe.name,
@@ -215,12 +217,11 @@ class SetupOrchestrator:
             "task_count": len(self._tasks),
             "offline": offline_enabled,
         })
-        for stage in STAGE_ORDER:
+        continue_on_failure = bool(recipe.config.get("continue_on_failure"))
+        for stage in self.stage_order:
             if stage_filter and stage not in stage_filter:
                 continue
-            stage_tasks = [t for t in self._tasks.values() if t.stage is stage]
-            if task_filter:
-                stage_tasks = [t for t in stage_tasks if t.name in task_filter]
+            stage_tasks = execution_plan.get(stage, [])
             if not stage_tasks:
                 self._publish(StageEvent(stage, status="skipped", payload={"reason": "no tasks"}))
                 continue
@@ -243,6 +244,19 @@ class SetupOrchestrator:
                 )
                 raise
             results.extend(stage_results)
+            if not continue_on_failure:
+                blocking_failure = next(
+                    (
+                        res
+                        for res in stage_results
+                        if res.status is SetupStatus.FAILED
+                        and (task_meta := self._tasks.get(res.task)) is not None
+                        and not task_meta.allow_fail
+                    ),
+                    None,
+                )
+                if blocking_failure is not None:
+                    break
         return results
 
     def retry(
@@ -294,6 +308,43 @@ class SetupOrchestrator:
         self.plugin_manager.dispatch_before_stage(stage, context)
         stage_config = context.stage_config(stage)
         disabled_tasks = set(stage_config.get("skip", []) if isinstance(stage_config, dict) else [])
+        stage_failed = False
+
+        def _skip_task(
+            task_obj: SetupTask,
+            reason: str,
+            payload: Mapping[str, Any] | None = None,
+        ) -> None:
+            base_payload: dict[str, Any] = {"reason": reason}
+            if payload:
+                base_payload.update(payload)
+            failure_suffix: dict[str, str] = {
+                "dependency-blocked": "dependency-blocked",
+                "dependency-missing": "dependency-missing",
+                "stage-aborted": "stage-aborted",
+            }
+            suffix = failure_suffix.get(reason)
+            if suffix:
+                base_payload["failure_code"] = f"{stage.value}:{task_obj.name}:{suffix}"
+            result = SetupResult(
+                task=task_obj.name,
+                stage=stage,
+                status=SetupStatus.SKIPPED,
+                payload=base_payload,
+                attempts=0,
+            )
+            context.results[task_obj.name] = result
+            stage_results.append(result)
+            self._publish(
+                TaskEvent(
+                    task_obj.name,
+                    stage,
+                    status="skipped",
+                    payload=base_payload,
+                )
+            )
+            self._record_task_telemetry(task_obj, result)
+
         for task in tasks:
             if task.name in disabled_tasks:
                 result = SetupResult(
@@ -306,7 +357,31 @@ class SetupOrchestrator:
                 stage_results.append(result)
                 self._publish(TaskEvent(task.name, stage, status="skipped", payload=result.payload))
                 continue
-            break_stage = False
+            dependency_results = {dep: context.results.get(dep) for dep in task.dependencies}
+            missing_dependencies = sorted(name for name, res in dependency_results.items() if res is None)
+            blocked_dependencies = {
+                name: res.status.value
+                for name, res in dependency_results.items()
+                if res is not None and res.status is not SetupStatus.SUCCESS
+            }
+            if missing_dependencies:
+                _skip_task(
+                    task,
+                    "dependency-missing",
+                    {"missing": missing_dependencies},
+                )
+                continue
+            if blocked_dependencies:
+                _skip_task(
+                    task,
+                    "dependency-blocked",
+                    {"dependencies": blocked_dependencies},
+                )
+                stage_failed = True
+                continue
+            if stage_failed:
+                _skip_task(task, "stage-aborted")
+                continue
             self._publish(
                 TaskEvent(
                     task.name,
@@ -426,9 +501,7 @@ class SetupOrchestrator:
                     )
                     continue
                 if result.status is SetupStatus.FAILED and not task.allow_fail:
-                    break_stage = True
-                break
-            if break_stage:
+                    stage_failed = True
                 break
         self.plugin_manager.dispatch_after_stage(stage, stage_results, context)
         for reporter in self.plugin_manager.iter_reporters():
@@ -460,6 +533,10 @@ class SetupOrchestrator:
     def _failure_code(self, result: SetupResult | None) -> str | None:
         if result is None:
             return None
+        if isinstance(result.payload, Mapping):
+            failure_code = result.payload.get("failure_code")
+            if isinstance(failure_code, str):
+                return failure_code
         error_type = type(result.error).__name__ if result.error else "unknown"
         return f"{result.stage.value}:{result.task}:{error_type}"
 
@@ -492,19 +569,94 @@ class SetupOrchestrator:
             "duration_ms": int(duration * 1000),
             "attempts": result.attempts,
         }
+        failure_code = None
+        if isinstance(result.payload, Mapping):
+            fc = result.payload.get("failure_code")
+            if isinstance(fc, str):
+                failure_code = fc
         if result.status is SetupStatus.FAILED:
-            failure_code = self._failure_code(result)
+            failure_code = failure_code or self._failure_code(result)
             if failure_code:
                 payload["failure_code"] = failure_code
             if result.error:
                 payload["error_type"] = type(result.error).__name__
                 payload["error_message"] = repr(result.error)
+        elif failure_code:
+            payload["failure_code"] = failure_code
         if result.payload:
             suggested_fix = result.payload.get("suggested_fix") if isinstance(result.payload, Mapping) else None
             if suggested_fix:
                 payload["suggested_fix"] = suggested_fix
             payload["payload_keys"] = sorted(result.payload.keys()) if isinstance(result.payload, Mapping) else []
         self.telemetry.record_task(payload)
+
+    def _build_execution_plan(
+        self,
+        stage_filter: set[SetupStage],
+        task_filter: set[str],
+    ) -> dict[SetupStage, list[SetupTask]]:
+        stage_plan: dict[SetupStage, list[SetupTask]] = {}
+        stage_index = {stage: idx for idx, stage in enumerate(self.stage_order)}
+        for stage in self.stage_order:
+            if stage_filter and stage not in stage_filter:
+                continue
+            stage_tasks = [task for task in self._tasks.values() if task.stage is stage]
+            if task_filter:
+                stage_tasks = [task for task in stage_tasks if task.name in task_filter]
+            if not stage_tasks:
+                stage_plan[stage] = []
+                continue
+            stage_task_map = {task.name: task for task in stage_tasks}
+            ordered_names = [task.name for task in stage_tasks]
+            order_index = {name: idx for idx, name in enumerate(ordered_names)}
+            adjacency: dict[str, set[str]] = {name: set() for name in stage_task_map}
+            dependents: dict[str, list[str]] = {name: [] for name in stage_task_map}
+            for task in stage_tasks:
+                for dep_name in task.dependencies:
+                    if dep_name not in self._tasks:
+                        raise ValueError(
+                            f"Task '{task.name}' depends on unknown task '{dep_name}'"
+                        )
+                    dep_task = self._tasks[dep_name]
+                    dep_stage = dep_task.stage
+                    if stage_index[dep_stage] > stage_index[stage]:
+                        raise ValueError(
+                            f"Task '{task.name}' depends on future stage task '{dep_name}'"
+                        )
+                    if dep_stage is stage:
+                        if dep_name not in stage_task_map:
+                            raise ValueError(
+                                f"Task '{task.name}' depends on filtered task '{dep_name}' in stage '{stage.value}'"
+                            )
+                        adjacency[task.name].add(dep_name)
+                        dependents.setdefault(dep_name, []).append(task.name)
+                    else:
+                        if stage_filter and dep_stage not in stage_filter and stage_index[dep_stage] < stage_index[stage]:
+                            raise ValueError(
+                                f"Task '{task.name}' depends on task '{dep_name}' from skipped stage '{dep_stage.value}'"
+                            )
+                        if task_filter and dep_name not in task_filter:
+                            raise ValueError(
+                                f"Task '{task.name}' depends on filtered task '{dep_name}'"
+                            )
+            heap: list[tuple[int, str]] = []
+            for name, deps in adjacency.items():
+                if not deps:
+                    heapq.heappush(heap, (order_index[name], name))
+            ordered: list[str] = []
+            while heap:
+                _, name = heapq.heappop(heap)
+                ordered.append(name)
+                for follower in dependents.get(name, []):
+                    deps = adjacency[follower]
+                    if name in deps:
+                        deps.remove(name)
+                    if not deps:
+                        heapq.heappush(heap, (order_index[follower], follower))
+            if len(ordered) != len(stage_tasks):
+                raise ValueError(f"Cyclic dependency detected in stage '{stage.value}'")
+            stage_plan[stage] = [stage_task_map[name] for name in ordered]
+        return stage_plan
 
     def _validators(self) -> Iterable[Validator]:
         return self.plugin_manager.iter_validators()

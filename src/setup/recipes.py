@@ -31,6 +31,7 @@ _DEFAULT_RECIPE: dict[str, Any] = {
         "write_sentinel_on_skip": False,
         "skip_update": True,
         "force": False,
+        "continue_on_failure": False,
     },
     "stages": {key: {} for key in _STAGE_KEYS},
 }

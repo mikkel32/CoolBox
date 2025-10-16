@@ -7,7 +7,13 @@ from typing import Literal, Mapping, cast
 import pytest
 
 from src.boot import BootManager
-from src.setup.orchestrator import SetupOrchestrator, SetupStage, SetupTask
+from src.setup.orchestrator import (
+    SetupOrchestrator,
+    SetupResult,
+    SetupStage,
+    SetupStatus,
+    SetupTask,
+)
 from src.setup.recipes import Recipe, RecipeLoader
 from src.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
 from src.telemetry.consent import ConsentDecision, TelemetryConsentManager
@@ -99,3 +105,40 @@ def test_offline_setup_flow_records_mode(tmp_path, telemetry_client: TelemetryCl
     assert run_event.metadata["offline"] is True
     stage_events = [event for event in storage.events if event.type is TelemetryEventType.STAGE]
     assert any(event.metadata["stage"] == "preflight" for event in stage_events)
+
+
+def test_setup_flow_stops_after_blocking_failure(tmp_path, telemetry_client: TelemetryClient) -> None:
+    orchestrator = SetupOrchestrator(root=tmp_path, telemetry=telemetry_client)
+    executed: list[str] = []
+
+    def fail(context):
+        return SetupResult(
+            task="preflight.fail",
+            stage=SetupStage.PREFLIGHT,
+            status=SetupStatus.FAILED,
+            payload={},
+            error=RuntimeError("boom"),
+        )
+
+    orchestrator.register_task(
+        SetupTask("preflight.fail", SetupStage.PREFLIGHT, fail)
+    )
+    orchestrator.register_task(
+        SetupTask(
+            "verify.should_not_run",
+            SetupStage.VERIFICATION,
+            lambda context: executed.append("verify") or {},
+        )
+    )
+
+    recipe = Recipe(name="integration", data={"stages": {"preflight": {}, "verification": {}}})
+    orchestrator.run(recipe, load_plugins=False)
+
+    assert executed == []
+    storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
+    verification_events = {
+        event.metadata["stage"]
+        for event in storage.events
+        if event.type is TelemetryEventType.STAGE
+    }
+    assert "verification" not in verification_events
