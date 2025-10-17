@@ -7,7 +7,10 @@ import sys
 import tkinter as tk
 from typing import Protocol, cast, runtime_checkable
 
-from coolbox.ui.views.click_overlay import ClickOverlay, KILL_BY_CLICK_INTERVAL
+from coolbox.ui.views.overlays.click_overlay import (
+    ClickOverlay,
+    KILL_BY_CLICK_INTERVAL,
+)
 
 
 @runtime_checkable

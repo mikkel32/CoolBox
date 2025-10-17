@@ -2,7 +2,7 @@ import types
 from typing import Any, Callable, cast
 from unittest import mock
 
-from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
+from coolbox.ui.views.dialogs.force_quit import ForceQuitDialog
 
 
 def test_populate_debounce() -> None:

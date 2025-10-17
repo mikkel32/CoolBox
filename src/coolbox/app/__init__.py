@@ -32,9 +32,9 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:  # pragma: no cover - used for type hints only
     from customtkinter import CTkFrame as _CTkFrame
 
-    from ..ui.views.quick_settings import QuickSettingsDialog
-    from ..ui.views.force_quit_dialog import ForceQuitDialog
-    from ..ui.views.security_dialog import SecurityDialog
+    from ..ui.views.dialogs.quick_settings import QuickSettingsDialog
+    from ..ui.views.dialogs.force_quit import ForceQuitDialog
+    from ..ui.views.dialogs.security import SecurityDialog
 else:
     _CTkFrame = ctk.CTkFrame
 
@@ -241,21 +241,20 @@ class CoolBoxApp:
 
     def open_quick_settings(self) -> None:
         """Launch the Quick Settings dialog or focus the existing one."""
-        from ..views.quick_settings import QuickSettingsDialog
+        from ..ui.views.dialogs.quick_settings import QuickSettingsDialog
 
         if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():
             self.quick_settings_window.focus()
             return
 
-        self.quick_settings_window = QuickSettingsDialog(self)
-        self.quick_settings_window.protocol(
-            "WM_DELETE_WINDOW", self._on_quick_settings_closed
-        )
+        dialog = QuickSettingsDialog(self)
+        self.quick_settings_window = dialog
+        dialog.protocol("WM_DELETE_WINDOW", self._on_quick_settings_closed)
 
     def open_force_quit(self) -> None:
         """Launch the Force Quit dialog or focus the existing one."""
         try:
-            from ..views.force_quit_dialog import ForceQuitDialog
+            from ..ui.views.dialogs.force_quit import ForceQuitDialog
         except Exception as exc:  # pragma: no cover - runtime import error
             logger.warning("Failed to import ForceQuitDialog: %s", exc)
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
@@ -266,10 +265,9 @@ class CoolBoxApp:
             return
 
         try:
-            self.force_quit_window = ForceQuitDialog(self)
-            self.force_quit_window.bind(
-                "<Destroy>", lambda _e: setattr(self, "force_quit_window", None)
-            )
+            dialog = ForceQuitDialog(self)
+            self.force_quit_window = dialog
+            dialog.bind("<Destroy>", lambda _e: setattr(self, "force_quit_window", None))
         except Exception as exc:  # pragma: no cover - runtime init error
             logger.warning("Failed to create ForceQuitDialog: %s", exc)
             messagebox.showerror("Force Quit", f"Failed to open dialog: {exc}")
@@ -277,7 +275,7 @@ class CoolBoxApp:
 
     def open_security_center(self) -> None:
         """Open the Security Center dialog."""
-        from ..views.security_dialog import SecurityDialog
+        from ..ui.views.dialogs.security import SecurityDialog
         import tkinter as tk
         from coolbox.utils import security
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compatibility wrapper that exposes the packaged CoolBox setup command."""
+"""CoolBox — install/inspect utilities with neon border UI, atomic console, and end-of-run summary."""
+
 from __future__ import annotations
 
-<<<<<<< ours
 __version__ = "1.6.0"
 
 import argparse
@@ -1056,14 +1056,16 @@ def _inspect_requirement_stamp(req_path: Path | None) -> RequirementStampState:
             recorded_hash = payload.get("hash") or payload.get("requirement_hash")
             recorded_python = payload.get("python") or payload.get("python_version")
             recorded_pip = payload.get("pip") or payload.get("pip_version")
-            timestamp = payload.get("timestamp")
-            if isinstance(timestamp, (int, float)):
-                recorded_timestamp = float(timestamp)
-            else:
+            timestamp_raw = payload.get("timestamp")
+            if isinstance(timestamp_raw, (int, float)):
+                recorded_timestamp = float(timestamp_raw)
+            elif isinstance(timestamp_raw, str):
                 try:
-                    recorded_timestamp = float(timestamp)
-                except (TypeError, ValueError):
+                    recorded_timestamp = float(timestamp_raw)
+                except ValueError:
                     recorded_timestamp = None
+            else:
+                recorded_timestamp = None
             if requirement_hash is not None:
                 changed = recorded_hash != requirement_hash if recorded_hash else True
             else:
@@ -3388,13 +3390,14 @@ def _load_plugins(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
             except Exception as exc: SUMMARY.add_warning(f"Plugin {ep.name} failed: {exc}")
     except Exception:
         pass
-=======
-import sys
->>>>>>> theirs
 
-from scripts import expose_module
+def main(argv: Sequence[str] | None = None) -> None:
+    args = _parse_args(argv or sys.argv[1:])
+    if getattr(args, "offline", False): set_offline(True)
+    is_offline()
+    if offline_auto_detected(): log("Offline mode detected (network unreachable).")
+    cmd = args.command
 
-<<<<<<< ours
     exit_code = 0
     try:
         if cmd == "install":
@@ -3456,11 +3459,6 @@ from scripts import expose_module
         SUMMARY.render(); send_telemetry(SUMMARY)
         if exit_code == 0 and SUMMARY.errors: exit_code = 1
         sys.exit(exit_code)
-=======
-_load_setup = expose_module(globals(), "coolbox.cli.commands.setup")
-_module = _load_setup()
-sys.modules[__name__] = _module
->>>>>>> theirs
 
 if __name__ == "__main__":
-    _module.main()
+    main()

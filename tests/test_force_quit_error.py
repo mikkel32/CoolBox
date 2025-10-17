@@ -28,7 +28,7 @@ def test_open_force_quit_handles_errors(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "coolbox.ui.views.force_quit_dialog",
+        "coolbox.ui.views.dialogs.force_quit",
         types.SimpleNamespace(ForceQuitDialog=BoomDialog),
     )
 

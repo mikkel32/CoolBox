@@ -4,7 +4,7 @@ import unittest
 from typing import cast
 from unittest import mock
 
-from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
+from coolbox.ui.views.dialogs.force_quit import ForceQuitDialog
 
 
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -26,12 +26,12 @@ class TestForceQuitCache(unittest.TestCase):
 
         app = DummyApp()
         with (
-            mock.patch("coolbox.ui.views.force_quit_dialog.prime_window_cache") as prime_mock,
+            mock.patch("coolbox.ui.views.dialogs.force_quit.prime_window_cache") as prime_mock,
             mock.patch("coolbox.utils.window_utils.prime_window_cache", prime_mock),
             mock.patch(
-                "coolbox.ui.views.click_overlay.prime_window_cache", prime_mock, create=True
+                "coolbox.ui.views.overlays.click_overlay.prime_window_cache", prime_mock, create=True
             ),
-            mock.patch("coolbox.ui.views.click_overlay.ClickOverlay"),
+            mock.patch("coolbox.ui.views.overlays.click_overlay.ClickOverlay"),
             mock.patch.object(ForceQuitDialog, "_auto_refresh"),
         ):
             dialog = ForceQuitDialog(app)
@@ -71,8 +71,8 @@ class TestForceQuitCache(unittest.TestCase):
 
         app = DummyApp()
         with (
-            mock.patch("coolbox.ui.views.force_quit_dialog.prime_window_cache"),
-            mock.patch("coolbox.ui.views.force_quit_dialog.ClickOverlay", DummyOverlay),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.prime_window_cache"),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.ClickOverlay", DummyOverlay),
             mock.patch.object(ForceQuitDialog, "_auto_refresh"),
             mock.patch.object(ForceQuitDialog, "_configure_overlay", return_value=None),
         ):

@@ -4,9 +4,8 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
-from typing import Sequence
-
 from sys import modules
+from typing import Protocol, Sequence, cast
 
 from ._logging import logger
 from ._state import BASE_ENV
@@ -30,12 +29,23 @@ def _hint_for_command(cmd: Sequence[str], exit_code: int | None, stderr: str | N
     return None
 
 
-def _resolve_run():
+class _RunFunc(Protocol):
+    def __call__(
+        self,
+        cmd: Sequence[str],
+        *,
+        cwd: Path | None = None,
+        env: dict | None = None,
+        timeout: float | None = None,
+    ) -> subprocess.CompletedProcess[str]: ...
+
+
+def _resolve_run() -> _RunFunc:
     setup_module = modules.get("coolbox.cli.commands.setup")
     if setup_module is not None:
         override = getattr(setup_module, "_run", None)
         if callable(override) and override is not _run:  # type: ignore[name-defined]
-            return override
+            return cast(_RunFunc, override)
     return _run_impl
 
 
@@ -98,7 +108,8 @@ def _run(
     env: dict | None = None,
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    return _resolve_run()(cmd, cwd=cwd, env=env, timeout=timeout)
+    runner = _resolve_run()
+    return runner(cmd, cwd=cwd, env=env, timeout=timeout)
 
 
 def _retry(

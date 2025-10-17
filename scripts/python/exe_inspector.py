@@ -2,6 +2,8 @@
 """Compatibility wrapper for ``coolbox.cli.commands.exe_inspector``."""
 from __future__ import annotations
 
+from coolbox.cli.commands import exe_inspector as _impl
+
 try:  # pragma: no cover - fallback when executed as a file
     from . import _wrappers
 except ImportError:  # pragma: no cover - legacy invocation path
@@ -24,7 +26,18 @@ except ImportError:  # pragma: no cover - legacy invocation path
 
 main = _wrappers.sync_command(globals(), "exe_inspector")
 
-__all__ = ["main"]
+gather_info = _impl.gather_info
+_processes_for = _impl._processes_for
+_ports_for = _impl._ports_for
+_extract_strings = _impl._extract_strings
+
+__all__ = [
+    "_extract_strings",
+    "_ports_for",
+    "_processes_for",
+    "gather_info",
+    "main",
+]
 
 
 if __name__ == "__main__":

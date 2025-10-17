@@ -2,17 +2,51 @@
 """Compatibility script that exposes the CoolBox CLI helpers."""
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Protocol, cast
 
 from scripts import ensure_cli_environment, load_module
 
 ensure_cli_environment()
 
-_cli = load_module("coolbox.cli")
-_cli_bootstrap = load_module("coolbox.cli.bootstrap")
+if TYPE_CHECKING:  # pragma: no cover - imported for static analysis only
+    from coolbox.cli import bootstrap as cli_bootstrap  # noqa: F401
 
-default_root = _cli.default_root
+
+class _CLIModule(Protocol):
+    """Runtime surface used from :mod:`coolbox.cli`."""
+
+    default_root: Callable[[], Path]
+
+    def main(self, argv: Iterable[str] | None = None) -> None: ...
+
+    def parse_requirements(self, path: Path) -> Iterable[str]: ...
+
+    def missing_requirements(self, path: Path) -> list[str]: ...
+
+    def requirements_satisfied(self, path: Path) -> bool: ...
+
+    def compute_setup_state(self, root: Path | None = None) -> str: ...
+
+    def run_setup_if_needed(self, root: Path | None = None) -> bool: ...
+
+    def run_setup(self, recipe_name: str | None) -> None: ...
+
+
+class _BootstrapModule(Protocol):
+    """Subset of :mod:`coolbox.cli.bootstrap` reassigned at runtime."""
+
+    compute_setup_state: Callable[[Path | None], str]
+    missing_requirements: Callable[[Path], list[str]]
+    parse_requirements: Callable[[Path], Iterable[str]]
+    requirements_satisfied: Callable[[Path], bool]
+    default_root: Callable[[], Path]
+
+_cli = cast("_CLIModule", load_module("coolbox.cli"))
+_cli_bootstrap = cast("_BootstrapModule", load_module("coolbox.cli.bootstrap"))
+
+default_root: Callable[[], Path] = _cli.default_root
 
 
 def main(argv: Iterable[str] | None = None) -> None:
@@ -39,29 +73,25 @@ def _compute_setup_state(root: Path | None = None) -> str:
 
 
 def _run_setup_if_needed(root: Path | None = None) -> bool:
-    original_bindings = (
-        _cli_bootstrap.compute_setup_state,
-        _cli_bootstrap.missing_requirements,
-        _cli_bootstrap.parse_requirements,
-        _cli_bootstrap.requirements_satisfied,
-        _cli_bootstrap.default_root,
+    bootstrap_ns: dict[str, object] = vars(_cli_bootstrap)
+    keys = (
+        "compute_setup_state",
+        "missing_requirements",
+        "parse_requirements",
+        "requirements_satisfied",
+        "default_root",
     )
-
+    original_bindings = {name: bootstrap_ns[name] for name in keys}
     try:
-        _cli_bootstrap.compute_setup_state = _compute_setup_state  # type: ignore[assignment]
-        _cli_bootstrap.missing_requirements = _missing_requirements  # type: ignore[assignment]
-        _cli_bootstrap.parse_requirements = _parse_requirements  # type: ignore[assignment]
-        _cli_bootstrap.requirements_satisfied = _requirements_satisfied  # type: ignore[assignment]
-        _cli_bootstrap.default_root = default_root  # type: ignore[assignment]
+        bootstrap_ns["compute_setup_state"] = _compute_setup_state
+        bootstrap_ns["missing_requirements"] = _missing_requirements
+        bootstrap_ns["parse_requirements"] = _parse_requirements
+        bootstrap_ns["requirements_satisfied"] = _requirements_satisfied
+        bootstrap_ns["default_root"] = default_root
         return _cli.run_setup_if_needed(root)
     finally:
-        (
-            _cli_bootstrap.compute_setup_state,
-            _cli_bootstrap.missing_requirements,
-            _cli_bootstrap.parse_requirements,
-            _cli_bootstrap.requirements_satisfied,
-            _cli_bootstrap.default_root,
-        ) = original_bindings
+        for name, value in original_bindings.items():
+            bootstrap_ns[name] = value
 
 
 def _run_setup(recipe_name: str | None) -> None:

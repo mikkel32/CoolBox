@@ -249,6 +249,7 @@ def _mac_detect_tooling_cached() -> MacFirewallTooling:
 
     launchctl_supports_kickstart = False
     if launchctl_usable:
+        assert launchctl_path is not None
         out, rc = _run_ex([launchctl_path.as_posix(), "help"], timeout=3.0)
         if rc == 0:
             launchctl_supports_kickstart = "kickstart" in out.lower()
@@ -660,9 +661,11 @@ def _mac_firewall_global_state(
         numeric_value, defaults_err = _mac_defaults_read_int("globalstate", tooling)
         if defaults_err:
             errors.append(defaults_err)
-        else:
+        elif numeric_value is not None:
             numeric = numeric_value
             enabled = numeric_value >= 1
+        else:
+            errors.append("globalstate unavailable")
     else:
         if tooling.defaults_path is None:
             errors.append("defaults tool missing")

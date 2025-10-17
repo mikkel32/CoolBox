@@ -1,7 +1,8 @@
 import os
 import unittest
+
 from coolbox.app import CoolBoxApp
-from coolbox.ui.views.quick_settings import QuickSettingsDialog
+from coolbox.ui.views.dialogs.quick_settings import QuickSettingsDialog
 
 
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")

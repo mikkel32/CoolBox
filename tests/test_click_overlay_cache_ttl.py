@@ -6,7 +6,11 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 
-from coolbox.ui.views.click_overlay import ClickOverlay, WindowInfo, PROBE_CACHE_TTL  # noqa: E402
+from coolbox.ui.views.overlays.click_overlay import (  # noqa: E402
+    ClickOverlay,
+    WindowInfo,
+    PROBE_CACHE_TTL,
+)
 
 
 class TestClickOverlayProbeTTL(unittest.TestCase):
@@ -14,10 +18,10 @@ class TestClickOverlayProbeTTL(unittest.TestCase):
     def test_fast_cursor_expires_cache_quickly(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.subscribe_window_change", return_value=None),
-            patch("coolbox.ui.views.click_overlay.get_active_window", return_value=WindowInfo(None)),
-            patch("coolbox.ui.views.click_overlay.subscribe_active_window", return_value=None),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_window_change", return_value=None),
+            patch("coolbox.ui.views.overlays.click_overlay.get_active_window", return_value=WindowInfo(None)),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_active_window", return_value=None),
         ):
             overlay = ClickOverlay(root)
         try:

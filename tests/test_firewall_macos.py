@@ -28,7 +28,7 @@ def setup_macos(
     launchctl_label: bool = True,
     launchctl_supports_kickstart: Optional[bool] = None,
     launchctl_extra_errors: Optional[list[str]] = None,
-) -> None:
+) -> firewall.MacFirewallTooling:
     monkeypatch.setattr(firewall, "_IS_MAC", True)
     monkeypatch.setattr(firewall, "_IS_WINDOWS", False)
 
@@ -369,6 +369,8 @@ def test_set_firewall_enabled_macos_missing_socketfilterfw(monkeypatch, tmp_path
         value, err = firewall._mac_defaults_plist_value("globalstate")
         if err:
             return None, None, err
+        if value is None:
+            return None, value, None
         return (value >= 1), value, None
 
     monkeypatch.setattr(firewall, "_mac_firewall_global_state", fake_global_state)
@@ -405,6 +407,8 @@ def test_set_firewall_enabled_macos_unusable_socketfilterfw(monkeypatch, tmp_pat
         value, err = firewall._mac_defaults_plist_value("globalstate")
         if err:
             return None, None, err
+        if value is None:
+            return None, value, None
         return (value >= 1), value, None
 
     monkeypatch.setattr(firewall, "_mac_firewall_global_state", fake_global_state)
@@ -654,6 +658,8 @@ def test_mac_set_firewall_enabled_bootstrap(monkeypatch, tmp_path):
         value, err = firewall._mac_defaults_plist_value("globalstate")
         if err:
             return None, None, err
+        if value is None:
+            return None, value, None
         return (value >= 1), value, None
 
     monkeypatch.setattr(firewall, "_mac_firewall_global_state", fake_global_state)

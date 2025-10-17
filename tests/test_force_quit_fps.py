@@ -2,7 +2,7 @@ import os
 import unittest
 
 from coolbox.app import CoolBoxApp
-from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
+from coolbox.ui.views.dialogs.force_quit import ForceQuitDialog
 
 
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")

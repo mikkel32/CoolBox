@@ -6,8 +6,8 @@ import os
 
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 
-from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
-from coolbox.ui.views.click_overlay import OverlayState, ClickOverlay
+from coolbox.ui.views.dialogs.force_quit import ForceQuitDialog
+from coolbox.ui.views.overlays.click_overlay import OverlayState, ClickOverlay
 
 
 def test_finish_kill_by_click_serializes_overlay_state(capsys):

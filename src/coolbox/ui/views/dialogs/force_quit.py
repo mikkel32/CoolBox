@@ -2391,8 +2391,13 @@ class ForceQuitDialog(BaseDialog):
             fd, path = tempfile.mkstemp()
             os.close(fd)
             Path(path).touch()
-            watchdog_script = Path(
-                resources.files("coolbox.utils.processes").joinpath("force_quit_watchdog.py")
+            script_resource = resources.files("coolbox.utils.processes").joinpath(
+                "force_quit_watchdog.py"
+            )
+            watchdog_script = (
+                script_resource
+                if isinstance(script_resource, Path)
+                else Path(str(script_resource))
             )
             self._overlay_last_ping_file = path
             self._overlay_watchdog_proc = subprocess.Popen(

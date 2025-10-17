@@ -24,7 +24,7 @@ import tempfile
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 from coolbox.config import Config  # noqa: E402
 
-from coolbox.ui.views.click_overlay import (  # noqa: E402
+from coolbox.ui.views.overlays.click_overlay import (  # noqa: E402
     ClickOverlay,
     WindowInfo,
     COLORKEY_RECHECK_MS,
@@ -32,7 +32,7 @@ from coolbox.ui.views.click_overlay import (  # noqa: E402
     DEFAULT_INTERVAL,
     HOOK_PING_TIMEOUT,
 )
-from coolbox.ui.views.force_quit_dialog import ForceQuitDialog  # noqa: E402
+from coolbox.ui.views.dialogs.force_quit import ForceQuitDialog  # noqa: E402
 
 
 class TestClickOverlay(unittest.TestCase):
@@ -40,9 +40,9 @@ class TestClickOverlay(unittest.TestCase):
     def test_overlay_creation(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -54,7 +54,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_colorkey_attributes_initialized(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         self.assertFalse(overlay._colorkey_warning_shown)
         overlay.destroy()
@@ -64,7 +64,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_env_sets_default_highlight(self) -> None:
         with patch.dict(os.environ, {"KILL_BY_CLICK_HIGHLIGHT": "green"}):
             root = tk.Tk()
-            with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+            with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
                 overlay = ClickOverlay(root)
             color = overlay.canvas.itemcget(overlay.rect, "outline")
             self.assertEqual(color, "green")
@@ -74,7 +74,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_set_highlight_color_updates_all_items(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         overlay.set_highlight_color("blue")
         self.assertEqual(overlay.canvas.itemcget(overlay.rect, "outline"), "blue")
@@ -87,7 +87,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_can_disable_label(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, show_label=False)
         self.assertIsNone(overlay.label)
         overlay.destroy()
@@ -97,7 +97,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_env_disables_label(self) -> None:
         with patch.dict(os.environ, {"KILL_BY_CLICK_LABEL": "0"}):
             root = tk.Tk()
-            with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+            with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
                 overlay = ClickOverlay(root)
             self.assertIsNone(overlay.label)
             overlay.destroy()
@@ -106,7 +106,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_can_disable_crosshair(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, show_crosshair=False)
         self.assertIsNone(overlay.hline)
         self.assertIsNone(overlay.vline)
@@ -117,7 +117,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_env_disables_crosshair(self) -> None:
         with patch.dict(os.environ, {"KILL_BY_CLICK_CROSSHAIR": "0"}):
             root = tk.Tk()
-            with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+            with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
                 overlay = ClickOverlay(root)
             self.assertIsNone(overlay.hline)
             self.assertIsNone(overlay.vline)
@@ -127,7 +127,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_interval_clamping(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, interval=-1, min_interval=-5, max_interval=-2)
         self.assertEqual(overlay.interval, 0)
         self.assertEqual(overlay.min_interval, 0)
@@ -138,11 +138,11 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_interval_bounds_enforced(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, interval=10, min_interval=1, max_interval=5)
         self.assertEqual(overlay.interval, 5)
         overlay.destroy()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, interval=0.5, min_interval=1, max_interval=5)
         self.assertEqual(overlay.interval, 1)
         overlay.destroy()
@@ -159,7 +159,7 @@ class TestClickOverlay(unittest.TestCase):
             },
         ):
             root = tk.Tk()
-            with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+            with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
                 overlay = ClickOverlay(root)
             overlay.interval = 5
             overlay.min_interval = 6
@@ -174,10 +174,10 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_enriched_label_uses_process_name(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
-        with patch("coolbox.ui.views.click_overlay.ENRICH_LABELS", True), patch(
-            "coolbox.ui.views.click_overlay._process_details", return_value=("proc", None)
+        with patch("coolbox.ui.views.overlays.click_overlay.ENRICH_LABELS", True), patch(
+            "coolbox.ui.views.overlays.click_overlay._process_details", return_value=("proc", None)
         ) as pd:
             overlay._update_rect(WindowInfo(123, (0, 0, 10, 10), "win"))
             self.assertEqual(overlay._buffer["label_text"], "proc")
@@ -188,10 +188,10 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_enriched_label_respects_flag(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
-        with patch("coolbox.ui.views.click_overlay.ENRICH_LABELS", False), patch(
-            "coolbox.ui.views.click_overlay._process_details"
+        with patch("coolbox.ui.views.overlays.click_overlay.ENRICH_LABELS", False), patch(
+            "coolbox.ui.views.overlays.click_overlay._process_details"
         ) as pd:
             overlay._update_rect(WindowInfo(123, (0, 0, 10, 10), "win"))
             pd.assert_not_called()
@@ -201,7 +201,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_crosshair_updates_skipped_when_disabled(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, show_crosshair=False, show_label=False)
         mock_coords = Mock(wraps=overlay.canvas.coords)
         overlay.canvas.coords = mock_coords
@@ -218,7 +218,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_uses_transparent_color_key(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             key = overlay.attributes("-transparentcolor")
@@ -232,8 +232,8 @@ class TestClickOverlay(unittest.TestCase):
     def test_overlay_uses_color_key_with_hooks(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=True),
-            patch("coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=True),
         ):
             overlay = ClickOverlay(root)
         try:
@@ -248,7 +248,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_overlay_normalizes_named_bg_to_hex(self) -> None:
         root = tk.Tk()
         root.configure(bg="red")
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             key = overlay.attributes("-transparentcolor")
@@ -263,7 +263,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_overlay_normalizes_system_color_to_hex(self) -> None:
         root = tk.Tk()
         root.configure(bg="SystemButtonFace")
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             key = overlay.attributes("-transparentcolor")
@@ -277,7 +277,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_overlay_uses_crosshair_cursor(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         cursor = overlay.canvas.cget("cursor")
         self.assertEqual(cursor, "crosshair")
@@ -288,8 +288,8 @@ class TestClickOverlay(unittest.TestCase):
     def test_overlay_visible_when_color_key_missing(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.set_window_colorkey", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.set_window_colorkey", return_value=False),
             patch("builtins.print") as mock_print,
         ):
             overlay = ClickOverlay(root)
@@ -310,8 +310,8 @@ class TestClickOverlay(unittest.TestCase):
             return True
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.set_window_colorkey", side_effect=fake_colorkey),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.set_window_colorkey", side_effect=fake_colorkey),
         ):
             overlay = ClickOverlay(root)
         try:
@@ -332,7 +332,7 @@ class TestClickOverlay(unittest.TestCase):
             return tk.Toplevel.attributes(self, *args)
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
         ):
             overlay = ClickOverlay(root)
@@ -347,7 +347,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_colorkey_revalidation_throttled(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             overlay._colorkey_last_check = time.monotonic()
@@ -368,7 +368,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_offscreen_buffer_skips_unchanged(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, show_label=False)
         overlay._cursor_x = 5
         overlay._cursor_y = 5
@@ -410,8 +410,8 @@ class TestClickOverlay(unittest.TestCase):
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 self.backend = "qt"
 
-        with patch("coolbox.ui.views.click_overlay.QT_AVAILABLE", True), patch(
-            "coolbox.ui.views.click_overlay.QtClickOverlay", DummyOverlay
+        with patch("coolbox.ui.views.overlays.click_overlay.QT_AVAILABLE", True), patch(
+            "coolbox.ui.views.overlays.click_overlay.QtClickOverlay", DummyOverlay
         ):
             overlay = ClickOverlay(None, backend="qt")
             self.assertEqual(getattr(overlay, "backend", ""), "qt")
@@ -421,8 +421,8 @@ class TestClickOverlay(unittest.TestCase):
             def __init__(self, *args: Any, **kwargs: Any) -> None:
                 self.backend = "qtquick"
 
-        with patch("coolbox.ui.views.click_overlay.QT_QUICK_AVAILABLE", True), patch(
-            "coolbox.ui.views.click_overlay.QtQuickClickOverlay", DummyOverlay
+        with patch("coolbox.ui.views.overlays.click_overlay.QT_QUICK_AVAILABLE", True), patch(
+            "coolbox.ui.views.overlays.click_overlay.QtQuickClickOverlay", DummyOverlay
         ):
             overlay = ClickOverlay(None, backend="qtquick")
             self.assertEqual(getattr(overlay, "backend", ""), "qtquick")
@@ -430,7 +430,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_basic_render_disables_transparency(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, basic_render=True)
         try:
             self.assertFalse(overlay._has_colorkey)
@@ -448,7 +448,7 @@ class TestClickOverlay(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         with patch.dict(os.environ, {}, clear=True):
             with patch("pathlib.Path.home", return_value=tmp):
-                import coolbox.ui.views.click_overlay as click_overlay_module
+                import coolbox.ui.views.overlays.click_overlay as click_overlay_module
                 click_overlay_module.CFG = Config()
                 interval, min_i, max_i = click_overlay_module.ClickOverlay.auto_tune_interval(samples=5)
                 cfg = Config()
@@ -460,11 +460,11 @@ class TestClickOverlay(unittest.TestCase):
     def test_auto_tuned_frame_time_under_threshold(self) -> None:
         tmp = Path(tempfile.mkdtemp())
         with patch("pathlib.Path.home", return_value=tmp):
-            import coolbox.ui.views.click_overlay as click_overlay_module
+            import coolbox.ui.views.overlays.click_overlay as click_overlay_module
             click_overlay_module.CFG = Config()
             interval, _, _ = click_overlay_module.ClickOverlay.auto_tune_interval(samples=5)
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, show_label=False, show_crosshair=False)
         try:
             overlay.after_idle = lambda cb: cb()
@@ -521,20 +521,20 @@ class TestClickOverlay(unittest.TestCase):
                     params.update(kwargs)
 
                 with (
-                    patch("coolbox.ui.views.force_quit_dialog.get_global_listener") as mock_listener,
-                    patch("coolbox.ui.views.force_quit_dialog.prime_window_cache"),
+                    patch("coolbox.ui.views.dialogs.force_quit.get_global_listener") as mock_listener,
+                    patch("coolbox.ui.views.dialogs.force_quit.prime_window_cache"),
                     patch.object(ForceQuitDialog, "_configure_overlay"),
                     patch.object(ForceQuitDialog, "_auto_refresh"),
                     patch(
-                        "coolbox.ui.views.force_quit_dialog.ClickOverlay.auto_tune_interval",
+                        "coolbox.ui.views.dialogs.force_quit.ClickOverlay.auto_tune_interval",
                         return_value=tuned,
                     ) as auto_mock,
                     patch(
-                        "coolbox.ui.views.force_quit_dialog.ClickOverlay.__init__",
+                        "coolbox.ui.views.dialogs.force_quit.ClickOverlay.__init__",
                         fake_init,
                     ),
                     patch(
-                        "coolbox.ui.views.force_quit_dialog.ClickOverlay.reset",
+                        "coolbox.ui.views.dialogs.force_quit.ClickOverlay.reset",
                         Mock(),
                     ),
                 ):
@@ -549,19 +549,19 @@ class TestClickOverlay(unittest.TestCase):
 
                 params.clear()
                 with (
-                    patch("coolbox.ui.views.force_quit_dialog.get_global_listener") as mock_listener,
-                    patch("coolbox.ui.views.force_quit_dialog.prime_window_cache"),
+                    patch("coolbox.ui.views.dialogs.force_quit.get_global_listener") as mock_listener,
+                    patch("coolbox.ui.views.dialogs.force_quit.prime_window_cache"),
                     patch.object(ForceQuitDialog, "_configure_overlay"),
                     patch.object(ForceQuitDialog, "_auto_refresh"),
                     patch(
-                        "coolbox.ui.views.force_quit_dialog.ClickOverlay.auto_tune_interval"
+                        "coolbox.ui.views.dialogs.force_quit.ClickOverlay.auto_tune_interval"
                     ) as auto_mock,
                     patch(
-                        "coolbox.ui.views.force_quit_dialog.ClickOverlay.__init__",
+                        "coolbox.ui.views.dialogs.force_quit.ClickOverlay.__init__",
                         fake_init,
                     ),
                     patch(
-                        "coolbox.ui.views.force_quit_dialog.ClickOverlay.reset",
+                        "coolbox.ui.views.dialogs.force_quit.ClickOverlay.reset",
                         Mock(),
                     ),
                 ):
@@ -576,7 +576,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_adaptive_interval_toggle(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, adaptive_interval=True)
         try:
             overlay.after = Mock()
@@ -595,7 +595,7 @@ class TestClickOverlay(unittest.TestCase):
             root.destroy()
 
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root, adaptive_interval=False)
         try:
             overlay.after = Mock()
@@ -615,7 +615,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_move_primes_window_cache(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             overlay._window_cache_rect = (0, 0, 10, 10)
@@ -641,10 +641,10 @@ class TestClickOverlay(unittest.TestCase):
             return [wu.WindowInfo(1, (0, 0, 1, 1), "new")]
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch.object(wu, "_refresh_windows", fake_refresh),
             patch(
-                "coolbox.ui.views.click_overlay.get_window_under_cursor",
+                "coolbox.ui.views.overlays.click_overlay.get_window_under_cursor",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -663,7 +663,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_update_rect_skips_colorkey_check(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             with patch.object(overlay, "_maybe_ensure_colorkey") as mock:
@@ -676,7 +676,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_configure_bg_triggers_colorkey(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             with patch.object(overlay, "_maybe_ensure_colorkey") as mock:
@@ -697,7 +697,7 @@ class TestClickOverlay(unittest.TestCase):
             return tk.Toplevel.attributes(self, *args)
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
         ):
             overlay = ClickOverlay(root)
@@ -724,10 +724,10 @@ class TestClickOverlay(unittest.TestCase):
         attributes_side_effect.calls = 0
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
             patch(
-                "coolbox.ui.views.click_overlay.set_window_colorkey",
+                "coolbox.ui.views.overlays.click_overlay.set_window_colorkey",
                 side_effect=[True, False],
             ) as swc,
         ):
@@ -758,10 +758,10 @@ class TestClickOverlay(unittest.TestCase):
         attributes_side_effect.calls = 0
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch.object(ClickOverlay, "attributes", new=attributes_side_effect),
             patch(
-                "coolbox.ui.views.click_overlay.set_window_colorkey",
+                "coolbox.ui.views.overlays.click_overlay.set_window_colorkey",
                 side_effect=[True, True],
             ) as swc,
         ):
@@ -779,9 +779,9 @@ class TestClickOverlay(unittest.TestCase):
     def test_click_falls_back_to_last_info(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -793,7 +793,7 @@ class TestClickOverlay(unittest.TestCase):
         with (
             patch.object(overlay, "_query_window_at") as gwuc,
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False
             ),
         ):
             gwuc.side_effect = [target, info_self]
@@ -813,9 +813,9 @@ class TestClickOverlay(unittest.TestCase):
     def test_click_refreshes_window_info(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -845,7 +845,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_update_rect_async_uses_worker(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             event = threading.Event()
@@ -868,7 +868,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_update_rect_skips_duplicate_queries(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             overlay._last_info = WindowInfo(5, (0, 0, 1, 1), "cached")
@@ -891,7 +891,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_click_uses_click_coordinates(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._cursor_x = 1
@@ -900,9 +900,9 @@ class TestClickOverlay(unittest.TestCase):
         overlay._click_y = 40
 
         with (
-            patch("coolbox.ui.views.click_overlay.get_window_at") as gwa,
+            patch("coolbox.ui.views.overlays.click_overlay.get_window_at") as gwa,
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False
             ),
         ):
             gwa.return_value = WindowInfo(7, (0, 0, 5, 5), "clicked")
@@ -918,15 +918,15 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_ignores_own_window(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         info_self = WindowInfo(overlay._own_pid, (0, 0, 10, 10), "Self")
         info_target = WindowInfo(123, (5, 5, 10, 10), "Target")
 
         with (
-            patch("coolbox.ui.views.click_overlay.get_window_at") as gwa,
-            patch("coolbox.ui.views.click_overlay.list_windows_at") as lwa,
+            patch("coolbox.ui.views.overlays.click_overlay.get_window_at") as gwa,
+            patch("coolbox.ui.views.overlays.click_overlay.list_windows_at") as lwa,
         ):
             gwa.return_value = info_self
             lwa.return_value = [info_self, info_target]
@@ -941,7 +941,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_single_probe(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.state = OverlayState.HOOKED
@@ -969,7 +969,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_uses_cached_result_when_confident(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.state = OverlayState.HOOKED
@@ -994,7 +994,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_reprobes_when_confidence_low(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.state = OverlayState.HOOKED
@@ -1020,7 +1020,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_reuses_cached_rect(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.state = OverlayState.HOOKED
@@ -1042,7 +1042,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_move_clears_cache(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.state = OverlayState.HOOKED
@@ -1070,7 +1070,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_position_label_keeps_on_screen(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.canvas.bbox = lambda _item: (0, 0, 20, 10)
@@ -1088,7 +1088,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_crosshair_lines_follow_cursor(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._cursor_x = 40
@@ -1107,9 +1107,9 @@ class TestClickOverlay(unittest.TestCase):
     def test_choose_sets_timeout(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=True),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -1138,11 +1138,11 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch(
-                "coolbox.ui.views.click_overlay.get_global_listener",
+                "coolbox.ui.views.overlays.click_overlay.get_global_listener",
                 return_value=DummyListener(),
             ),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough",
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough",
                 return_value=True,
             ),
         ):
@@ -1158,7 +1158,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_choose_falls_back_without_hooks(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._queue_update = lambda *a, **k: None
@@ -1173,11 +1173,11 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch(
-                "coolbox.ui.views.click_overlay.get_global_listener",
+                "coolbox.ui.views.overlays.click_overlay.get_global_listener",
                 return_value=DummyListener(),
             ),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough",
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough",
                 return_value=False,
             ),
         ):
@@ -1191,12 +1191,12 @@ class TestClickOverlay(unittest.TestCase):
     def test_choose_fallback_when_listener_fails(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=True),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=True
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=True
             ),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -1210,11 +1210,11 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch(
-                "coolbox.ui.views.click_overlay.get_global_listener",
+                "coolbox.ui.views.overlays.click_overlay.get_global_listener",
                 return_value=listener,
             ),
-            patch("coolbox.ui.views.click_overlay.make_window_clickthrough") as mk,
-            patch("coolbox.ui.views.click_overlay.remove_window_clickthrough") as rm,
+            patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough") as mk,
+            patch("coolbox.ui.views.overlays.click_overlay.remove_window_clickthrough") as rm,
         ):
             overlay.choose()
             listener.start.assert_called_once()
@@ -1230,9 +1230,9 @@ class TestClickOverlay(unittest.TestCase):
     def test_hooks_fail_without_clickthrough(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=True),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -1250,11 +1250,11 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch(
-                "coolbox.ui.views.click_overlay.get_global_listener",
+                "coolbox.ui.views.overlays.click_overlay.get_global_listener",
                 return_value=DummyListener(),
             ),
-            patch("coolbox.ui.views.click_overlay.make_window_clickthrough") as mk,
-            patch("coolbox.ui.views.click_overlay.remove_window_clickthrough"),
+            patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough") as mk,
+            patch("coolbox.ui.views.overlays.click_overlay.remove_window_clickthrough"),
         ):
             overlay.choose()
             mk.assert_not_called()
@@ -1267,7 +1267,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_unresponsive_hooks_fall_back_to_polling(self) -> None:
         root = tk.Tk()
         with patch(
-            "coolbox.ui.views.click_overlay.get_active_window", return_value=WindowInfo(None)
+            "coolbox.ui.views.overlays.click_overlay.get_active_window", return_value=WindowInfo(None)
         ):
             overlay = ClickOverlay(root)
 
@@ -1278,7 +1278,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay.state = OverlayState.HOOKED
         overlay._last_ping = time.monotonic() - (HOOK_PING_TIMEOUT + 0.1)
 
-        with patch("coolbox.ui.views.click_overlay.remove_window_clickthrough") as rm:
+        with patch("coolbox.ui.views.overlays.click_overlay.remove_window_clickthrough") as rm:
             overlay._monitor_hooks()
             rm.assert_called_once()
 
@@ -1295,12 +1295,12 @@ class TestClickOverlay(unittest.TestCase):
     def test_choose_uses_hooks_when_listener_starts(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=True),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=True
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=True
             ),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -1314,11 +1314,11 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch(
-                "coolbox.ui.views.click_overlay.get_global_listener",
+                "coolbox.ui.views.overlays.click_overlay.get_global_listener",
                 return_value=listener,
             ),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough",
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough",
                 return_value=True,
             ),
         ):
@@ -1333,10 +1333,10 @@ class TestClickOverlay(unittest.TestCase):
     def test_listener_stops_on_click_exception(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=True),
-            patch("coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=True),
+            patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=True),
             patch(
-                "coolbox.ui.views.click_overlay.get_active_window",
+                "coolbox.ui.views.overlays.click_overlay.get_active_window",
                 return_value=WindowInfo(None),
             ),
         ):
@@ -1355,7 +1355,7 @@ class TestClickOverlay(unittest.TestCase):
         listener.stop = Mock()
 
         with (
-            patch("coolbox.ui.views.click_overlay.get_global_listener", return_value=listener),
+            patch("coolbox.ui.views.overlays.click_overlay.get_global_listener", return_value=listener),
             patch.object(overlay, "unbind", wraps=overlay.unbind) as unbind_mock,
         ):
             overlay._click = Mock(side_effect=RuntimeError("boom"))
@@ -1371,7 +1371,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_choose_starts_tracker_when_no_hooks(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.wait_variable = lambda *a, **k: None
@@ -1386,11 +1386,11 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch(
-                "coolbox.ui.views.click_overlay.get_global_listener",
+                "coolbox.ui.views.overlays.click_overlay.get_global_listener",
                 return_value=DummyListener(),
             ),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough",
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough",
                 return_value=False,
             ),
             patch.object(overlay, "bind") as bind_mock,
@@ -1404,7 +1404,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_multiple_overlays_can_coexist(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=True):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=True):
             o1 = ClickOverlay(root)
             o2 = ClickOverlay(root)
 
@@ -1443,8 +1443,8 @@ class TestClickOverlay(unittest.TestCase):
         listener = DummyListener()
 
         with (
-            patch("coolbox.ui.views.click_overlay.get_global_listener", return_value=listener),
-            patch("coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.get_global_listener", return_value=listener),
+            patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False),
         ):
             t1 = threading.Thread(target=o1.choose)
             t2 = threading.Thread(target=o2.choose)
@@ -1470,7 +1470,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_overlay_stays_above_other_windows(self) -> None:
         root = tk.Tk()
         other = tk.Toplevel(root)
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         overlay.deiconify()
         overlay.lift()
@@ -1491,7 +1491,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_queue_update_records_coordinates(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.after_idle = lambda cb: cb()
@@ -1510,7 +1510,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_queue_update_tracks_motion(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.after_idle = lambda cb: cb()
@@ -1535,7 +1535,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_move_schedules_update(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.after_idle = unittest.mock.Mock()
@@ -1556,7 +1556,7 @@ class TestClickOverlay(unittest.TestCase):
             {"KILL_BY_CLICK_MOVE_DEBOUNCE_MS": "50", "KILL_BY_CLICK_MIN_MOVE_PX": "20"},
         ):
             root = tk.Tk()
-            with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+            with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
                 overlay = ClickOverlay(root)
 
             overlay.after_idle = unittest.mock.Mock()
@@ -1571,7 +1571,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_move_no_debounce_when_disabled(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.set_move_debounce_ms(0)
@@ -1591,7 +1591,7 @@ class TestClickOverlay(unittest.TestCase):
             {"KILL_BY_CLICK_MOVE_DEBOUNCE_MS": "50", "KILL_BY_CLICK_MIN_MOVE_PX": "20"},
         ):
             root = tk.Tk()
-            with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+            with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
                 overlay = ClickOverlay(root)
 
             overlay.after_idle = unittest.mock.Mock()
@@ -1609,7 +1609,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_motion_burst_respects_debounce_and_distance(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.after_idle = unittest.mock.Mock()
@@ -1618,7 +1618,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._last_move_pos = (0, 0)
 
         times = iter([0.005, 0.020, 0.025])
-        with patch("coolbox.ui.views.click_overlay.time.time", side_effect=lambda: next(times)):
+        with patch("coolbox.ui.views.overlays.click_overlay.time.time", side_effect=lambda: next(times)):
             overlay._on_move(1, 0)
             self.assertEqual(overlay.after_idle.call_count, 0)
             overlay._on_move(2, 0)
@@ -1634,7 +1634,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_move_thresholds_scale_with_velocity_and_dpi(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._velocity = 0.0
@@ -1654,7 +1654,7 @@ class TestClickOverlay(unittest.TestCase):
         with patch.dict(os.environ, {"KILL_BY_CLICK_MIN_MOVE_PX": "5"}):
             with (
                 patch("tkinter.Toplevel.winfo_fpixels", return_value=192.0),
-                patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
+                patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
             ):
                 root = tk.Tk()
                 overlay = ClickOverlay(root)
@@ -1667,14 +1667,14 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_move_respects_velocity_scaled_threshold(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.after_idle = unittest.mock.Mock()
         overlay._last_move_time = 0.0
         overlay._last_move_pos = (0, 0)
 
-        with patch("coolbox.ui.views.click_overlay.time.time", return_value=0.02):
+        with patch("coolbox.ui.views.overlays.click_overlay.time.time", return_value=0.02):
             overlay._velocity = 0.0
             overlay._on_move(5, 0)
 
@@ -1687,7 +1687,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._last_move_pos = (0, 0)
         overlay._velocity = 500.0
 
-        with patch("coolbox.ui.views.click_overlay.time.time", return_value=0.02):
+        with patch("coolbox.ui.views.overlays.click_overlay.time.time", return_value=0.02):
             overlay._on_move(5, 0)
 
         overlay.after_idle.assert_not_called()
@@ -1698,7 +1698,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_on_move_fast_motion_calls_handle_immediately(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.after_idle = unittest.mock.Mock()
@@ -1710,7 +1710,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._last_move_time = 0.0
         overlay._last_move_pos = (0, 0)
 
-        with patch("coolbox.ui.views.click_overlay.time.time", return_value=0.01):
+        with patch("coolbox.ui.views.overlays.click_overlay.time.time", return_value=0.01):
             overlay._on_move(100, 0)
 
         overlay._handle_move.assert_called_once()
@@ -1722,7 +1722,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_weighted_choice_prefers_active_pid(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._pid_history.extend([2, 2])
@@ -1733,7 +1733,7 @@ class TestClickOverlay(unittest.TestCase):
         with (
             patch("coolbox.utils.analysis.scoring_engine.tuning.sample_weight", 1.0),
             patch("coolbox.utils.analysis.scoring_engine.tuning.history_weight", 1.0),
-            patch("coolbox.ui.views.click_overlay.ACTIVE_BONUS", 5.0),
+            patch("coolbox.ui.views.overlays.click_overlay.ACTIVE_BONUS", 5.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -1745,7 +1745,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_weighted_confidence_returns_probability(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         samples = [WindowInfo(3), WindowInfo(3), WindowInfo(3)]
@@ -1761,7 +1761,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_velocity_weight_reduces_sample_influence(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._pid_history.extend([2])
@@ -1784,7 +1784,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_stability_weight_influences_choice(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._pid_history.extend([2])
@@ -1807,7 +1807,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_stable_info_requires_threshold(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._info_history.extend([WindowInfo(1), WindowInfo(1), WindowInfo(1)])
@@ -1825,7 +1825,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_center_weight_biases_selection(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._cursor_x = 5
@@ -1850,7 +1850,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_edge_penalty_discourages_borders(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._cursor_x = 0
@@ -1876,7 +1876,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_velocity_scaled_stability(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._info_history.extend([WindowInfo(1)])
@@ -1897,7 +1897,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_path_weight_favors_hovered_window(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._cursor_x = 5
@@ -1923,7 +1923,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_heatmap_weight_biases_selection(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.engine.heatmap.region_score = lambda r: 5.0 if r and r[0] == 0 else 0.1
@@ -1947,7 +1947,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_streak_weight_amplifies_current_pid(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._current_pid = 2
@@ -1969,7 +1969,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_recency_weight_biases_recent_pid(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         now = time.time()
@@ -1988,7 +1988,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_duration_weight_biases_longest_pid(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         now = time.time()
@@ -2007,7 +2007,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_active_history_biases_recent_focus(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._active_history.extend([(1, 0.0), (2, 0.1)])
@@ -2015,7 +2015,7 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch("coolbox.utils.analysis.scoring_engine.tuning.active_history_weight", 2.0),
-            patch("coolbox.ui.views.click_overlay.ACTIVE_HISTORY_DECAY", 1.0),
+            patch("coolbox.ui.views.overlays.click_overlay.ACTIVE_HISTORY_DECAY", 1.0),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -2027,7 +2027,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_kalman_velocity_updates(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._last_move_pos = (0, 0)
@@ -2037,7 +2037,7 @@ class TestClickOverlay(unittest.TestCase):
         overlay._kf_x.q = overlay._kf_y.q = 1e-5
         overlay._kf_x.r = overlay._kf_y.r = 1e-3
 
-        with patch("coolbox.ui.views.click_overlay.time.time", side_effect=[0.1, 0.2]):
+        with patch("coolbox.ui.views.overlays.click_overlay.time.time", side_effect=[0.1, 0.2]):
             overlay._on_move(10, 0)
             first = overlay._velocity
             overlay._on_move(20, 0)
@@ -2053,7 +2053,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_zorder_weight_biases_front_window(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._cursor_x = 10
@@ -2065,7 +2065,7 @@ class TestClickOverlay(unittest.TestCase):
             patch("coolbox.utils.analysis.scoring_engine.tuning.sample_weight", 0.0),
             patch("coolbox.utils.analysis.scoring_engine.tuning.history_weight", 0.0),
             patch("coolbox.utils.analysis.scoring_engine.tuning.zorder_weight", 5.0),
-            patch("coolbox.ui.views.click_overlay.list_windows_at", return_value=stack),
+            patch("coolbox.ui.views.overlays.click_overlay.list_windows_at", return_value=stack),
         ):
             choice = overlay._weighted_choice(samples)
 
@@ -2077,7 +2077,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_tracker_ratio_used_when_query_fails(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._click_x = 0
@@ -2104,7 +2104,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_confirm_weight_updates_pid(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._click_x = 5
@@ -2134,14 +2134,14 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_confirm_window_prefers_frontmost(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         overlay._click_x = 5
         overlay._click_y = 5
         front = WindowInfo(2, (0, 0, 10, 10), "front")
         back = WindowInfo(3, (0, 0, 10, 10), "back")
         with (
-            patch("coolbox.ui.views.click_overlay.list_windows_at", return_value=[front, back]),
+            patch("coolbox.ui.views.overlays.click_overlay.list_windows_at", return_value=[front, back]),
             patch("coolbox.utils.window_utils.get_window_at", return_value=back),
         ):
             result = overlay._confirm_window()
@@ -2152,7 +2152,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_gaze_duration_tracks_hover(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         seq = iter([0.0, 0.5, 1.0])
@@ -2161,7 +2161,7 @@ class TestClickOverlay(unittest.TestCase):
             return next(seq)
 
         with patch(
-            "coolbox.ui.views.click_overlay.time.monotonic", side_effect=fake_monotonic
+            "coolbox.ui.views.overlays.click_overlay.time.monotonic", side_effect=fake_monotonic
         ):
             overlay._update_rect(WindowInfo(1))
             overlay._update_rect(WindowInfo(1))
@@ -2175,7 +2175,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_gaze_weight_biases_selection(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay._gaze_duration = {1: 0.1, 2: 2.0}
@@ -2192,17 +2192,17 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_stack_fallback_when_self(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         self_info = WindowInfo(overlay._own_pid)
         stack = [WindowInfo(2, (0, 0, 10, 10), "target"), self_info]
 
         with (
-            patch("coolbox.ui.views.click_overlay.get_window_at", return_value=self_info),
-            patch("coolbox.ui.views.click_overlay.list_windows_at", return_value=stack),
+            patch("coolbox.ui.views.overlays.click_overlay.get_window_at", return_value=self_info),
+            patch("coolbox.ui.views.overlays.click_overlay.list_windows_at", return_value=stack),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False
             ),
             patch.object(
                 overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)
@@ -2218,18 +2218,18 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_refreshes_missing_geometry(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         info = WindowInfo(5, None, "target")
         with (
-            patch("coolbox.ui.views.click_overlay.get_window_at", return_value=info),
+            patch("coolbox.ui.views.overlays.click_overlay.get_window_at", return_value=info),
             patch(
-                "coolbox.ui.views.click_overlay.list_windows_at",
+                "coolbox.ui.views.overlays.click_overlay.list_windows_at",
                 return_value=[WindowInfo(5, (1, 1, 10, 10), "target")],
             ),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False
             ),
             patch.object(
                 overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)
@@ -2245,7 +2245,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_query_nearby_pixel_fallback(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         target = WindowInfo(6, (1, 0, 10, 10), "target")
@@ -2255,11 +2255,11 @@ class TestClickOverlay(unittest.TestCase):
 
         with (
             patch(
-                "coolbox.ui.views.click_overlay.get_window_at", side_effect=fake_get_window_at
+                "coolbox.ui.views.overlays.click_overlay.get_window_at", side_effect=fake_get_window_at
             ),
-            patch("coolbox.ui.views.click_overlay.list_windows_at", return_value=[target]),
+            patch("coolbox.ui.views.overlays.click_overlay.list_windows_at", return_value=[target]),
             patch(
-                "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False
+                "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False
             ),
             patch.object(
                 overlay, "_weighted_confidence", return_value=(None, 1.0, 1.0)
@@ -2276,7 +2276,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_update_rect_rehighlights_on_pid_change(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         overlay.after = lambda _delay, func: func()
@@ -2312,7 +2312,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_on_hover_callback_invoked(self) -> None:
         root = tk.Tk()
         calls: list[tuple[int | None, str | None]] = []
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(
                 root, on_hover=lambda pid, title: calls.append((pid, title))
             )
@@ -2330,7 +2330,7 @@ class TestClickOverlay(unittest.TestCase):
     def test_on_hover_not_called_when_window_unchanged(self) -> None:
         root = tk.Tk()
         calls: list[tuple[int | None, str | None]] = []
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(
                 root, on_hover=lambda pid, title: calls.append((pid, title))
             )
@@ -2351,7 +2351,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_tracker_add_runs_off_thread(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
 
         main_thread = threading.get_ident()
@@ -2390,9 +2390,9 @@ class TestClickOverlay(unittest.TestCase):
             return unsub
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False),
-            patch("coolbox.ui.views.click_overlay.subscribe_active_window", side_effect=fake_subscribe),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_active_window", side_effect=fake_subscribe),
             patch.object(ClickOverlay, "_update_rect", return_value=None),
         ):
             overlay = ClickOverlay(root, interval=0.01)
@@ -2416,9 +2416,9 @@ class TestClickOverlay(unittest.TestCase):
             return unsub
 
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.subscribe_active_window", return_value=lambda: None),
-            patch("coolbox.ui.views.click_overlay.subscribe_window_change", side_effect=fake_subscribe),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_active_window", return_value=lambda: None),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_window_change", side_effect=fake_subscribe),
             patch.object(ClickOverlay, "_refresh_window_cache") as refresh_mock,
         ):
             overlay = ClickOverlay(root, interval=0.01)
@@ -2436,9 +2436,9 @@ class TestClickOverlay(unittest.TestCase):
         def unsub():
             return None
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.subscribe_active_window", return_value=unsub),
-            patch("coolbox.ui.views.click_overlay.get_active_window", return_value=WindowInfo(None)),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_active_window", return_value=unsub),
+            patch("coolbox.ui.views.overlays.click_overlay.get_active_window", return_value=WindowInfo(None)),
         ):
             overlay = ClickOverlay(root)
         try:
@@ -2461,7 +2461,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_probe_point_caches_cursor_movement(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             own = overlay._own_pid
@@ -2477,13 +2477,13 @@ class TestClickOverlay(unittest.TestCase):
                 return [top, other]
 
             with (
-                patch("coolbox.ui.views.click_overlay.PROBE_CACHE_TTL", 60),
+                patch("coolbox.ui.views.overlays.click_overlay.PROBE_CACHE_TTL", 60),
                 patch(
-                    "coolbox.ui.views.click_overlay.get_window_under_cursor",
+                    "coolbox.ui.views.overlays.click_overlay.get_window_under_cursor",
                     side_effect=fake_top,
                 ),
                 patch(
-                    "coolbox.ui.views.click_overlay.list_windows_at",
+                    "coolbox.ui.views.overlays.click_overlay.list_windows_at",
                     side_effect=fake_list,
                 ),
             ):
@@ -2499,11 +2499,11 @@ class TestClickOverlay(unittest.TestCase):
     def test_probe_point_position_cache(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.subscribe_window_change", return_value=None),
-            patch("coolbox.ui.views.click_overlay.get_active_window", return_value=WindowInfo(None)),
-            patch("coolbox.ui.views.click_overlay.subscribe_active_window", return_value=None),
-            patch("coolbox.ui.views.click_overlay.PROBE_CACHE_TTL", 60),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_window_change", return_value=None),
+            patch("coolbox.ui.views.overlays.click_overlay.get_active_window", return_value=WindowInfo(None)),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_active_window", return_value=None),
+            patch("coolbox.ui.views.overlays.click_overlay.PROBE_CACHE_TTL", 60),
         ):
             overlay = ClickOverlay(root)
         try:
@@ -2522,8 +2522,8 @@ class TestClickOverlay(unittest.TestCase):
 
             overlay._window_cache_rect = None
             with (
-                patch("coolbox.ui.views.click_overlay.get_window_under_cursor", side_effect=fake_top),
-                patch("coolbox.ui.views.click_overlay.list_windows_at", side_effect=fake_list),
+                patch("coolbox.ui.views.overlays.click_overlay.get_window_under_cursor", side_effect=fake_top),
+                patch("coolbox.ui.views.overlays.click_overlay.list_windows_at", side_effect=fake_list),
             ):
                 info1 = overlay._probe_point(10, 10)
                 info2 = overlay._probe_point(12, 12)
@@ -2538,11 +2538,11 @@ class TestClickOverlay(unittest.TestCase):
     def test_probe_point_position_cache_expires(self) -> None:
         root = tk.Tk()
         with (
-            patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-            patch("coolbox.ui.views.click_overlay.subscribe_window_change", return_value=None),
-            patch("coolbox.ui.views.click_overlay.get_active_window", return_value=WindowInfo(None)),
-            patch("coolbox.ui.views.click_overlay.subscribe_active_window", return_value=None),
-            patch("coolbox.ui.views.click_overlay.PROBE_CACHE_TTL", 0.5),
+            patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_window_change", return_value=None),
+            patch("coolbox.ui.views.overlays.click_overlay.get_active_window", return_value=WindowInfo(None)),
+            patch("coolbox.ui.views.overlays.click_overlay.subscribe_active_window", return_value=None),
+            patch("coolbox.ui.views.overlays.click_overlay.PROBE_CACHE_TTL", 0.5),
         ):
             overlay = ClickOverlay(root)
         try:
@@ -2560,8 +2560,8 @@ class TestClickOverlay(unittest.TestCase):
 
             overlay._window_cache_rect = None
             with (
-                patch("coolbox.ui.views.click_overlay.get_window_under_cursor", side_effect=fake_top),
-                patch("coolbox.ui.views.click_overlay.list_windows_at", side_effect=fake_list),
+                patch("coolbox.ui.views.overlays.click_overlay.get_window_under_cursor", side_effect=fake_top),
+                patch("coolbox.ui.views.overlays.click_overlay.list_windows_at", side_effect=fake_list),
             ):
                 overlay._probe_point(10, 10)
                 overlay._window_cache_rect = None
@@ -2577,7 +2577,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_process_update_skips_pointer_when_hooked(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             overlay.state = OverlayState.HOOKED
@@ -2611,7 +2611,7 @@ class TestClickOverlay(unittest.TestCase):
     @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
     def test_process_update_polls_pointer_when_unhooked(self) -> None:
         root = tk.Tk()
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
             overlay = ClickOverlay(root)
         try:
             overlay.state = OverlayState.POLLING
@@ -2644,7 +2644,7 @@ class TestClickOverlay(unittest.TestCase):
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
 def test_pointer_move_frame_delay_benchmark() -> None:
     root = tk.Tk()
-    with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False):
+    with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False):
         overlay = ClickOverlay(root, show_label=False, show_crosshair=False)
     try:
         overlay.after_idle = lambda cb: cb()

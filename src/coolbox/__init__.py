@@ -7,6 +7,8 @@ from importlib import import_module
 from types import ModuleType
 from typing import TYPE_CHECKING
 
+_LAZY_ATTRS: dict[str, tuple[str, str]] = {}
+
 # NumPy 2.0 deprecates ``row_stack`` and emits a warning each time it is
 # used.  Matplotlib still calls this alias internally, so we replace it with
 # ``vstack`` to silence the warning without altering behaviour.

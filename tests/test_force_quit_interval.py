@@ -44,7 +44,7 @@ dummy_ctk.CTkCheckBox = _DummyWidget
 dummy_ctk.CTkTextbox = _DummyWidget
 sys.modules.setdefault("customtkinter", dummy_ctk_mod)
 
-from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
+from coolbox.ui.views.dialogs.force_quit import ForceQuitDialog
 
 
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -84,9 +84,9 @@ class TestForceQuitInterval(unittest.TestCase):
 
         listener = mock.MagicMock()
         with (
-            mock.patch("coolbox.ui.views.force_quit_dialog.prime_window_cache"),
-            mock.patch("coolbox.ui.views.force_quit_dialog.get_global_listener", return_value=listener),
-            mock.patch("coolbox.ui.views.force_quit_dialog.ClickOverlay", DummyOverlay),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.prime_window_cache"),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.get_global_listener", return_value=listener),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.ClickOverlay", DummyOverlay),
             mock.patch.object(ForceQuitDialog, "_auto_refresh"),
         ):
             dialog = ForceQuitDialog(app)
@@ -122,9 +122,9 @@ class TestForceQuitInterval(unittest.TestCase):
 
         listener = mock.MagicMock()
         with (
-            mock.patch("coolbox.ui.views.force_quit_dialog.prime_window_cache"),
-            mock.patch("coolbox.ui.views.force_quit_dialog.get_global_listener", return_value=listener),
-            mock.patch("coolbox.ui.views.force_quit_dialog.ClickOverlay", DummyOverlay),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.prime_window_cache"),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.get_global_listener", return_value=listener),
+            mock.patch("coolbox.ui.views.dialogs.force_quit.ClickOverlay", DummyOverlay),
             mock.patch.object(ForceQuitDialog, "_auto_refresh"),
         ):
             dialog = ForceQuitDialog(app)

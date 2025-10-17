@@ -1,10 +1,12 @@
 import os
 import time
 import unittest
+
 os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+
 import customtkinter as ctk
 
-from coolbox.ui.views.home_view import HomeView
+from coolbox.ui.views.screens.home import HomeView
 from coolbox.utils.thread_manager import ThreadManager
 
 

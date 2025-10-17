@@ -6,7 +6,7 @@ import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-from coolbox.utils import (
+from coolbox.utils.network import (
     AutoScanInfo,
     HTTPInfo,
     PortInfo,
@@ -221,8 +221,9 @@ class AutoNetworkScanDialog(BaseDialog):
 
             def risk_val(it: tuple[str, ScanResultValue]) -> int:
                 res = it[1]
-                if isinstance(res, AutoScanInfo) and res.risk_score is not None:
-                    return res.risk_score
+                if isinstance(res, AutoScanInfo):
+                    score = res.risk_score
+                    return score if score is not None else -1
                 return -1
 
             items.sort(key=risk_val, reverse=True)

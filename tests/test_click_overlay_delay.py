@@ -3,7 +3,7 @@ import unittest
 import tkinter as tk
 from unittest.mock import patch
 
-from coolbox.ui.views.click_overlay import ClickOverlay
+from coolbox.ui.views.overlays.click_overlay import ClickOverlay
 
 
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -15,8 +15,8 @@ class TestClickOverlayDelay(unittest.TestCase):
         self.root.destroy()
 
     def _create_overlay(self) -> ClickOverlay:
-        with patch("coolbox.ui.views.click_overlay.is_supported", return_value=False), patch(
-            "coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False
+        with patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False), patch(
+            "coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False
         ):
             overlay = ClickOverlay(self.root)
         self.addCleanup(overlay.destroy)
