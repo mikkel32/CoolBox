@@ -1,14 +1,14 @@
 import pytest
 
-from src.setup.orchestrator import (
+from coolbox.setup.orchestrator import (
     SetupOrchestrator,
     SetupResult,
     SetupStage,
     SetupStatus,
     SetupTask,
 )
-from src.setup.recipes import Recipe
-from src.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
+from coolbox.setup.recipes import Recipe
+from coolbox.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
 
 
 class _Clock:
@@ -26,7 +26,7 @@ def test_orchestrator_emits_telemetry(monkeypatch: pytest.MonkeyPatch, tmp_path)
     clock = _Clock()
     storage = InMemoryTelemetryStorage()
     telemetry = TelemetryClient(storage, clock=clock)
-    monkeypatch.setattr("src.setup.orchestrator.time.time", clock)
+    monkeypatch.setattr("coolbox.setup.orchestrator.time.time", clock)
 
     orchestrator = SetupOrchestrator(root=tmp_path, telemetry=telemetry)
 

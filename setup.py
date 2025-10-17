@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""CoolBox — install/inspect utilities with neon border UI, atomic console, and end-of-run summary."""
-
+"""Compatibility wrapper that exposes the packaged CoolBox setup command."""
 from __future__ import annotations
 
+<<<<<<< ours
 __version__ = "1.6.0"
 
 import argparse
@@ -3388,14 +3388,13 @@ def _load_plugins(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
             except Exception as exc: SUMMARY.add_warning(f"Plugin {ep.name} failed: {exc}")
     except Exception:
         pass
+=======
+import sys
+>>>>>>> theirs
 
-def main(argv: Sequence[str] | None = None) -> None:
-    args = _parse_args(argv or sys.argv[1:])
-    if getattr(args, "offline", False): set_offline(True)
-    is_offline()
-    if offline_auto_detected(): log("Offline mode detected (network unreachable).")
-    cmd = args.command
+from scripts import expose_module
 
+<<<<<<< ours
     exit_code = 0
     try:
         if cmd == "install":
@@ -3457,6 +3456,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         SUMMARY.render(); send_telemetry(SUMMARY)
         if exit_code == 0 and SUMMARY.errors: exit_code = 1
         sys.exit(exit_code)
+=======
+_load_setup = expose_module(globals(), "coolbox.cli.commands.setup")
+_module = _load_setup()
+sys.modules[__name__] = _module
+>>>>>>> theirs
 
 if __name__ == "__main__":
-    main()
+    _module.main()

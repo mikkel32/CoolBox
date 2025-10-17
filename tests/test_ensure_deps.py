@@ -1,7 +1,7 @@
 import importlib
 from types import ModuleType
 
-from src.ensure_deps import (
+from coolbox.ensure_deps import (
     require_package,
     ensure_customtkinter,
     ensure_psutil,
@@ -71,7 +71,7 @@ def test_ensure_customtkinter_calls_require(monkeypatch):
             raise ImportError
         return ModuleType(name)
 
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
     monkeypatch.setattr(importlib, "import_module", fake_import)
 
     mod = ensure_customtkinter("5.0")
@@ -95,7 +95,7 @@ def test_ensure_psutil_calls_require(monkeypatch):
             raise ImportError
         return ModuleType(name)
 
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
     monkeypatch.setattr(importlib, "import_module", fake_import)
 
     mod = ensure_psutil("5.9.0")
@@ -119,7 +119,7 @@ def test_ensure_pillow_calls_require_when_missing(monkeypatch):
         return ModuleType("PIL")
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
 
     mod = ensure_pillow("11.0.0")
     assert mod.__name__ == "PIL"
@@ -136,7 +136,7 @@ def test_ensure_pillow_no_require_when_present(monkeypatch):
         called["name"] = name
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
 
     mod = ensure_pillow("11.0.0")
     assert mod.__name__ == "PIL"
@@ -159,7 +159,7 @@ def test_ensure_pyperclip_calls_require(monkeypatch):
             raise ImportError
         return ModuleType(name)
 
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
     monkeypatch.setattr(importlib, "import_module", fake_import)
 
     mod = ensure_pyperclip("1.8.2")
@@ -182,7 +182,7 @@ def test_ensure_import_installs(monkeypatch):
         calls["version"] = version
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
 
     mod = ensure_import("mod", package="pkg", version="1")
     assert mod.__name__ == "mod"
@@ -205,7 +205,7 @@ def test_ensure_rich_calls_require(monkeypatch):
         return ModuleType(name)
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
 
     mod = ensure_rich("13.0.0")
     assert mod.__name__ == "rich"
@@ -228,7 +228,7 @@ def test_ensure_matplotlib_calls_require(monkeypatch):
         return ModuleType(name)
 
     monkeypatch.setattr(importlib, "import_module", fake_import)
-    monkeypatch.setattr("src.ensure_deps.require_package", fake_require)
+    monkeypatch.setattr("coolbox.ensure_deps.require_package", fake_require)
 
     mod = ensure_matplotlib("3.7.0")
     assert mod.__name__ == "matplotlib"

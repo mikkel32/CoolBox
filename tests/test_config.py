@@ -2,7 +2,7 @@ import tempfile
 import json
 from pathlib import Path
 
-from src.config import Config
+from coolbox.config import Config
 
 
 def test_recent_files_limit(monkeypatch):

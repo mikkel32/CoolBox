@@ -5,18 +5,19 @@ import types
 
 import pytest
 
-base = pathlib.Path(__file__).resolve().parents[1] / "src"
-utils_pkg = types.ModuleType("utils")
+base = pathlib.Path(__file__).resolve().parents[1] / "src" / "coolbox"
+utils_pkg = types.ModuleType("coolbox.utils")
 utils_pkg.__path__ = [str(base / "utils")]
-sys.modules.setdefault("utils", utils_pkg)
+sys.modules.setdefault("coolbox.utils", utils_pkg)
 
 spec = importlib.util.spec_from_file_location(
-    "utils.scoring_engine", base / "utils/scoring_engine.py"
+    "coolbox.utils.analysis.scoring_engine", base / "utils/analysis/scoring_engine.py"
 )
 if spec is None or spec.loader is None:
     raise RuntimeError("Failed to load scoring_engine module spec")
 scoring_engine = importlib.util.module_from_spec(spec)
-sys.modules["utils.scoring_engine"] = scoring_engine
+sys.modules["coolbox.utils.analysis.scoring_engine"] = scoring_engine
+sys.modules["coolbox.utils.scoring_engine"] = scoring_engine
 spec.loader.exec_module(scoring_engine)
 CursorHeatmap = scoring_engine.CursorHeatmap
 Tuning = scoring_engine.Tuning

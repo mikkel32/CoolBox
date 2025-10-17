@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from queue import Queue
 
-from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+from coolbox.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 Snapshot = tuple[dict[int, ProcessEntry], set[int], float]
 
@@ -157,7 +157,7 @@ def test_average_interval():
 def test_auto_interval_env(monkeypatch):
     monkeypatch.setenv("FORCE_QUIT_AUTO_INTERVAL", "0")
     import importlib
-    import src.utils.process_monitor as pm
+    import coolbox.utils.process_monitor as pm
     importlib.reload(pm)
     q = make_queue()
     watcher = pm.ProcessWatcher(q)
@@ -186,7 +186,7 @@ def test_resize_executor(monkeypatch):
 def test_min_workers_env(monkeypatch):
     monkeypatch.setenv("FORCE_QUIT_MIN_WORKERS", "3")
     import importlib
-    import src.utils.process_monitor as pm
+    import coolbox.utils.process_monitor as pm
     importlib.reload(pm)
     q = make_queue()
     watcher = pm.ProcessWatcher(q)

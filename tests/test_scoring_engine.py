@@ -4,7 +4,7 @@ from collections import deque
 
 import pytest
 
-from src.utils.scoring_engine import ScoringEngine, Tuning
+from coolbox.utils.analysis.scoring_engine import ScoringEngine, Tuning
 
 
 def test_gaze_weight_recency_decay() -> None:

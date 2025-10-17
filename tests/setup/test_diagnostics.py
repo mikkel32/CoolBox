@@ -11,15 +11,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import setup
-from src.setup.orchestrator import (
+from coolbox.setup.orchestrator import (
     SetupOrchestrator,
     SetupStage,
     SetupStatus,
     SetupTask,
     SetupResult,
 )
-from src.setup.plugins import PluginManager, ValidatorDecision
-from src.setup.recipes import Recipe
+from coolbox.setup.plugins import PluginManager, ValidatorDecision
+from coolbox.setup.recipes import Recipe
 
 
 def test_run_wrapper_records_diagnostics(monkeypatch):

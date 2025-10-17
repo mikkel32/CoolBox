@@ -2,7 +2,7 @@ import tkinter as tk
 from types import SimpleNamespace
 from typing import cast
 
-from src.views.force_quit_dialog import ForceQuitDialog
+from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
 
 
 class Dummy:

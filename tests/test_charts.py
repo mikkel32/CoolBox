@@ -2,7 +2,7 @@ import os
 import customtkinter as ctk
 import pytest
 
-from src.components import LineChart, BarChart
+from coolbox.ui.components.charts import BarChart, LineChart
 
 
 @pytest.mark.skipif(os.environ.get("DISPLAY") is None, reason="No display available")

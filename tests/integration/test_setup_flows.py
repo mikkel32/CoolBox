@@ -6,18 +6,18 @@ from typing import Literal, Mapping, cast
 
 import pytest
 
-from src.boot import BootManager
-from src.setup import load_last_run
-from src.setup.orchestrator import (
+from coolbox.boot import BootManager
+from coolbox.setup import load_last_run
+from coolbox.setup.orchestrator import (
     SetupOrchestrator,
     SetupResult,
     SetupStage,
     SetupStatus,
     SetupTask,
 )
-from src.setup.recipes import Recipe, RecipeLoader
-from src.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
-from src.telemetry.consent import ConsentDecision, TelemetryConsentManager
+from coolbox.setup.recipes import Recipe, RecipeLoader
+from coolbox.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
+from coolbox.telemetry.consent import ConsentDecision, TelemetryConsentManager
 
 
 class _ConsentStub(TelemetryConsentManager):

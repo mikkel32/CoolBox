@@ -6,14 +6,14 @@ from typing import Any
 
 import pytest
 
-from src.setup.orchestrator import (
+from coolbox.setup.orchestrator import (
     SetupOrchestrator,
     SetupResult,
     SetupStage,
     SetupStatus,
     SetupTask,
 )
-from src.setup.recipes import Recipe
+from coolbox.setup.recipes import Recipe
 
 
 def _orchestrator(tmp_path) -> SetupOrchestrator:

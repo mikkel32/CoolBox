@@ -5,7 +5,7 @@ import pytest
 import customtkinter as ctk
 from customtkinter.windows.widgets.scaling import scaling_tracker
 
-from src.components.tooltip import Tooltip
+from coolbox.ui.components.widgets import Tooltip
 
 
 @pytest.mark.skipif(os.environ.get("DISPLAY") is None, reason="No display available")

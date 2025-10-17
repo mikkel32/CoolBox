@@ -44,20 +44,20 @@ ctk_stub.CTkToplevel = _CTkToplevel
 ctk_stub.CTkFont = _CTkFont
 sys.modules.setdefault("customtkinter", ctk_stub)
 
-import src  # type: ignore[import]
-views_pkg = types.ModuleType("src.views")
-views_pkg.__path__ = [str(pathlib.Path("src/views"))]
-sys.modules.setdefault("src.views", views_pkg)
+import coolbox  # type: ignore[import]
+views_pkg = types.ModuleType("coolbox.ui.views")
+views_pkg.__path__ = [str(pathlib.Path("src/coolbox/ui/views"))]
+sys.modules.setdefault("coolbox.ui.views", views_pkg)
 
 spec = importlib.util.spec_from_file_location(
-    "src.views.force_quit_dialog",
-    pathlib.Path("src/views/force_quit_dialog.py"),
+    "coolbox.ui.views.force_quit_dialog",
+    pathlib.Path("src/coolbox/ui/views/force_quit_dialog.py"),
 )
 assert spec is not None
 force_quit_dialog = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(force_quit_dialog)  # type: ignore[attr-defined]
-sys.modules["src.views.force_quit_dialog"] = force_quit_dialog
+sys.modules["coolbox.ui.views.force_quit_dialog"] = force_quit_dialog
 ForceQuitDialog = force_quit_dialog.ForceQuitDialog
 
 
@@ -88,9 +88,9 @@ def test_kill_by_click_selects_and_kills_pid() -> None:
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
-        patch("src.views.force_quit_dialog.messagebox") as MB,
-        patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
-        patch("src.views.force_quit_dialog.psutil.Process") as Proc,
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=True),
+        patch("coolbox.ui.views.force_quit_dialog.psutil.Process") as Proc,
     ):
         dialog._configure_overlay()
         overlay.on_hover(789, "win")
@@ -158,7 +158,7 @@ def test_kill_by_click_cancel_does_not_kill() -> None:
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
-        patch("src.views.force_quit_dialog.messagebox"),
+        patch("coolbox.ui.views.force_quit_dialog.messagebox"),
     ):
         dialog._configure_overlay()
         dialog._kill_by_click()
@@ -206,7 +206,7 @@ def test_kill_by_click_cancel_before_start_skips_choose() -> None:
     # Delay callback so cancel happens before choose executes
     dialog.after = lambda delay, cb, *args: threading.Timer(0.1, cb, args).start()
 
-    with patch("src.views.force_quit_dialog.messagebox"):
+    with patch("coolbox.ui.views.force_quit_dialog.messagebox"):
         dialog._configure_overlay()
         dialog._kill_by_click()
         dialog.cancel_kill_by_click()
@@ -263,7 +263,7 @@ def test_kill_by_click_cancel_allows_retry() -> None:
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
-        patch("src.views.force_quit_dialog.messagebox"),
+        patch("coolbox.ui.views.force_quit_dialog.messagebox"),
     ):
         dialog._configure_overlay()
         dialog._kill_by_click()
@@ -323,7 +323,7 @@ def test_kill_by_click_cancel_clears_thread_even_if_stuck() -> None:
 
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
-        patch("src.views.force_quit_dialog.messagebox"),
+        patch("coolbox.ui.views.force_quit_dialog.messagebox"),
     ):
         dialog._configure_overlay()
         dialog._kill_by_click()
@@ -370,7 +370,7 @@ def test_kill_by_click_reports_when_no_selection(capsys) -> None:
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
         patch("builtins.print") as mock_print,
-        patch("src.views.force_quit_dialog.messagebox"),
+        patch("coolbox.ui.views.force_quit_dialog.messagebox"),
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
@@ -410,8 +410,8 @@ def test_kill_by_click_skips_vanished_process() -> None:
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
-        patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=False),
-        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=False),
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         patch("builtins.print") as mock_print,
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
@@ -451,9 +451,9 @@ def test_kill_by_click_skips_pid_reuse() -> None:
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
-        patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
-        patch("src.views.force_quit_dialog.psutil.Process") as Proc,
-        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=True),
+        patch("coolbox.ui.views.force_quit_dialog.psutil.Process") as Proc,
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         patch("builtins.print") as mock_print,
     ):
         Proc.return_value.create_time.return_value = 2.0
@@ -496,9 +496,9 @@ def test_kill_by_click_skips_cmdline_change() -> None:
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
-        patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
-        patch("src.views.force_quit_dialog.psutil.Process") as Proc,
-        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=True),
+        patch("coolbox.ui.views.force_quit_dialog.psutil.Process") as Proc,
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         patch("builtins.print") as mock_print,
     ):
         Proc.return_value.create_time.return_value = 1.0
@@ -541,9 +541,9 @@ def test_kill_by_click_skips_exe_change() -> None:
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
-        patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
-        patch("src.views.force_quit_dialog.psutil.Process") as Proc,
-        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=True),
+        patch("coolbox.ui.views.force_quit_dialog.psutil.Process") as Proc,
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         patch("builtins.print") as mock_print,
     ):
         Proc.return_value.create_time.return_value = 1.0
@@ -588,7 +588,7 @@ def test_kill_by_click_skips_self() -> None:
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
-        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         patch("builtins.print") as mock_print,
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
@@ -629,7 +629,7 @@ def test_kill_by_click_handles_no_selection() -> None:
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
-        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         patch("builtins.print") as mock_print,
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
@@ -742,10 +742,10 @@ def test_kill_by_click_reports_when_kill_fails() -> None:
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
     with (
         patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
-        patch("src.views.force_quit_dialog.messagebox") as MB,
+        patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         patch("builtins.print") as mock_print,
-        patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
-        patch("src.views.force_quit_dialog.psutil.Process") as Proc,
+        patch("coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=True),
+        patch("coolbox.ui.views.force_quit_dialog.psutil.Process") as Proc,
     ):
         ctx = dialog._OverlayContext(dialog, overlay)
         ctx.__enter__()
@@ -763,13 +763,13 @@ def test_kill_by_click_reports_when_kill_fails() -> None:
 
 def test_force_kill_reports_when_process_resists(capsys) -> None:
     with (
-        patch("src.views.force_quit_dialog.kill_process", return_value=False) as kp,
+        patch("coolbox.ui.views.force_quit_dialog.kill_process", return_value=False) as kp,
         patch(
-            "src.views.force_quit_dialog.kill_process_tree",
+            "coolbox.ui.views.force_quit_dialog.kill_process_tree",
             return_value=False,
         ) as kpt,
-        patch("src.views.force_quit_dialog.psutil.pid_exists", return_value=True),
-        patch("src.views.force_quit_dialog.psutil.Process") as Proc,
+        patch("coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=True),
+        patch("coolbox.ui.views.force_quit_dialog.psutil.Process") as Proc,
     ):
         proc = Proc.return_value
         proc.name.return_value = "angry"
@@ -817,8 +817,8 @@ def test_kill_by_click_watchdog_reports_timeout() -> None:
 
     with (
         patch("builtins.print") as mock_print,
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
     ):
         dialog._kill_by_click()
         time.sleep(0.2)
@@ -874,8 +874,8 @@ def test_kill_by_click_watchdog_ignores_recent_activity() -> None:
 
     with (
         patch("builtins.print") as mock_print,
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
     ):
         dialog._kill_by_click()
         thread = dialog._overlay_thread
@@ -923,8 +923,8 @@ def test_kill_by_click_watchdog_requires_multiple_misses() -> None:
 
     with (
         patch("builtins.print"),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
     ):
         dialog._kill_by_click()
         time.sleep(0.07)
@@ -969,8 +969,8 @@ def test_kill_by_click_watchdog_separate_process() -> None:
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
     with (
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
-        patch("src.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG", 0.05),
+        patch("coolbox.ui.views.force_quit_dialog.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
     ):
         dialog._kill_by_click()
         proc = dialog._overlay_watchdog_proc

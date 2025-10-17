@@ -1,6 +1,6 @@
 import subprocess
 import asyncio
-from src.utils.process_utils import (
+from coolbox.utils.process_utils import (
     run_command,
     run_command_async,
     run_command_ex,

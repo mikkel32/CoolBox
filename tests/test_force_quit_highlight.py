@@ -9,13 +9,17 @@ from unittest import mock
 class TestForceQuitHighlight(unittest.TestCase):
     def setUp(self) -> None:
         os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
-        src_pkg = types.ModuleType("src")
-        src_pkg.__path__ = [str(pathlib.Path(__file__).resolve().parents[1] / "src")]
-        views_pkg = types.ModuleType("src.views")
-        views_pkg.__path__ = [str(pathlib.Path(__file__).resolve().parents[1] / "src/views")]
+        coolbox_pkg = types.ModuleType("coolbox")
+        coolbox_pkg.__path__ = [
+            str(pathlib.Path(__file__).resolve().parents[1] / "src" / "coolbox")
+        ]
+        views_pkg = types.ModuleType("coolbox.ui.views")
+        views_pkg.__path__ = [
+            str(pathlib.Path(__file__).resolve().parents[1] / "src" / "coolbox" / "views")
+        ]
         modules = {
-            "src": src_pkg,
-            "src.views": views_pkg,
+            "coolbox": coolbox_pkg,
+            "coolbox.ui.views": views_pkg,
             "customtkinter": types.SimpleNamespace(
                 CTk=object,
                 CTkFrame=object,
@@ -24,7 +28,7 @@ class TestForceQuitHighlight(unittest.TestCase):
                 CTkToplevel=object,
                 StringVar=object,
             ),
-            "src.utils.window_utils": types.SimpleNamespace(
+            "coolbox.utils.window_utils": types.SimpleNamespace(
                 WindowInfo=object,
                 get_active_window=lambda: None,
                 get_window_under_cursor=lambda *_a, **_k: None,
@@ -32,36 +36,36 @@ class TestForceQuitHighlight(unittest.TestCase):
                 has_cursor_window_support=lambda: False,
                 prime_window_cache=lambda: None,
             ),
-            "src.utils.kill_utils": types.SimpleNamespace(
+            "coolbox.utils.kill_utils": types.SimpleNamespace(
                 kill_process=lambda *_a, **_k: None,
                 kill_process_tree=lambda *_a, **_k: None,
             ),
-            "src.utils": types.SimpleNamespace(get_screen_refresh_rate=lambda: 60),
-            "src.utils.process_monitor": types.SimpleNamespace(
+            "coolbox.utils": types.SimpleNamespace(get_screen_refresh_rate=lambda: 60),
+            "coolbox.utils.process_monitor": types.SimpleNamespace(
                 ProcessEntry=object, ProcessWatcher=object
             ),
-            "src.views.base_dialog": types.SimpleNamespace(BaseDialog=object),
-            "src.utils.color_utils": types.SimpleNamespace(
+            "coolbox.ui.views.base_dialog": types.SimpleNamespace(BaseDialog=object),
+            "coolbox.utils.color_utils": types.SimpleNamespace(
                 hex_brightness=lambda c: c,
                 lighten_color=lambda c, *_a: c,
                 darken_color=lambda c, *_a: c,
             ),
-            "src.utils.mouse_listener": types.SimpleNamespace(
+            "coolbox.utils.mouse_listener": types.SimpleNamespace(
                 get_global_listener=lambda: types.SimpleNamespace(start=lambda: None)
             ),
-            "src.views.click_overlay": types.SimpleNamespace(
+            "coolbox.ui.views.click_overlay": types.SimpleNamespace(
                 ClickOverlay=object, KILL_BY_CLICK_INTERVAL=0.1
             ),
         }
         self.patcher = mock.patch.dict(sys.modules, modules)
         self.patcher.start()
-        sys.modules.pop("src.views.force_quit_dialog", None)
-        from src.views.force_quit_dialog import ForceQuitDialog
+        sys.modules.pop("coolbox.ui.views.force_quit_dialog", None)
+        from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
         self.ForceQuitDialog = ForceQuitDialog
 
     def tearDown(self) -> None:
         self.patcher.stop()
-        sys.modules.pop("src.views.force_quit_dialog", None)
+        sys.modules.pop("coolbox.ui.views.force_quit_dialog", None)
 
     def test_highlight_pid_skips_duplicate_selection(self) -> None:
         dialog = self.ForceQuitDialog.__new__(self.ForceQuitDialog)

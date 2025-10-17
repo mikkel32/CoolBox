@@ -1,6 +1,6 @@
 import platform
 
-from src.utils import firewall, defender
+from coolbox.utils import firewall, defender
 
 
 def test_firewall_service_error(monkeypatch):

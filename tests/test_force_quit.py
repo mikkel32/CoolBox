@@ -25,8 +25,8 @@ import psutil
 import heapq
 from queue import Queue
 
-from src.views.force_quit_dialog import ForceQuitDialog
-from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
+from coolbox.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 def _make_after_idle_stub() -> tuple[Any, mock.Mock]:
@@ -62,7 +62,7 @@ class TestForceQuit(unittest.TestCase):
 
     def test_force_kill_ignores_missing_process(self) -> None:
         with mock.patch(
-            "src.views.force_quit_dialog.psutil.pid_exists", return_value=False
+            "coolbox.ui.views.force_quit_dialog.psutil.pid_exists", return_value=False
         ):
             ok = ForceQuitDialog.force_kill(123456)
         self.assertTrue(ok)
@@ -70,13 +70,13 @@ class TestForceQuit(unittest.TestCase):
     def test_force_kill_handles_vanished_process(self) -> None:
         with (
             mock.patch(
-                "src.views.force_quit_dialog.psutil.pid_exists",
+                "coolbox.ui.views.force_quit_dialog.psutil.pid_exists",
                 side_effect=[True, False],
             ),
             mock.patch(
-                "src.views.force_quit_dialog.kill_process", return_value=False
+                "coolbox.ui.views.force_quit_dialog.kill_process", return_value=False
             ) as kp,
-            mock.patch("src.views.force_quit_dialog.kill_process_tree") as kpt,
+            mock.patch("coolbox.ui.views.force_quit_dialog.kill_process_tree") as kpt,
         ):
             ok = ForceQuitDialog.force_kill(999)
         self.assertTrue(ok)
@@ -1301,7 +1301,7 @@ class TestForceQuit(unittest.TestCase):
         overlay.apply_defaults.assert_called_once()
 
         dialog.after, after_tracker = _make_after_stub()
-        with mock.patch("src.views.force_quit_dialog.messagebox") as MB:
+        with mock.patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB:
             dialog._kill_by_click()
             if dialog._overlay_thread:
                 dialog._overlay_thread.join(timeout=1)
@@ -1346,7 +1346,7 @@ class TestForceQuit(unittest.TestCase):
         hook = threading.excepthook
         threading.excepthook = lambda args: None
         try:
-            with mock.patch("src.views.force_quit_dialog.messagebox"):
+            with mock.patch("coolbox.ui.views.force_quit_dialog.messagebox"):
                 dialog._kill_by_click()
                 if dialog._overlay_thread:
                     dialog._overlay_thread.join(timeout=1)
@@ -1389,7 +1389,7 @@ class TestForceQuit(unittest.TestCase):
         dialog.after, after_tracker = _make_after_stub()
         with (
             mock.patch.dict(os.environ, {"FORCE_QUIT_CLICK_SKIP_CONFIRM": "1"}),
-            mock.patch("src.views.force_quit_dialog.messagebox") as MB,
+            mock.patch("coolbox.ui.views.force_quit_dialog.messagebox") as MB,
         ):
             dialog._configure_overlay()
             dialog._kill_by_click()
@@ -1439,7 +1439,7 @@ class TestForceQuit(unittest.TestCase):
         dialog._configure_overlay()
         self.assertEqual(overlay.apply_defaults.call_count, 1)
         dialog.after, after_tracker = _make_after_stub()
-        with mock.patch("src.views.force_quit_dialog.messagebox"):
+        with mock.patch("coolbox.ui.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
             if dialog._overlay_thread:
                 dialog._overlay_thread.join(timeout=1)
@@ -1498,7 +1498,7 @@ class TestForceQuit(unittest.TestCase):
         dialog.after, after_tracker = _make_after_stub()
         dialog._configure_overlay()
         start = time.time()
-        with mock.patch("src.views.force_quit_dialog.messagebox"):
+        with mock.patch("coolbox.ui.views.force_quit_dialog.messagebox"):
             dialog._kill_by_click()
         elapsed = time.time() - start
         self.assertLess(elapsed, 0.1)

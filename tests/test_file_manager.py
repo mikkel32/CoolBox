@@ -1,4 +1,4 @@
-from src.utils import (
+from coolbox.utils import (
     copy_file,
     move_file,
     delete_file,
@@ -22,7 +22,7 @@ from src.utils import (
 
 
 def test_copy_move_delete(tmp_path):
-    src = tmp_path / "src.txt"
+    src = tmp_path / "coolbox.txt"
     write_text(src, "hello")
     dest = tmp_path / "dest.txt"
     copy_file(src, dest)

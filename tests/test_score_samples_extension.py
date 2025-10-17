@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-import src.utils.scoring_engine as scoring_engine
-from src.utils.window_utils import WindowInfo
+import coolbox.utils.analysis.scoring_engine as scoring_engine
+from coolbox.utils.window_utils import WindowInfo
 
 
 def test_score_samples_extension_matches_python() -> None:

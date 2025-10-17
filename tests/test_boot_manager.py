@@ -8,12 +8,12 @@ from typing import Literal, Mapping, cast
 
 import pytest
 
-from src.boot import BootManager
-from src.setup.orchestrator import SetupOrchestrator, SetupStage
-from src.setup.plugins import PluginManager
-from src.setup.recipes import Recipe, RecipeLoader
-from src.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
-from src.telemetry.consent import ConsentDecision, TelemetryConsentManager
+from coolbox.boot import BootManager
+from coolbox.setup.orchestrator import SetupOrchestrator, SetupStage
+from coolbox.setup.plugins import PluginManager
+from coolbox.setup.recipes import Recipe, RecipeLoader
+from coolbox.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
+from coolbox.telemetry.consent import ConsentDecision, TelemetryConsentManager
 
 
 class DummyRecipeLoader(RecipeLoader):
@@ -184,7 +184,7 @@ def test_boot_manager_fallback_to_console(
         def handle_event(self, event):
             events.append(event.message)
 
-    monkeypatch.setattr("src.boot.manager.create_dashboard", lambda *_, **__: DashboardStub())
+    monkeypatch.setattr("coolbox.boot.manager.create_dashboard", lambda *_, **__: DashboardStub())
     loader = DummyRecipeLoader()
 
     def failing_app():

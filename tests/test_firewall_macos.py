@@ -4,7 +4,7 @@ import plistlib
 from pathlib import Path
 from typing import Optional
 
-import src.utils.firewall as firewall
+import coolbox.utils.firewall as firewall
 
 
 def setup_macos(

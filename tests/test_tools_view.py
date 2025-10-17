@@ -4,8 +4,8 @@ from tkinter import filedialog
 from unittest.mock import patch
 from typing import Any, cast
 
-from src.app import CoolBoxApp
-from src.views.tools_view import ToolsView
+from coolbox.app import CoolBoxApp
+from coolbox.ui.views.tools_view import ToolsView
 
 
 class TestToolsView(unittest.TestCase):
@@ -44,7 +44,7 @@ class TestToolsView(unittest.TestCase):
 
     def test_exe_inspector_opens_dialog(self) -> None:
         with patch.object(filedialog, "askopenfilename", return_value="app.exe"), \
-             patch("src.views.exe_inspector_dialog.ExeInspectorDialog") as dlg:
+             patch("coolbox.ui.views.exe_inspector_dialog.ExeInspectorDialog") as dlg:
             dummy_app: Any = type("DummyApp", (), {"status_bar": None})()
             dummy: ToolsView = cast(
                 ToolsView, type("Dummy", (), {"app": dummy_app})()

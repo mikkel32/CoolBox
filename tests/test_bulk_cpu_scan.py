@@ -1,7 +1,7 @@
 from queue import Queue
 import os
 
-from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+from coolbox.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 def test_scan_proc_stat_self() -> None:

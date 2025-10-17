@@ -7,9 +7,9 @@ from typing import Any, cast
 import customtkinter as ctk
 from unittest.mock import patch
 
-from src.utils import security
+from coolbox.utils import security
 
-from src.app import CoolBoxApp
+from coolbox.app import CoolBoxApp
 
 
 class TestCoolBoxApp(unittest.TestCase):
@@ -163,10 +163,10 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_open_security_center_method(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.utils.security.is_admin", lambda: True),
-            patch("src.utils.security.is_firewall_enabled", lambda: True),
+            patch("coolbox.utils.security.is_admin", lambda: True),
+            patch("coolbox.utils.security.is_firewall_enabled", lambda: True),
             patch(
-                "src.utils.security.get_defender_status",
+                "coolbox.utils.security.get_defender_status",
                 lambda: security.DefenderStatus("RUNNING", True, True, True, True),
             ),
         ]
@@ -185,9 +185,9 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_open_security_center_relaunches_when_not_admin(self) -> None:
         app = CoolBoxApp()
         flag = {"called": False}
-        with patch("src.utils.security.is_admin", lambda: False), \
+        with patch("coolbox.utils.security.is_admin", lambda: False), \
             patch(
-                "src.utils.security.relaunch_security_center",
+                "coolbox.utils.security.relaunch_security_center",
                 lambda: flag.__setitem__("called", True) or True,
             ):
             app.open_security_center()
@@ -199,10 +199,10 @@ class TestCoolBoxApp(unittest.TestCase):
     def test_security_center_singleton(self) -> None:
         app = CoolBoxApp()
         patches = [
-            patch("src.utils.security.is_admin", lambda: True),
-            patch("src.utils.security.is_firewall_enabled", lambda: True),
+            patch("coolbox.utils.security.is_admin", lambda: True),
+            patch("coolbox.utils.security.is_firewall_enabled", lambda: True),
             patch(
-                "src.utils.security.get_defender_status",
+                "coolbox.utils.security.get_defender_status",
                 lambda: security.DefenderStatus("RUNNING", True, True, True, True),
             ),
         ]
@@ -231,8 +231,8 @@ class TestCoolBoxApp(unittest.TestCase):
             def start(self):
                 pass
 
-        with patch("src.views.tools_view.messagebox.askyesno", side_effect=[True, True]), \
-            patch("src.utils.launch_vm_debug") as launch, \
+        with patch("coolbox.ui.views.tools_view.messagebox.askyesno", side_effect=[True, True]), \
+            patch("coolbox.utils.launch_vm_debug") as launch, \
             patch("threading.Thread", DummyThread):
             tools_view = cast(Any, app.views["tools"])
             tools_view._launch_vm_debug()

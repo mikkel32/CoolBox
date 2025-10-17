@@ -8,17 +8,17 @@ from typing import cast
 
 import pytest
 
-from src.console.dashboard import (
+from coolbox.console.dashboard import (
     DashboardLayout,
     DashboardTheme,
     DashboardThemeSettings,
     JsonDashboard,
     TroubleshootingStudio,
 )
-from src.console.events import StageEvent, TaskEvent, ThemeEvent
-from src.setup.orchestrator import SetupOrchestrator, SetupStage, SetupTask
-from src.setup.recipes import Recipe
-from src.telemetry import TelemetryKnowledgeBase
+from coolbox.console.events import StageEvent, TaskEvent, ThemeEvent
+from coolbox.setup.orchestrator import SetupOrchestrator, SetupStage, SetupTask
+from coolbox.setup.recipes import Recipe
+from coolbox.telemetry import TelemetryKnowledgeBase
 
 
 def test_json_dashboard_records_events() -> None:
@@ -84,7 +84,7 @@ def test_textual_dashboard_handles_events() -> None:
     orchestrator = cast(SetupOrchestrator, DummyOrchestrator())
     studio = TroubleshootingStudio()
 
-    from src.console.dashboard import TextualDashboardApp, THEME_PROFILES
+    from coolbox.console.dashboard import TextualDashboardApp, THEME_PROFILES
 
     app = TextualDashboardApp(
         orchestrator,

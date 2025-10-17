@@ -1,4 +1,4 @@
-from src.utils.rainbow import NeonPulseBorder
+from coolbox.utils.rainbow import NeonPulseBorder
 
 
 def test_generate_colors_changes_with_phase():

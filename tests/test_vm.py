@@ -1,5 +1,5 @@
-import src.utils.vm as vm
-import scripts.run_vm_debug as vmcli
+import coolbox.utils.vm as vm
+from coolbox.cli.commands import run_vm_debug as vmcli
 
 
 def test_launch_vm_debug_wrapper(monkeypatch):

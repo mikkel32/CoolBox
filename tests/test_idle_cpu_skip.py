@@ -4,7 +4,7 @@ import math
 import psutil
 import pytest
 
-from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+from coolbox.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 class _FakeProc:

@@ -4,8 +4,8 @@ import unittest
 os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
 import customtkinter as ctk
 
-from src.views.home_view import HomeView
-from src.utils.thread_manager import ThreadManager
+from coolbox.ui.views.home_view import HomeView
+from coolbox.utils.thread_manager import ThreadManager
 
 
 class DummyTheme:

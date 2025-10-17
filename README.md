@@ -2,6 +2,38 @@
 
 A modern, feature-rich desktop application built with Python and CustomTkinter.
 
+## 🗂️ Project Layout
+
+- `src/coolbox/` — the application package, organised into domain-specific
+  subpackages such as `app/`, `boot/`, `setup/`, `ui/`, and `utils/`.
+  The `utils/` package is now split into focused domains (`analysis/`, `display/`,
+  `files/`, `network/`, `processes/`, `security/`, and `system/`) so common
+  helpers are easier to locate.
+- `src/coolbox/ui/` — the user-interface package bundling structured
+  `components/` (now grouped into `charts/`, `layout/`, `widgets/`, and
+  `dialogs/`) alongside a reorganized `views/` hierarchy split into `base/`,
+  `dialogs/`, `screens/`, and `overlays/`, while legacy import paths continue to
+  work via lightweight module aliases.
+- `src/coolbox/cli/` — reusable command-line helpers powering
+  `python -m coolbox`, legacy `main.py`, and the testing utilities.
+- `src/coolbox/config/` — the configuration package housing the default
+  settings, filesystem helpers, and the `Config` manager.
+- `src/coolbox/cli/commands/setup.py` — the packaged implementation of the
+  historical `setup.py` script; the root-level file now forwards imports and
+  execution here so the real logic lives alongside the other commands.
+- `src/coolbox/paths.py` — centralized helpers that resolve the project root,
+  bundled assets, and the `scripts/` directory for modules that need to touch
+  the filesystem.
+- `scripts/bootstrap.py` — shared path/bootstrap helpers that power the legacy
+  `main.py`, `setup.py`, and thin wrappers in `scripts/python/`.
+- `scripts/` — CLI helpers split into `python/` entry points and `dev/` shell wrappers.
+- `tests/` — the comprehensive unit and integration suite.
+
+Run the application directly with `python -m coolbox` or execute the
+compatibility script (`python main.py`). Both paths now delegate to the shared
+CLI helpers under `src/coolbox/cli/` so local development and installed
+environments behave identically.
+
 ## 📈 Telemetry & Privacy
 
 - **Opt-in consent**: The setup orchestrator now records stage durations, task outcomes, failure codes, and sanitized environment metadata only when telemetry is explicitly enabled. Preferences are cached locally and can be overridden at runtime with `COOLBOX_TELEMETRY=0/1`.
@@ -28,7 +60,8 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
 - **Executable Inspector**: Inspect executables, see running processes, open ports and extract printable strings using a rich TUI.
   The TUI requires the optional [`textual`](https://github.com/Textualize/textual) package. If it's not installed, the inspector falls back to console output.
 - **Setup Dashboard**: Monitor the setup orchestrator with a Textual-powered dashboard featuring theme profiles, dependency graphs, live logs, and a Troubleshooting Studio capable of exporting sanitized diagnostic bundles. Headless runs can emit the same data as structured JSON for CI environments.
-- **Kill by Click CLI**: `scripts/kill_by_click.py` opens the crosshair overlay
+- **Kill by Click CLI**: `scripts/python/kill_by_click.py` (or
+  `coolbox.cli.commands.kill_by_click`) opens the crosshair overlay
   from the terminal so you can quickly select any window. Pass `--skip-confirm`
   to close the overlay immediately without rechecking the click location. Use
   `--interval` to set the base refresh rate and `--min-interval`,
@@ -76,14 +109,14 @@ A modern, feature-rich desktop application built with Python and CustomTkinter.
   refresh immediately. Set
   ``KILL_BY_CLICK_INTERVAL`` to control the
   base refresh rate (defaults to ``0.008`` seconds) or pass ``--interval`` when using
-  ``scripts/kill_by_click.py``. The refresh interval expands and contracts
+  ``scripts/python/kill_by_click.py``. The refresh interval expands and contracts
   between ``KILL_BY_CLICK_MIN_INTERVAL`` (``0.004`` seconds) and
   ``KILL_BY_CLICK_MAX_INTERVAL`` (``0.016`` seconds) using an exponential curve
   tied to pointer velocity. ``KILL_BY_CLICK_DELAY_SCALE`` controls how strongly
   speed influences this interval. Fast motion shortens the delay for responsive
   tracking while slower movement stretches it to conserve CPU. The window's normal interaction state is restored automatically when the overlay closes. The Force Quit dialog uses this overlay when you choose *Kill by Click* and falls back to the window under the cursor if no PID is detected. Set ``FORCE_QUIT_CLICK_SKIP_CONFIRM=1`` to skip the termination prompt. The overlay samples the window
   The highlight color defaults to ``red`` but can be customized by setting
-  ``KILL_BY_CLICK_HIGHLIGHT`` in the environment. The ``scripts/kill_by_click.py``
+  ``KILL_BY_CLICK_HIGHLIGHT`` in the environment. The ``scripts/python/kill_by_click.py``
   helper launches the overlay directly from the command line. Use `--skip-confirm` to close it instantly without the final check. The overlay samples the window
   repeatedly and mixes those results with a short hover history to choose the
   most stable PID even when windows overlap. ``KILL_BY_CLICK_HISTORY`` sets how
@@ -397,6 +430,9 @@ cd CoolBox
 ```bash
 python setup.py
 ```
+   The compatibility wrapper now simply calls
+   `python -m coolbox.cli.commands.setup`, so you can invoke the packaged
+   command directly if you prefer to avoid the top-level shim.
 Alternatively you can run:
 ```bash
 pip install -r requirements.txt
@@ -414,10 +450,10 @@ when GUI libraries like Pillow are missing.
 
 For a development environment with debugging tools, run:
 ```bash
-./scripts/setup_dev_env.sh
+./scripts/dev/setup_dev_env.sh
 ```
 Pass ``--skip-deps`` to ``run_vm_debug.py`` or set ``SKIP_DEPS=1`` when
-running ``run_debug.sh`` to reuse existing Python packages.
+running ``scripts/dev/run_debug.sh`` to reuse existing Python packages.
 
 ### Running Tests
 
@@ -439,7 +475,7 @@ verification, and summaries. The orchestrator returns structured results so
 stages can be selectively retried, extended via plugins, or surfaced in CI
 logs. Use ``--setup-recipe`` to point at a recipe by name or path.
 
-Example recipes live in ``assets/setup/recipes``:
+Example recipes live in ``src/coolbox/assets/setup/recipes``:
 
 | Recipe        | Description                                                                           |
 | ------------- | ------------------------------------------------------------------------------------- |
@@ -456,7 +492,7 @@ python main.py --setup-recipe ci
 ```
 
 The example above forces the CI recipe, while ``python main.py --setup-recipe
-assets/setup/recipes/airgapped.yaml`` shows how to point to a custom path.
+src/coolbox/assets/setup/recipes/airgapped.yaml`` shows how to point to a custom path.
 
 3rd-party tooling can hook into the pipeline by exposing an entry-point in
 the ``coolbox.setup`` group. Plugins receive a registrar object that can add
@@ -465,7 +501,7 @@ lifecycle callbacks before/after each stage and task.
 
 To start the app and wait for a debugger to attach, use:
 ```bash
-./scripts/run_debug.sh
+./scripts/dev/run_debug.sh
 ```
 This script will automatically start the application under ``xvfb`` if no
 display is available, making it convenient to debug in headless
@@ -497,16 +533,18 @@ debug server port. If no backend is available the app runs locally under
 
 ### Network Scanner CLI
 
-Use ``scripts/network_scan.py`` to scan multiple hosts for open ports:
+Use ``scripts/python/network_scan.py`` (or
+``python -m coolbox.cli.commands.network_scan``) to scan multiple hosts for open
+ports:
 
 ```bash
-./scripts/network_scan.py 22-25 host1 host2 host3
+./scripts/python/network_scan.py 22-25 host1 host2 host3
 ```
 The script runs asynchronous scans with caching so repeated invocations are fast
 and supports a few useful options:
 
 ```bash
-./scripts/network_scan.py 80-85 host1 --timeout 1.0 --family ipv6
+./scripts/python/network_scan.py 80-85 host1 --timeout 1.0 --family ipv6
 ```
 * ``--timeout`` sets the connection timeout in seconds
 * ``--family`` forces IPv4 or IPv6 resolution (``auto`` by default)
@@ -568,12 +606,13 @@ Environment variables can tune default behavior:
 
 ### Process Monitor CLI
 
-Run ``scripts/process_monitor_cli.py`` to view live CPU and memory usage in the
+Run ``scripts/python/process_monitor_cli.py`` (or
+``python -m coolbox.cli.commands.process_monitor``) to view live CPU and memory usage in the
 terminal. The script uses the same adaptive `ProcessWatcher` as the Force Quit
 dialog and accepts additional tuning options:
 
 ```bash
-python scripts/process_monitor_cli.py --interval 1.5 --limit 10 \
+python scripts/python/process_monitor_cli.py --interval 1.5 --limit 10 \
     --auto-interval --min-interval 0.5 --max-interval 5 \
     --auto-batch --min-batch 50 --max-batch 500 --ignore-names bash --show-stats
 ```
@@ -589,25 +628,27 @@ lets you debug the application in an isolated environment:
 
 1. Install the *Dev Containers* extension for Visual Studio Code.
 2. From the Command Palette choose **Dev Containers: Open Folder in Container**.
-3. Once the container starts, run `./scripts/run_debug.sh` to launch the app
+3. Once the container starts, run `./scripts/dev/run_debug.sh` to launch the app
    under `debugpy`.
 
 You can also start the container manually:
 
 ```bash
-./scripts/run_devcontainer.sh
+./scripts/dev/run_devcontainer.sh
 ```
 This requires Docker or Podman to be installed on your system. Like
-``run_debug.sh``, the script automatically launches the app under
+``scripts/dev/run_debug.sh``, the script automatically launches the app under
 ``xvfb`` if no display is detected so the GUI works even in headless
 Docker environments. Install the ``xvfb`` package to ensure the
-``xvfb-run`` helper is available. You may also use ``./scripts/run_vm_debug.sh`` or
-``python scripts/run_vm_debug.py`` (``.\scripts\run_vm_debug.ps1`` on Windows) which choose Docker/Podman or Vagrant
+``xvfb-run`` helper is available. You may also use ``./scripts/dev/run_vm_debug.sh`` or
+``python scripts/python/run_vm_debug.py`` (``.\scripts\dev\run_vm_debug.ps1`` on Windows),
+or run ``python -m coolbox.cli.commands.run_vm_debug`` to choose Docker/Podman or Vagrant
 depending on what is installed. If neither is present, it falls back to
-``run_debug.sh`` so you can still debug locally.
+``scripts/dev/run_debug.sh`` so you can still debug locally.
 When this fallback occurs the application waits for a debugger to attach on
-``DEBUG_PORT`` (default ``5678``). Run ``python scripts/run_vm_debug.py --list``
-to verify whether Docker, Podman or Vagrant are available on your system.
+``DEBUG_PORT`` (default ``5678``). Run ``python -m coolbox.cli.commands.run_vm_debug --list``
+or the compatibility script to verify whether Docker, Podman or Vagrant are
+available on your system.
 
 ### Debugging in a Vagrant VM
 
@@ -618,24 +659,26 @@ The debug server port **5678** is forwarded to the host by default so you can at
 to `localhost:5678`. Use ``--port`` to choose a custom port:
 
 ```bash
-./scripts/run_vagrant.sh
+./scripts/dev/run_vagrant.sh
 ```
 
-As a shortcut you can use ``./scripts/run_vm_debug.sh`` or
-``python scripts/run_vm_debug.py`` which will start ``run_vagrant.sh`` or
-``run_devcontainer.sh`` depending on what tools are available. When
-neither is found the script falls back to running ``run_debug.sh`` in the
+As a shortcut you can use ``./scripts/dev/run_vm_debug.sh`` or
+``python scripts/python/run_vm_debug.py`` (or ``python -m coolbox.cli.commands.run_vm_debug``)
+which will start ``scripts/dev/run_vagrant.sh`` or
+``scripts/dev/run_devcontainer.sh`` depending on what tools are available. When
+neither is found the script falls back to running ``scripts/dev/run_debug.sh`` in the
 current environment.  You can set ``PREFER_VM=docker``, ``PREFER_VM=podman`` or
 ``PREFER_VM=vagrant`` to force a specific backend or pass ``--prefer`` to
-``run_vm_debug.py``. The ``run_vm_debug.sh`` wrapper now simply calls this
+``scripts/python/run_vm_debug.py`` (or ``python -m coolbox.cli.commands.run_vm_debug``).
+The ``scripts/dev/run_vm_debug.sh`` wrapper now simply calls this
 Python script so all command line options like ``--prefer`` ``--code`` and
 ``--port`` and ``--skip-deps`` are
 available on both Unix and Windows.
 Use the ``--code`` flag to open Visual Studio Code before launching the
 environment so it's ready to attach to the debug server.
-Run ``python scripts/run_vm_debug.py --list`` to display the backends
-detected on your system.
-``run_vm_debug.ps1`` accepts the same options including ``--list`` for Windows users.
+Run ``python -m coolbox.cli.commands.run_vm_debug --list`` (or the compatibility
+script) to display the backends detected on your system.
+``scripts/dev/run_vm_debug.ps1`` accepts the same options including ``--list`` for Windows users.
 
 The first run may take a while while Vagrant downloads the base box and
 installs packages. Once finished, Visual Studio Code can attach to the
@@ -649,7 +692,7 @@ debug server on port `5678` using the **Python: Attach** configuration.
    configuration provided in `.vscode/launch.json`.
 4. For convenience a task named **Run CoolBox in Debug** is provided. Open the
    Command Palette and run **Tasks: Run Task** then choose this task to launch
-   the app via `./scripts/run_debug.sh`.
+   the app via `./scripts/dev/run_debug.sh`.
 5. Additional tasks are available for launching the app in Docker/Podman or Vagrant.
    Choose **Run in Dev Container**, **Run in Vagrant VM**, or
    **Run in Available VM** to start the appropriate environment.
@@ -665,13 +708,46 @@ debug server on port `5678` using the **Python: Attach** configuration.
 CoolBox/
 ├── main.py              # Entry point
 ├── src/
-│   ├── app.py          # Main application class
-│   ├── components/     # UI components
-│   ├── views/          # Application views
-│   ├── utils/          # Utilities
-│   └── models/         # Data models
-└── assets/             # Resources
+│   └── coolbox/
+│       ├── app/        # Main application classes
+│       ├── boot/       # Boot orchestration
+│       ├── ui/         # UI package (components + views)
+│       │   ├── components/ # Reusable widgets grouped by role
+│       │   └── views/      # Application views grouped by scope
+│       ├── console/    # Textual dashboards
+│       ├── setup/      # Setup orchestrator & recipes
+│       ├── telemetry/  # Telemetry client and storage
+│       ├── utils/      # Utilities grouped by domain
+│       │   ├── analysis/   # Cursor scoring engine and numerical helpers
+│       │   ├── display/    # UI-centric helpers (window utils, theming, input)
+│       │   ├── files/      # File system and cache helpers
+│       │   ├── network/    # Network scanning and HTTP probing
+│       │   ├── processes/  # Process inspection, exec helpers, watchdogs
+│       │   ├── security/   # Security center orchestration & toggles
+│       │   └── system/     # Platform abstractions, logging, GPU probes
+│       └── assets/     # Packaged resources
+├── scripts/
+│   ├── python/     # Python CLI entry points
+│   └── dev/        # Shell/Powershell developer helpers
+└── tests/              # Automated tests
 ```
+
+### Security utilities layout
+
+The ``coolbox.utils.security`` package is now organized into focused modules:
+
+* ``platform.py`` exposes cross-platform constants and cached handles such as
+  ``CREATE_NO_WINDOW`` and ``ctypes.windll`` accessors.
+* ``admin.py`` centralizes administrator privilege checks and the elevated
+  relaunch helper used by the Security Center.
+* ``core.py`` contains shared orchestration primitives such as
+  ``ActionOutcome``, ``RunResult``, and the ``TogglePipeline`` execution model.
+* ``firewall_control.py`` coordinates Windows and macOS firewall toggles while
+  surfacing detailed blocker diagnostics.
+* ``defender_control.py`` manages Windows Defender services, tamper checks, and
+  PowerShell enforcement fallbacks.
+* ``snapshot.py`` composes the administrator, firewall, and Defender state into
+  the ``SecuritySnapshot`` consumed by the UI.
 
 ## 🎨 Screenshots
 

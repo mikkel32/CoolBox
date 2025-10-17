@@ -22,9 +22,9 @@ from typing import Any, Dict, cast
 import psutil
 import pytest
 
-import scripts.network_scan
+from coolbox.cli.commands import network_scan as network_cli
 
-import src.utils.network as network
+import coolbox.utils.network as network
 
 
 Snicaddr = namedtuple(
@@ -575,7 +575,7 @@ def test_custom_timeout():
 
 
 def test_network_scan_cli(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -604,7 +604,7 @@ def test_network_scan_cli(tmp_path):
 
 
 def test_network_scan_cli_services(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -634,7 +634,7 @@ def test_network_scan_cli_services(tmp_path):
 
 
 def test_network_scan_cli_banner(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _BannerHandler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -664,7 +664,7 @@ def test_network_scan_cli_banner(tmp_path):
 
 
 def test_network_scan_cli_latency(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -694,7 +694,7 @@ def test_network_scan_cli_latency(tmp_path):
 
 
 def test_network_scan_cli_top(monkeypatch):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -726,7 +726,7 @@ def test_network_scan_cli_top(monkeypatch):
 
 
 def test_network_scan_cli_list(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -755,7 +755,7 @@ def test_network_scan_cli_list(tmp_path):
 
 
 def test_network_scan_cli_host_range(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -784,7 +784,7 @@ def test_network_scan_cli_host_range(tmp_path):
 
 
 def test_network_scan_cli_ping(monkeypatch):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -826,7 +826,7 @@ def test_network_scan_cli_ping(monkeypatch):
 
 
 def test_network_scan_cli_ping_details(monkeypatch):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -881,7 +881,7 @@ def test_network_scan_cli_ping_details(monkeypatch):
 
 
 def test_network_scan_cli_auto(monkeypatch):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     monkeypatch.setattr(
         network,
         "async_detect_local_hosts",
@@ -914,7 +914,7 @@ def test_network_scan_cli_auto(monkeypatch):
 
 
 def test_network_scan_cli_auto_with_hosts(monkeypatch):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     monkeypatch.setattr(
         network,
         "async_detect_local_hosts",
@@ -957,7 +957,7 @@ def test_network_scan_cli_auto_with_hosts(monkeypatch):
 
 
 def test_network_scan_cli_auto_with_hosts_no_ping(monkeypatch):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     monkeypatch.setattr(
         network,
         "async_detect_local_hosts",
@@ -999,7 +999,7 @@ def test_network_scan_cli_auto_with_hosts_no_ping(monkeypatch):
 
 
 def test_network_scan_cli_auto_dedupe(monkeypatch):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     monkeypatch.setattr(
         network,
         "async_detect_local_hosts",
@@ -1044,7 +1044,7 @@ def test_network_scan_cli_detailed(monkeypatch):
         info.os_guess = "Linux"
         return {"localhost": info}
 
-    monkeypatch.setattr(scripts.network_scan, "async_scan_hosts_detailed", fake_scan)
+    monkeypatch.setattr(network_cli, "async_scan_hosts_detailed", fake_scan)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -1053,7 +1053,7 @@ def test_network_scan_cli_detailed(monkeypatch):
     captured = io.StringIO()
     monkeypatch.setattr(sys, "stdout", captured)
 
-    asyncio.run(scripts.network_scan.main())
+    asyncio.run(network_cli.main())
 
     out = captured.getvalue()
     assert "(pc)" in out
@@ -1062,7 +1062,7 @@ def test_network_scan_cli_detailed(monkeypatch):
 
 
 def test_network_scan_cli_json(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1094,7 +1094,7 @@ def test_network_scan_cli_json(tmp_path):
 
 
 def test_network_scan_cli_stream(tmp_path):
-    script = Path("scripts/network_scan.py")
+    script = Path("scripts/python/network_scan.py")
     with socketserver.TCPServer(("localhost", 0), _Handler) as server:
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1131,7 +1131,7 @@ def test_network_scan_cli_host_concurrency(monkeypatch):
         return {"localhost": network.AutoScanInfo([80])}
 
     monkeypatch.setattr(
-        scripts.network_scan, "async_scan_hosts_detailed", fake_scan_hosts
+        network_cli, "async_scan_hosts_detailed", fake_scan_hosts
     )
     monkeypatch.setattr(
         sys, "argv", ["network_scan.py", "80", "localhost", "--host-concurrency", "5"]
@@ -1139,7 +1139,7 @@ def test_network_scan_cli_host_concurrency(monkeypatch):
     captured = io.StringIO()
     monkeypatch.setattr(sys, "stdout", captured)
 
-    asyncio.run(scripts.network_scan.main())
+    asyncio.run(network_cli.main())
     out = captured.getvalue()
     assert "localhost" in out
 

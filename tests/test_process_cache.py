@@ -2,7 +2,7 @@ import subprocess
 import sys
 import time
 
-from src.utils import ProcessCache
+from coolbox.utils import ProcessCache
 
 
 def test_process_cache_updates_on_invalidate():

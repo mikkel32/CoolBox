@@ -3,7 +3,7 @@ from typing import cast
 
 import pytest
 
-from src.console.dashboard import (
+from coolbox.console.dashboard import (
     DashboardLayout,
     DashboardTheme,
     DashboardThemeSettings,
@@ -13,10 +13,10 @@ from src.console.dashboard import (
     TEXTUAL_AVAILABLE,
     THEME_PROFILES,
 )
-from src.console.events import TaskEvent
-from src.setup.orchestrator import SetupOrchestrator, SetupStage
-from src.telemetry import TelemetryKnowledgeBase
-from src.telemetry.events import TelemetryEvent, TelemetryEventType
+from coolbox.console.events import TaskEvent
+from coolbox.setup.orchestrator import SetupOrchestrator, SetupStage
+from coolbox.telemetry import TelemetryKnowledgeBase
+from coolbox.telemetry.events import TelemetryEvent, TelemetryEventType
 
 
 def _seed_knowledge_base() -> TelemetryKnowledgeBase:

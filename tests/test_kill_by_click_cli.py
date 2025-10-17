@@ -23,7 +23,7 @@ sys.modules.setdefault("matplotlib.backends", mock.Mock())
 sys.modules.setdefault("matplotlib.backends.backend_tkagg", mock.Mock())
 sys.modules.setdefault("matplotlib.figure", mock.Mock())
 
-import scripts.kill_by_click as kbc
+from coolbox.cli.commands import kill_by_click as kbc
 
 
 def test_main_invokes_overlay(monkeypatch):

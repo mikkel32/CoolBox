@@ -1,4 +1,4 @@
-from src.utils.thread_manager import ThreadManager
+from coolbox.utils.thread_manager import ThreadManager
 
 
 def test_post_exception_falls_back_when_after_fails():

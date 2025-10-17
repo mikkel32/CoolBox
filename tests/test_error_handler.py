@@ -9,8 +9,8 @@ from typing import Any, cast
 
 import pytest
 
-from src.app import error_handler as eh
-from src.utils.logging_config import setup_logging
+from coolbox.app import error_handler as eh
+from coolbox.utils.logging_config import setup_logging
 
 # Ensure lightweight mode so the GUI toolkit is not required
 os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
@@ -117,7 +117,7 @@ def test_error_dialog_creates_root_when_default_destroyed(monkeypatch):
             pass
 
     mod = SimpleNamespace(ModernErrorDialog=FakeDialog)
-    monkeypatch.setitem(sys.modules, "src.components.modern_error_dialog", mod)
+    monkeypatch.setitem(sys.modules, "coolbox.ui.components.modern_error_dialog", mod)
 
     monkeypatch.setattr(eh, "_get_log_file", lambda: None)
 
@@ -166,7 +166,7 @@ def test_uninstall_restores_hooks():
 def test_cli_check():
     env = os.environ.copy()
     env["COOLBOX_LIGHTWEIGHT"] = "1"
-    cmd = [sys.executable, "-m", "src.app.error_handler", "--check", "--uninstall"]
+    cmd = [sys.executable, "-m", "coolbox.app.error_handler", "--check", "--uninstall"]
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     assert proc.returncode == 0
     data = json.loads(proc.stdout.strip().splitlines()[-1])
@@ -177,7 +177,7 @@ def test_cli_check():
 def test_cli_trigger_error_invokes_handler():
     env = os.environ.copy()
     env["COOLBOX_LIGHTWEIGHT"] = "1"
-    cmd = [sys.executable, "-m", "src.app.error_handler", "--trigger-error", "--uninstall"]
+    cmd = [sys.executable, "-m", "coolbox.app.error_handler", "--trigger-error", "--uninstall"]
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     assert proc.returncode == 0
     # our handler should log the simulated unhandled exception
@@ -192,7 +192,7 @@ def test_cli_simulate_handler_failure():
     cmd = [
         sys.executable,
         "-m",
-        "src.app.error_handler",
+        "coolbox.app.error_handler",
         "--trigger-error",
         "--simulate-handler-failure",
         "--uninstall",
@@ -208,7 +208,7 @@ def test_cli_diagnose_ui_reports_headless():
     cmd = [
         sys.executable,
         "-m",
-        "src.app.error_handler",
+        "coolbox.app.error_handler",
         "--diagnose-ui",
         "--uninstall",
     ]

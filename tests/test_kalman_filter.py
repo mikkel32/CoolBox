@@ -1,4 +1,4 @@
-from src.views.click_overlay import _Kalman1D
+from coolbox.ui.views.click_overlay import _Kalman1D
 
 
 def test_kalman_update_tracks_velocity():

@@ -1,7 +1,7 @@
 import builtins
 import shutil
 
-import scripts.run_vm_debug as rvd
+from coolbox.cli.commands import run_vm_debug as rvd
 
 
 def test_load_launch_without_heavy_deps(monkeypatch):

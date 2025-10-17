@@ -9,7 +9,7 @@ def reload_module(monkeypatch, workers=None):
         monkeypatch.delenv("KILL_BY_CLICK_WORKERS", raising=False)
     else:
         monkeypatch.setenv("KILL_BY_CLICK_WORKERS", str(workers))
-    import src.views.click_overlay as click_overlay
+    import coolbox.ui.views.click_overlay as click_overlay
     return importlib.reload(click_overlay)
 
 

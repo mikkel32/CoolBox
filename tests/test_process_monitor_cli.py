@@ -1,7 +1,7 @@
 from argparse import Namespace
 from unittest.mock import patch
 
-import scripts.process_monitor_cli as pmcli
+from coolbox.cli.commands import process_monitor as pmcli
 
 
 def test_parse_args_defaults(monkeypatch):

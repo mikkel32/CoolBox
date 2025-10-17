@@ -1,7 +1,7 @@
 import types
 from unittest.mock import patch
 
-from src.utils.gpu import benchmark_gpu_usage
+from coolbox.utils.gpu import benchmark_gpu_usage
 
 
 class DummyGPU:

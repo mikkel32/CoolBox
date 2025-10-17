@@ -11,11 +11,11 @@ import sys
 import types
 from typing import Any, cast
 
-src = cast(Any, types.ModuleType("src"))
-utils = cast(Any, types.ModuleType("src.utils"))
-hash_utils = cast(Any, types.ModuleType("src.utils.hash_utils"))
-process_utils = cast(Any, types.ModuleType("src.utils.process_utils"))
-security = cast(Any, types.ModuleType("src.utils.security"))
+coolbox_pkg = cast(Any, types.ModuleType("coolbox"))
+utils = cast(Any, types.ModuleType("coolbox.utils"))
+hash_utils = cast(Any, types.ModuleType("coolbox.utils.hash_utils"))
+process_utils = cast(Any, types.ModuleType("coolbox.utils.process_utils"))
+security = cast(Any, types.ModuleType("coolbox.utils.security"))
 
 hash_utils.calc_hash = lambda p, algo="sha256": hashlib.sha256(
     Path(p).read_bytes()
@@ -27,14 +27,14 @@ security.is_admin = lambda: True
 utils.hash_utils = hash_utils
 utils.process_utils = process_utils
 utils.security = security
-src.utils = utils
-sys.modules.setdefault("src", src)
-sys.modules.setdefault("src.utils", utils)
-sys.modules.setdefault("src.utils.hash_utils", hash_utils)
-sys.modules.setdefault("src.utils.process_utils", process_utils)
-sys.modules.setdefault("src.utils.security", security)
+coolbox_pkg.utils = utils
+sys.modules.setdefault("coolbox", coolbox_pkg)
+sys.modules.setdefault("coolbox.utils", utils)
+sys.modules.setdefault("coolbox.utils.hash_utils", hash_utils)
+sys.modules.setdefault("coolbox.utils.process_utils", process_utils)
+sys.modules.setdefault("coolbox.utils.security", security)
 
-import scripts.exe_inspector as inspector
+from coolbox.cli.commands import exe_inspector as inspector
 
 
 def test_gather_info_windows(monkeypatch, tmp_path):

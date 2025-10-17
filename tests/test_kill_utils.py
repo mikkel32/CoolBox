@@ -8,7 +8,7 @@ import signal
 import psutil
 from unittest import mock
 
-from src.utils.kill_utils import kill_process, kill_process_tree
+from coolbox.utils.kill_utils import kill_process, kill_process_tree
 
 
 class TestKillUtils(unittest.TestCase):
@@ -34,8 +34,8 @@ class TestKillUtils(unittest.TestCase):
 
             with mock.patch.object(psutil.Process, "terminate", slow_fail), \
                  mock.patch.object(psutil.Process, "kill", slow_fail), \
-                 mock.patch("src.utils.kill_utils._kill_cmd", side_effect=slow_kill_cmd), \
-                 mock.patch("src.utils.kill_utils.log") as mock_log:
+                 mock.patch("coolbox.utils.kill_utils._kill_cmd", side_effect=slow_kill_cmd), \
+                 mock.patch("coolbox.utils.kill_utils.log") as mock_log:
                 ok = kill_process(proc.pid, timeout=0.1, watchdog=0.01, on_timeout=lambda: False)
                 self.assertFalse(ok)
                 messages = "".join(call.args[0] for call in mock_log.call_args_list)

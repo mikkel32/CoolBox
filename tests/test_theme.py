@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from src.utils.theme import ThemeManager, _ConfigLike
+from coolbox.utils.theme import ThemeManager, _ConfigLike
 
 
 def test_apply_theme(tmp_path) -> None:

@@ -1,7 +1,7 @@
 from queue import Queue
 import psutil
 
-from src.utils.process_monitor import ProcessWatcher, ProcessEntry
+from coolbox.utils.process_monitor import ProcessWatcher, ProcessEntry
 
 
 def test_load_skip_params() -> None:

@@ -1,6 +1,6 @@
 from time import sleep
 
-from src.utils.thread_manager import ThreadManager
+from coolbox.utils.thread_manager import ThreadManager
 
 
 def test_thread_manager_threads_and_communication():

@@ -1,6 +1,6 @@
 import types
 
-from src.utils import mouse_listener
+from coolbox.utils import mouse_listener
 
 
 def test_global_listener_singleton(monkeypatch):

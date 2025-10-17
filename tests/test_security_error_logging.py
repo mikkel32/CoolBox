@@ -1,9 +1,9 @@
 import subprocess
 
-import src.utils.firewall as firewall
-import src.utils.defender as defender
-from src.utils.security import run_command_background
-from src.app import error_handler as eh
+import coolbox.utils.firewall as firewall
+import coolbox.utils.defender as defender
+from coolbox.utils.security import run_command_background
+from coolbox.app import error_handler as eh
 
 
 def _boom_run(*args, **kwargs):  # pragma: no cover - helper to force errors

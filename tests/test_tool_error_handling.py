@@ -6,8 +6,8 @@ from unittest.mock import patch
 os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
 import customtkinter as ctk
 
-from src.views.tools_view import ToolsView
-from src.utils.thread_manager import ThreadManager
+from coolbox.ui.views.tools_view import ToolsView
+from coolbox.utils.thread_manager import ThreadManager
 
 
 class DummyTheme:

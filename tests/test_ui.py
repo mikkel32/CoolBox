@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from src.utils.ui import get_screen_refresh_rate
+from coolbox.utils.ui import get_screen_refresh_rate
 
 class TestScreenRefreshRate(unittest.TestCase):
     def test_env_override(self):

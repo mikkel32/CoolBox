@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.utils import security
+from coolbox.utils import security
 
 
 def test_is_firewall_enabled_windows(monkeypatch):

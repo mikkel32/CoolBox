@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from src.setup import stages
+from coolbox.setup import stages
 
 
 def _write_requirement_file(tmp_path: Path, lines: list[str]) -> Path:

@@ -6,9 +6,9 @@ try:
 except Exception:  # pragma: no cover - skip if NumPy unavailable
     pytest.skip("NumPy not available", allow_module_level=True)
 
-from src.utils.scoring_engine import ScoringEngine, tuning
-from src.utils.window_utils import WindowInfo
-from src.views._fast_confidence import weighted_confidence as fast_wc
+from coolbox.utils.analysis.scoring_engine import ScoringEngine, tuning
+from coolbox.utils.window_utils import WindowInfo
+from coolbox.ui.views._fast_confidence import weighted_confidence as fast_wc
 
 
 def test_fast_confidence_matches_engine() -> None:

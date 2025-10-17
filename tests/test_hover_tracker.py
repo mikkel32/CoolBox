@@ -1,17 +1,17 @@
 import unittest
 from unittest.mock import patch
 
-from src.utils.hover_tracker import HoverTracker
-from src.utils.window_utils import WindowInfo
+from coolbox.utils.hover_tracker import HoverTracker
+from coolbox.utils.window_utils import WindowInfo
 
 
 class TestHoverTracker(unittest.TestCase):
     def test_decay_removes_old_entries(self) -> None:
         with (
-            patch("src.utils.hover_tracker.tuning.gaze_decay", 0.5),
-            patch("src.utils.hover_tracker.tuning.score_min", 0.6),
+            patch("coolbox.utils.hover_tracker.tuning.gaze_decay", 0.5),
+            patch("coolbox.utils.hover_tracker.tuning.score_min", 0.6),
             patch(
-                "src.utils.hover_tracker.time.monotonic",
+                "coolbox.utils.hover_tracker.time.monotonic",
                 side_effect=[0.0, 1.0, 2.0, 3.0],
             ),
         ):
@@ -23,8 +23,8 @@ class TestHoverTracker(unittest.TestCase):
 
     def test_stability_returns_guess(self) -> None:
         with (
-            patch("src.utils.hover_tracker.tuning.stability_threshold", 2),
-            patch("src.utils.hover_tracker.tuning.vel_stab_scale", 0),
+            patch("coolbox.utils.hover_tracker.tuning.stability_threshold", 2),
+            patch("coolbox.utils.hover_tracker.tuning.vel_stab_scale", 0),
         ):
             tracker = HoverTracker()
             tracker.update(WindowInfo(1))

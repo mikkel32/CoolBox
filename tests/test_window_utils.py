@@ -4,7 +4,7 @@ import unittest
 from typing import Callable
 from unittest import mock
 
-from src.utils.window_utils import (
+from coolbox.utils.window_utils import (
     WindowInfo,
     get_active_window,
     get_window_under_cursor,
@@ -16,7 +16,7 @@ from src.utils.window_utils import (
 
 class TestWindowUtils(unittest.TestCase):
     def setUp(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         wu._TRANSIENT_PIDS.clear()
         wu._MIN_WINDOW_WIDTH = 0
@@ -38,7 +38,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertTrue(hasattr(info, "icon"))
 
     def test_get_window_under_cursor_no_match_mac(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         fake_quartz = type(
             "Q",
@@ -62,7 +62,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(info, wu.WindowInfo(None))
 
     def test_get_window_under_cursor_malformed_output(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         fake_info = "WINDOW=0x1\nBADLINE\nEXTRA=foo=bar\n"
         geom_out = (
@@ -94,7 +94,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(info.title, "t")
 
     def test_get_window_at_no_match_mac(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         fake_quartz = type(
             "Q",
@@ -116,7 +116,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(info, wu.WindowInfo(None))
 
     def test_get_window_at_match_mac(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         windows = [
             {"kCGWindowBounds": {"X": 0, "Y": 0, "Width": 5, "Height": 5}},
@@ -152,7 +152,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertIsInstance(has_cursor_window_support(), bool)
 
     def test_has_cursor_window_support_display_missing(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         with (
             mock.patch.object(wu.sys, "platform", "linux"),
@@ -162,7 +162,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertFalse(wu.has_cursor_window_support())
 
     def test_has_cursor_window_support_display_present(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         with (
             mock.patch.object(wu.sys, "platform", "linux"),
@@ -172,14 +172,14 @@ class TestWindowUtils(unittest.TestCase):
             self.assertTrue(wu.has_cursor_window_support())
 
     def test_has_cursor_window_support_warns(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         with mock.patch.object(wu.sys, "platform", "darwin"):
             with self.assertWarns(RuntimeWarning):
                 self.assertFalse(wu.has_cursor_window_support(warn=True))
 
     def test_list_windows_at(self):
-        from src.utils.window_utils import list_windows_at
+        from coolbox.utils.window_utils import list_windows_at
 
         wins = list_windows_at(0, 0)
         self.assertIsInstance(wins, list)
@@ -188,7 +188,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertTrue(hasattr(info, "handle"))
 
     def test_list_windows_fast_path(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         fake = wu.WindowInfo(1)
         with (
@@ -201,7 +201,7 @@ class TestWindowUtils(unittest.TestCase):
         fallback.assert_not_called()
 
     def test_fallback_async_cache(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         fake_old = WindowInfo(2, (0, 0, 1, 1), "old")
         wu._WINDOWS_CACHE = {"time": 0.0, "windows": [fake_old]}
@@ -223,7 +223,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertEqual(res2[0].pid, 1)
 
     def test_window_change_event_refreshes_cache(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         fake_old = WindowInfo(1, (0, 0, 1, 1), "old")
         fake_new = WindowInfo(2, (0, 0, 1, 1), "new")
@@ -260,7 +260,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(res2, [wins[1]])
 
     def test_filter_windows_skips_small_and_tooltip(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         small = wu.WindowInfo(1, (0, 0, 5, 5), "tiny")
         normal = wu.WindowInfo(2, (0, 0, 50, 50), "normal")
@@ -283,7 +283,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertIn(3, wu._TRANSIENT_PIDS)
 
     def test_x11_shortcuts(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         fake = WindowInfo(1, (0, 0, 10, 10), "t")
         pointer = type("P", (), {"root_x": 5, "root_y": 6})()
@@ -298,7 +298,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertEqual(wu.list_windows_at(5, 6), [fake])
 
     def test_subscribe_active_window(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         infos = [WindowInfo(1), WindowInfo(2)]
 
@@ -318,7 +318,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(received[1].pid, 2)
 
     def test_recent_ring_buffer(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         w1 = wu.WindowInfo(1, (0, 0, 1, 1), "a", handle=1)
         w2 = wu.WindowInfo(2, (0, 0, 1, 1), "b", handle=2)
@@ -335,7 +335,7 @@ class TestWindowUtils(unittest.TestCase):
             close_mock.assert_called_once_with(w1)
 
     def test_cleanup_recent(self):
-        from src.utils import window_utils as wu
+        from coolbox.utils import window_utils as wu
 
         w1 = wu.WindowInfo(1, handle=1)
         w2 = wu.WindowInfo(2, handle=2)

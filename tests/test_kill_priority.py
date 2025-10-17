@@ -6,7 +6,7 @@ from unittest import mock
 
 import psutil
 
-from src.utils.kill_utils import kill_process
+from coolbox.utils.kill_utils import kill_process
 
 
 def test_kill_process_uses_priority_boost():
@@ -20,7 +20,7 @@ def test_kill_process_uses_priority_boost():
         called = True
         yield
 
-    with mock.patch("src.utils.kill_utils._priority_boost", fake_boost):
+    with mock.patch("coolbox.utils.kill_utils._priority_boost", fake_boost):
         kill_process(proc.pid, timeout=1.0)
 
     time.sleep(0.1)

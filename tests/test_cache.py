@@ -1,7 +1,7 @@
 import json
 import time
 
-from src.utils.cache import CacheManager
+from coolbox.utils.cache import CacheManager
 
 
 def test_cache_refresh(tmp_path):

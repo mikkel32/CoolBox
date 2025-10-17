@@ -1,7 +1,7 @@
 import types
 import sys
 
-from src.app import CoolBoxApp
+from coolbox.app import CoolBoxApp
 
 
 def test_open_force_quit_handles_errors(monkeypatch):
@@ -19,7 +19,7 @@ def test_open_force_quit_handles_errors(monkeypatch):
         errors["message"] = message
 
     monkeypatch.setattr(
-        "src.app.messagebox", types.SimpleNamespace(showerror=fake_showerror), raising=False
+        "coolbox.app.messagebox", types.SimpleNamespace(showerror=fake_showerror), raising=False
     )
 
     class BoomDialog:
@@ -28,7 +28,7 @@ def test_open_force_quit_handles_errors(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "src.views.force_quit_dialog",
+        "coolbox.ui.views.force_quit_dialog",
         types.SimpleNamespace(ForceQuitDialog=BoomDialog),
     )
 

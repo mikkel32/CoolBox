@@ -1,5 +1,5 @@
 from queue import Queue
-from src.utils.process_monitor import ProcessEntry, ProcessWatcher
+from coolbox.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 def test_process_watcher_reports_progress() -> None:
