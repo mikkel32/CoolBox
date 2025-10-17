@@ -28,7 +28,9 @@ from src.utils import firewall as firewall_utils
 
 # ----------------------------- Platform guard ------------------------------
 
-_IS_WINDOWS = platform.system() == "Windows"
+_SYSTEM = platform.system()
+_IS_WINDOWS = _SYSTEM == "Windows"
+_IS_MAC = _SYSTEM == "Darwin"
 
 _windll: Any | None = getattr(ctypes, "windll", None) if _IS_WINDOWS else None
 
@@ -792,6 +794,8 @@ def is_firewall_enabled() -> Optional[bool]:
     True if all profiles enabled, False if any disabled, None if unknown.
     Uses 'netsh advfirewall show allprofiles' to avoid module dependencies.
     """
+    if _IS_MAC:
+        return firewall_utils.is_firewall_enabled()
     if not _IS_WINDOWS:
         return None
     if not _NETSH_EXE or not os.path.exists(_NETSH_EXE):
@@ -811,6 +815,18 @@ def is_firewall_enabled() -> Optional[bool]:
 
 def set_firewall_enabled(enabled: bool) -> ActionOutcome:
     """Enable or disable firewall for all profiles with resilient fallbacks."""
+
+    if _IS_MAC:
+        current = firewall_utils.is_firewall_enabled()
+        if current is None:
+            return ActionOutcome.blocked(("firewall unavailable",), "Unable to determine macOS firewall state.")
+        if current == enabled:
+            return ActionOutcome.ok("Already in requested state")
+        ok, err = firewall_utils.set_firewall_enabled(enabled)
+        if ok:
+            return ActionOutcome.ok(err)
+        detail = err or "Failed to toggle macOS firewall"
+        return ActionOutcome.blocked(("toggle failed",), detail)
 
     plan, blocked = _build_toggle(
         "firewall",
@@ -977,6 +993,68 @@ class SecuritySnapshot:
 
 def detect_firewall_blockers() -> tuple[str, ...]:
     """Return potential actors preventing firewall changes."""
+
+    if _IS_MAC:
+        status = _guarded_call(
+            firewall_utils.get_firewall_status,
+            firewall_utils.FirewallStatus(
+                domain=None,
+                private=None,
+                public=None,
+                services_ok=True,
+                cmdlets_available=False,
+                policy_lock=False,
+                third_party_firewall=False,
+                services_error=None,
+                error=None,
+            ),
+        )
+        blockers: list[str] = []
+        if status.mac_defaults_available is False and status.mac_socketfilterfw_available is False:
+            blockers.append("macOS firewall tools missing")
+        if status.mac_socketfilterfw_available is False and status.mac_defaults_available is not False:
+            blockers.append("socketfilterfw tool missing")
+        if status.mac_defaults_available is False and status.mac_socketfilterfw_available is not False:
+            blockers.append("defaults tool missing")
+        if status.mac_defaults_usable is False and status.mac_defaults_available:
+            blockers.append("defaults tool not executable")
+        if status.mac_socketfilterfw_usable is False and status.mac_socketfilterfw_available:
+            blockers.append("socketfilterfw tool not executable")
+        if status.mac_defaults_plist_damaged:
+            blockers.append(
+                status.mac_defaults_plist_parse_error
+                or "com.apple.alf.plist contains invalid data"
+            )
+        if (
+            status.mac_defaults_plist_available is False
+            and status.mac_defaults_plist_bootstrap_supported is False
+            and status.mac_defaults_plist_bootstrap_error
+        ):
+            blockers.append(status.mac_defaults_plist_bootstrap_error)
+        if status.mac_launchctl_available is False and status.mac_defaults_plist_bootstrap_supported:
+            blockers.append("launchctl tool missing")
+        if status.mac_launchctl_available and status.mac_launchctl_usable is False:
+            blockers.append("launchctl tool not executable")
+        if (
+            status.mac_launchctl_available
+            and status.mac_launchctl_label_available is False
+        ):
+            blockers.append("com.apple.alf.agent launchd plist missing")
+        if (
+            status.mac_launchctl_available
+            and status.mac_launchctl_usable
+            and status.mac_launchctl_kickstart_supported is False
+        ):
+            blockers.append("launchctl kickstart unsupported")
+        if status.mac_admin is False:
+            blockers.append("Administrator privileges required (sudo root access)")
+        if status.error:
+            blockers.append(status.error)
+        if status.mac_tool_errors:
+            blockers.extend(status.mac_tool_errors)
+        if status.mac_launchctl_errors:
+            blockers.extend(status.mac_launchctl_errors)
+        return tuple(_dedupe(blockers))
 
     if not _IS_WINDOWS:
         return ()
