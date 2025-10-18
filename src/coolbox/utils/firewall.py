@@ -1,65 +1,71 @@
 """Compatibility wrapper for :mod:`coolbox.utils.security.firewall`."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import importlib
+import sys
+from types import ModuleType
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from .security.firewall import (
-        _MAC_PLIST_BOOTSTRAP_TEMPLATE,
-        _mac_defaults_plist_bootstrap,
-        _mac_defaults_plist_cached,
-        _mac_defaults_plist_value,
-        _mac_defaults_plist_write,
-        _mac_defaults_read_int,
-        _mac_defaults_write_int,
-        _mac_detect_tooling_cached,
-        _mac_firewall_global_state,
-        _mac_launchctl_refresh,
-        _mac_query_socketfilterfw,
-        _mac_set_firewall_enabled,
-        _mac_tooling,
-        _run_ex,
-        ensure_admin,
-        get_firewall_status,
-        is_firewall_enabled,
-        is_firewall_supported,
-        set_firewall_enabled,
-        MacFirewallTooling,
-    )
-else:
-    from .security.firewall import *  # type: ignore F401,F403
-    from .security import firewall as _firewall_module
 
-    _compat_names = {
-        "_MAC_PLIST_BOOTSTRAP_TEMPLATE",
-        "_mac_defaults_plist_bootstrap",
-        "_mac_defaults_plist_cached",
-        "_mac_defaults_plist_value",
-        "_mac_defaults_plist_write",
-        "_mac_defaults_read_int",
-        "_mac_defaults_write_int",
-        "_mac_detect_tooling_cached",
-        "_mac_firewall_global_state",
-        "_mac_launchctl_refresh",
-        "_mac_query_socketfilterfw",
-        "_mac_set_firewall_enabled",
-        "_mac_tooling",
-        "_run_ex",
-        "ensure_admin",
-        "get_firewall_status",
-        "is_firewall_enabled",
-        "is_firewall_supported",
-        "set_firewall_enabled",
-        "MacFirewallTooling",
-    }
+def _load_firewall_module() -> ModuleType:
+    """Return a freshly imported security firewall module."""
 
-    for _name in _compat_names:
-        if hasattr(_firewall_module, _name):
-            globals()[_name] = getattr(_firewall_module, _name)
+    module = importlib.import_module("coolbox.utils.security.firewall")
+    return importlib.reload(module)
 
-    _fallback_exports = [name for name in globals() if not name.startswith("__")]
-    __all__ = sorted(
-        set(getattr(_firewall_module, "__all__", []))
-        | set(_compat_names)
-        | set(_fallback_exports)
-    )
+
+def _reexport(module: ModuleType) -> tuple[str, ...]:
+    """Copy attributes from *module* into this namespace."""
+
+    exported: list[str] = []
+    for name in dir(module):
+        if name.startswith("__") and name.endswith("__"):
+            continue
+        globals()[name] = getattr(module, name)
+        exported.append(name)
+    return tuple(dict.fromkeys(exported))
+
+
+_TARGET_MODULE = _load_firewall_module()
+__all__ = _reexport(_TARGET_MODULE)
+
+
+class _FirewallProxy(ModuleType):
+    """Mirror attribute updates onto the underlying firewall module."""
+
+    def __getattr__(self, name: str):  # type: ignore[override]
+        try:
+            return super().__getattribute__(name)
+        except AttributeError:
+            return getattr(_TARGET_MODULE, name)
+
+    def __setattr__(self, name: str, value):  # type: ignore[override]
+        target = _TARGET_MODULE
+        if (
+            name == "_TARGET_MODULE"
+            or name.startswith("__")
+            or getattr(target, "__name__", None) == __name__
+        ):
+            super().__setattr__(name, value)
+            return
+        setattr(target, name, value)
+        super().__setattr__(name, value)
+
+    def __delattr__(self, name: str):  # type: ignore[override]
+        target = _TARGET_MODULE
+        if (
+            name == "_TARGET_MODULE"
+            or name.startswith("__")
+            or getattr(target, "__name__", None) == __name__
+        ):
+            super().__delattr__(name)
+            return
+        if hasattr(target, name):
+            delattr(target, name)
+        super().__delattr__(name)
+
+
+_module_obj = sys.modules.get(__name__)
+if _module_obj is not None:
+    _module_obj.__class__ = _FirewallProxy
+
+del importlib, ModuleType, _load_firewall_module, _reexport

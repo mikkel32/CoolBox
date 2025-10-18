@@ -6,8 +6,8 @@ from importlib import metadata
 from typing import Any, Callable, Iterable, Optional, Protocol, Sequence, TYPE_CHECKING, cast, runtime_checkable
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from .orchestrator import SetupOrchestrator, SetupResult, SetupStage, StageContext
-    from .orchestrator import SetupTask
+    from ..orchestrator import SetupOrchestrator, SetupResult, SetupStage, StageContext
+    from ..orchestrator import SetupTask
 
 
 ENTRYPOINT_GROUP = "coolbox.setup"
@@ -194,6 +194,8 @@ class PluginManager:
                 orchestrator.logger.warning("Plugin %s on_error failed: %s", getattr(plugin, "name", plugin), exc)
 
 
+from .adaptive_remediation import AdaptiveRemediationPlugin
+
 __all__ = [
     "PluginManager",
     "PluginRegistrar",
@@ -205,4 +207,5 @@ __all__ = [
     "ValidatorDecision",
     "RemediationAction",
     "ENTRYPOINT_GROUP",
+    "AdaptiveRemediationPlugin",
 ]

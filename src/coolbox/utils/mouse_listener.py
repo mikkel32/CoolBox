@@ -2,12 +2,70 @@
 # pyright: reportUnsupportedDunderAll=none
 from __future__ import annotations
 
-from .display.mouse_listener import *  # type: ignore F401,F403
-from .display import mouse_listener as _mouse_listener
+import importlib
+import sys
+from types import ModuleType
 
-try:  # pragma: no cover - target may not define __all__
-    from .display.mouse_listener import __all__ as __all__  # type: ignore F401
-except ImportError:  # pragma: no cover - fallback when __all__ missing
-    __all__ = tuple(name for name in vars(_mouse_listener) if not name.startswith("_"))
 
-del _mouse_listener
+def _load_mouse_module() -> ModuleType:
+    """Return a freshly imported mouse listener module."""
+
+    module = importlib.import_module("coolbox.utils.display.mouse_listener")
+    return importlib.reload(module)
+
+
+def _reexport(module: ModuleType) -> tuple[str, ...]:
+    exported: list[str] = []
+    for name in dir(module):
+        if name.startswith("__") and name.endswith("__"):
+            continue
+        globals()[name] = getattr(module, name)
+        exported.append(name)
+    return tuple(dict.fromkeys(exported))
+
+
+_TARGET_MODULE = _load_mouse_module()
+__all__ = _reexport(_TARGET_MODULE)
+
+
+class _MouseProxy(ModuleType):
+    """Mirror attribute updates onto the underlying mouse listener module."""
+
+    def __getattr__(self, name: str):  # type: ignore[override]
+        try:
+            return super().__getattribute__(name)
+        except AttributeError:
+            return getattr(_TARGET_MODULE, name)
+
+    def __setattr__(self, name: str, value):  # type: ignore[override]
+        target = _TARGET_MODULE
+        if (
+            name == "_TARGET_MODULE"
+            or name.startswith("__")
+            or getattr(target, "__name__", None) == __name__
+        ):
+            super().__setattr__(name, value)
+            return
+        setattr(target, name, value)
+        super().__setattr__(name, value)
+
+    def __delattr__(self, name: str):  # type: ignore[override]
+        target = _TARGET_MODULE
+        if (
+            name == "_TARGET_MODULE"
+            or name.startswith("__")
+            or getattr(target, "__name__", None) == __name__
+        ):
+            super().__delattr__(name)
+            return
+        if hasattr(target, name):
+            delattr(target, name)
+        super().__delattr__(name)
+
+
+_module_obj = sys.modules.get(__name__)
+if _module_obj is not None:
+    _module_obj.__class__ = _MouseProxy
+
+
+del importlib, ModuleType, _load_mouse_module, _reexport

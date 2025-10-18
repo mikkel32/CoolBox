@@ -921,15 +921,17 @@ def test_kill_by_click_watchdog_requires_multiple_misses() -> None:
     dialog.app = SimpleNamespace(config={"developer_mode": True})
     dialog.after = lambda delay, cb, *args: threading.Timer(delay / 1000.0, cb, args).start()
 
+    watchdog_interval = 0.05
+    allowed_misses = 2
     with (
         patch("builtins.print"),
-        patch("coolbox.ui.views.dialogs.force_quit.KILL_BY_CLICK_WATCHDOG", 0.05),
-        patch("coolbox.ui.views.dialogs.force_quit.KILL_BY_CLICK_WATCHDOG_MISSES", 2),
+        patch("coolbox.ui.views.dialogs.force_quit.KILL_BY_CLICK_WATCHDOG", watchdog_interval),
+        patch("coolbox.ui.views.dialogs.force_quit.KILL_BY_CLICK_WATCHDOG_MISSES", allowed_misses),
     ):
         dialog._kill_by_click()
-        time.sleep(0.07)
+        time.sleep(watchdog_interval * 1.4)
         overlay.close.assert_not_called()
-        time.sleep(0.1)
+        time.sleep(watchdog_interval * (allowed_misses + 1))
         overlay.close.assert_called_once()
     thread = dialog._overlay_thread
     if thread and thread.is_alive():

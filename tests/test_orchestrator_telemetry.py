@@ -68,4 +68,5 @@ def test_orchestrator_emits_telemetry(monkeypatch: pytest.MonkeyPatch, tmp_path)
     suggestion = telemetry.knowledge.suggest_fix(
         failure_code="preflight:fail:RuntimeError"
     )
-    assert suggestion == "Restart the installer"
+    assert suggestion is not None
+    assert suggestion.title == "Restart the installer"

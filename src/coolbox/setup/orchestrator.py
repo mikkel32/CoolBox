@@ -876,8 +876,28 @@ class SetupOrchestrator:
             suggested_fix = result.payload.get("suggested_fix") if isinstance(result.payload, Mapping) else None
             if suggested_fix:
                 payload["suggested_fix"] = suggested_fix
+            if isinstance(result.payload, Mapping):
+                remediation_metadata = result.payload.get("suggested_remediation")
+                if remediation_metadata:
+                    payload["suggested_remediation"] = self._normalize_remediation_metadata(
+                        remediation_metadata
+                    )
             payload["payload_keys"] = sorted(result.payload.keys()) if isinstance(result.payload, Mapping) else []
         self.telemetry.record_task(payload)
+
+    def _normalize_remediation_metadata(self, data: Any) -> Any:
+        if hasattr(data, "to_payload"):
+            try:
+                payload = data.to_payload()  # type: ignore[attr-defined]
+            except Exception:
+                payload = None
+            if payload is not None:
+                return self._normalize_remediation_metadata(payload)
+        if isinstance(data, Mapping):
+            return {key: self._normalize_remediation_metadata(value) for key, value in data.items()}
+        if isinstance(data, Sequence) and not isinstance(data, (str, bytes, bytearray)):
+            return [self._normalize_remediation_metadata(item) for item in data]
+        return data
 
     def _build_execution_plan(
         self,

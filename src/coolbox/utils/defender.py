@@ -2,26 +2,72 @@
 # pyright: reportUnsupportedDunderAll=none
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import importlib
+import sys
+from types import ModuleType
 
-from .security.defender import *  # type: ignore F401,F403
-from .security import defender as _defender_module
 
-if TYPE_CHECKING:
-    from .security.defender import _ps as _ps
-    from .security.defender import _run_ex as _run_ex
+def _load_defender_module() -> ModuleType:
+    """Return a freshly imported security defender module."""
 
-try:  # pragma: no cover - target may not define __all__
-    from .security.defender import __all__ as __all__  # type: ignore F401
-except ImportError:  # pragma: no cover - fallback when __all__ missing
-    _exported = [name for name in vars(_defender_module) if not name.startswith("_")]
-else:
-    _exported = list(__all__)
-for _compat_name in ("_run_ex", "_ps"):
-    if hasattr(_defender_module, _compat_name):
-        globals()[_compat_name] = getattr(_defender_module, _compat_name)
-        _exported.append(_compat_name)
+    module = importlib.import_module("coolbox.utils.security.defender")
+    return importlib.reload(module)
 
-__all__ = tuple(dict.fromkeys(_exported))
 
-del _defender_module, _exported
+def _reexport(module: ModuleType) -> tuple[str, ...]:
+    """Copy attributes from *module* into this namespace."""
+
+    exported: list[str] = []
+    for name in dir(module):
+        if name.startswith("__") and name.endswith("__"):
+            continue
+        globals()[name] = getattr(module, name)
+        exported.append(name)
+    return tuple(dict.fromkeys(exported))
+
+
+_TARGET_MODULE = _load_defender_module()
+__all__ = _reexport(_TARGET_MODULE)
+
+
+class _DefenderProxy(ModuleType):
+    """Mirror attribute updates onto the underlying defender module."""
+
+    def __getattr__(self, name: str):  # type: ignore[override]
+        try:
+            return super().__getattribute__(name)
+        except AttributeError:
+            return getattr(_TARGET_MODULE, name)
+
+    def __setattr__(self, name: str, value):  # type: ignore[override]
+        target = _TARGET_MODULE
+        if (
+            name == "_TARGET_MODULE"
+            or name.startswith("__")
+            or getattr(target, "__name__", None) == __name__
+        ):
+            super().__setattr__(name, value)
+            return
+        setattr(target, name, value)
+        super().__setattr__(name, value)
+
+    def __delattr__(self, name: str):  # type: ignore[override]
+        target = _TARGET_MODULE
+        if (
+            name == "_TARGET_MODULE"
+            or name.startswith("__")
+            or getattr(target, "__name__", None) == __name__
+        ):
+            super().__delattr__(name)
+            return
+        if hasattr(target, name):
+            delattr(target, name)
+        super().__delattr__(name)
+
+
+_module_obj = sys.modules.get(__name__)
+if _module_obj is not None:
+    _module_obj.__class__ = _DefenderProxy
+
+
+del importlib, ModuleType, _load_defender_module, _reexport

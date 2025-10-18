@@ -293,18 +293,28 @@ class JsonDashboard(BaseDashboard):
             payload = event.payload if isinstance(event.payload, Mapping) else {}
             failure_code = payload.get("failure_code")
             error_type = payload.get("error_type")
+            stage_name = payload.get("stage")
+            if not isinstance(stage_name, str) or not stage_name:
+                stage_name = event.stage.value if hasattr(event.stage, "value") else str(event.stage)
             suggestion = self._knowledge_base.suggest_fix(
                 failure_code=failure_code,
                 error_type=error_type,
+                stage=stage_name,
+                task=event.task,
             )
             if suggestion:
+                suggestion_payload = suggestion.to_payload()
                 self.events.append(
                     {
                         "type": "suggestion",
                         "task": event.task,
                         "stage": event.stage.value if hasattr(event.stage, "value") else str(event.stage),
-                        "suggestion": suggestion,
+                        "suggestion": suggestion.title,
+                        "summary": suggestion.describe(),
+                        "details": suggestion_payload,
+                        "confidence": suggestion.confidence,
                         "failure_code": failure_code,
+                        "stage": stage_name,
                     }
                 )
 
@@ -794,14 +804,19 @@ if TEXTUAL_AVAILABLE:
                     payload = event.payload if isinstance(event.payload, Mapping) else {}
                     failure_code = payload.get("failure_code")
                     error_type = payload.get("error_type")
+                    stage_name = payload.get("stage")
+                    if not isinstance(stage_name, str) or not stage_name:
+                        stage_name = event.stage.value if hasattr(event.stage, "value") else str(event.stage)
                     suggestion = self._knowledge_base.suggest_fix(
                         failure_code=failure_code,
                         error_type=error_type,
+                        stage=stage_name,
+                        task=event.task,
                     )
                     if suggestion:
                         self.log_panel.add_entry(
                             "info",
-                            f"Suggested fix for {event.task}: {suggestion}",
+                            f"Suggested fix for {event.task}: {suggestion.describe()}",
                             theme=self._theme.profile,
                         )
             elif isinstance(event, LogEvent):

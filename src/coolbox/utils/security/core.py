@@ -6,8 +6,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Optional, Tuple, TypeVar
 
-from coolbox.app import error_handler as eh
-
 from . import platform as platform_state
 
 T = TypeVar("T")
@@ -604,7 +602,7 @@ def guarded_call(func: Callable[[], T], fallback: T) -> T:
     try:
         return func()
     except Exception as exc:  # pragma: no cover - defensive logging only
-        eh.handle_exception(type(exc), exc, exc.__traceback__)
+        _report_exception(exc)
         return fallback
 
 
@@ -653,7 +651,7 @@ def run_command_background(cmd: list[str], **popen_kwargs: Any) -> tuple[bool, O
         process = subprocess.Popen(cmd, **popen_kwargs)
         return True, process
     except Exception as exc:  # pragma: no cover - popen failure
-        eh.handle_exception(type(exc), exc, exc.__traceback__)
+        _report_exception(exc)
         return False, None
 
 
@@ -750,3 +748,12 @@ __all__ = [
     "wait_for_service_state",
     "wait_for_state",
 ]
+
+
+def _report_exception(exc: BaseException) -> None:
+    """Defer importing :mod:`coolbox.app` until necessary to avoid circular imports."""
+
+    from coolbox.app import error_handler as eh  # local import to break circular dependency
+
+    eh.handle_exception(type(exc), exc, exc.__traceback__)
+

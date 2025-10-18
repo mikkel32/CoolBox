@@ -21,8 +21,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
 
-from coolbox.app import error_handler as eh
-
 # ------------------------------- admin --------------------------------------
 
 
@@ -104,13 +102,13 @@ def _ps(script: str, *, timeout: float = 30.0) -> Tuple[str, int]:
             return f"PowerShell exited with code {cp.returncode}", int(cp.returncode)
         return out.strip(), int(cp.returncode)
     except subprocess.TimeoutExpired as e:
-        eh.handle_exception(type(e), e, e.__traceback__)
+        _report_exception(e)
         return "TimeoutExpired: PowerShell timed out", -1
     except FileNotFoundError as e:
-        eh.handle_exception(type(e), e, e.__traceback__)
+        _report_exception(e)
         return "FileNotFoundError: PowerShell not found", -1
     except Exception as e:
-        eh.handle_exception(type(e), e, e.__traceback__)
+        _report_exception(e)
         return f"{type(e).__name__}: {e}", -1
 
 # ------------------------------- services -----------------------------------
@@ -297,13 +295,13 @@ def _run_ex(cmd: list[str], timeout: float = 25.0) -> Tuple[str, int]:
             return f"{' '.join(cmd)} exited with code {cp.returncode}", int(cp.returncode)
         return out.strip(), int(cp.returncode)
     except subprocess.TimeoutExpired as e:
-        eh.handle_exception(type(e), e, e.__traceback__)
+        _report_exception(e)
         return f"TimeoutExpired: {' '.join(cmd)} timed out", -1
     except FileNotFoundError as e:
-        eh.handle_exception(type(e), e, e.__traceback__)
+        _report_exception(e)
         return f"FileNotFoundError: {cmd[0]} not found", -1
     except Exception as e:
-        eh.handle_exception(type(e), e, e.__traceback__)
+        _report_exception(e)
         return f"{type(e).__name__}: {e} (while running {' '.join(cmd)})", -1
 
 
@@ -361,3 +359,10 @@ def set_defender_enabled(enabled: bool) -> tuple[bool, Optional[str]]:
     if rc == 0:
         err = f"Defender state unchanged. {why if ok_reg else err}"
     return False, err
+
+
+def _report_exception(exc: BaseException) -> None:
+    from coolbox.app import error_handler as eh  # local import to avoid circular dependency
+
+    eh.handle_exception(type(exc), exc, exc.__traceback__)
+

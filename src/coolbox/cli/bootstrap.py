@@ -4,9 +4,6 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import logging
-import hashlib
-import importlib.util
-import logging
 import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -20,7 +17,6 @@ from coolbox.setup.orchestrator import SetupOrchestrator, SetupStatus
 from coolbox.setup.recipes import RecipeLoader
 from coolbox.setup.stages import register_builtin_tasks
 from coolbox.utils.logging_config import setup_logging
-from coolbox.app import CoolBoxApp
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +168,7 @@ def main(argv: Iterable[str] | None = None) -> None:
     """Entry point used by ``python -m coolbox`` and the legacy ``main.py``."""
 
     setup_logging()
+    from coolbox.app import CoolBoxApp  # local import to avoid circular dependency during module import
     manifest_resource = asset_path("boot_manifest.yaml")
     manager = BootManager(
         manifest_path=manifest_resource,
