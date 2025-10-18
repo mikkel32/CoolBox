@@ -10,7 +10,8 @@ except ImportError:  # pragma: no cover - runtime dependency check
     from ..ensure_deps import ensure_customtkinter
 
     ctk = ensure_customtkinter()
-from typing import Any, Dict, Optional, TYPE_CHECKING, Protocol, TypeGuard
+from typing import Any, Optional, TYPE_CHECKING, Protocol, TypeGuard
+from collections.abc import MutableMapping
 from pathlib import Path
 import sys
 import logging
@@ -26,6 +27,7 @@ from ..utils.thread_manager import ThreadManager
 from .icon import set_app_icon
 from .layout import setup_ui
 from .error_handler import install as install_error_handlers
+from .infrastructure import AppInfrastructure
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +62,14 @@ class CoolBoxApp:
 
     def __init__(self):
         """Initialize the application"""
-        # Load configuration
-        self.config = Config()
-        self.state = AppState()
+        # Application infrastructure holds service wiring and lifecycle hooks.
+        self.infrastructure = AppInfrastructure(self)
+
+        # Load core services from the infrastructure container.
+        self.config = self.infrastructure.require("config", Config)
+        self.state = self.infrastructure.require("app_state", AppState)
+        self.thread_manager = self.infrastructure.require("thread_manager", ThreadManager)
         # Background threads: process manager and logger with monitoring
-        self.thread_manager = ThreadManager()
         self.thread_manager.start()
 
         # Set appearance
@@ -98,7 +103,7 @@ class CoolBoxApp:
         )
 
         # Theme manager
-        self.theme = ThemeManager(config=self.config)
+        self.theme = self.infrastructure.require("theme_manager", ThemeManager)
         self.theme.apply_theme(self.config.get("theme", {}))
         logger.info("Initialized theme manager")
 
@@ -110,7 +115,7 @@ class CoolBoxApp:
         self.toolbar: Toolbar | None = None
         self.menu_bar: MenuBar | None = None
         self.status_bar: StatusBar | None = None
-        self.views: Dict[str, _CTkFrame] = {}
+        self.views: MutableMapping[str, _CTkFrame] = {}
         self.current_view: Optional[str] = None
         self.quick_settings_window: QuickSettingsDialog | None = None
         self.force_quit_window: ForceQuitDialog | None = None
@@ -134,6 +139,13 @@ class CoolBoxApp:
             )
         ):
             raise RuntimeError("UI setup failed to initialize layout components")
+
+        # Wrap created views in the infrastructure-backed registry for
+        # automatic refresh tracking.
+        self.views = self.infrastructure.create_view_store(dict(self.views))
+
+        # Register core UI elements for font/theme updates.
+        self._register_refreshable_components()
 
         # The setup created non-optional widgets; help static type checkers.
         assert self.main_container is not None
@@ -160,16 +172,20 @@ class CoolBoxApp:
             if self.toolbar is None:
                 self.toolbar = Toolbar(self.main_container, self)
                 self.toolbar.pack(fill="x", padx=0, pady=0)
+                self.infrastructure.register_refreshable(self.toolbar, fonts=True, theme=True)
         elif self.toolbar is not None:
+            self.infrastructure.unregister_refreshable(self.toolbar)
             self.toolbar.destroy()
             self.toolbar = None
 
         if self.config.get("show_menu", True):
             if self.menu_bar is None:
                 self.menu_bar = MenuBar(self.window, self)
+                self.infrastructure.register_refreshable(self.menu_bar, fonts=True, theme=True)
             self.menu_bar.update_recent_files()
         elif self.menu_bar is not None:
             self.window.configure(menu="")
+            self.infrastructure.unregister_refreshable(self.menu_bar)
             self.menu_bar = None
         if self.menu_bar is not None:
             self.menu_bar.refresh_toggles()
@@ -178,7 +194,9 @@ class CoolBoxApp:
             if self.status_bar is None:
                 self.status_bar = StatusBar(self.main_container, self)
                 self.status_bar.pack(fill="x", side="bottom")
+                self.infrastructure.register_refreshable(self.status_bar, fonts=True, theme=True)
         elif self.status_bar is not None:
+            self.infrastructure.unregister_refreshable(self.status_bar)
             self.status_bar.destroy()
             self.status_bar = None
 
@@ -303,51 +321,25 @@ class CoolBoxApp:
         """Track an open dialog for global updates."""
         if dialog not in self.dialogs:
             self.dialogs.append(dialog)
+        self.infrastructure.register_refreshable(dialog, fonts=True, theme=True)
 
     def unregister_dialog(self, dialog: tk.Misc) -> None:
         """Remove *dialog* from the tracked list."""
         if dialog in self.dialogs:
             self.dialogs.remove(dialog)
+        self.infrastructure.unregister_refreshable(dialog)
 
     def update_fonts(self) -> None:
         """Refresh fonts for all views and dialogs."""
-        for view in self.views.values():
-            if _supports_fonts(view):
-                view.refresh_fonts()
-        if self.sidebar is not None and _supports_fonts(self.sidebar):
-            self.sidebar.refresh_fonts()
-        if self.toolbar is not None and _supports_fonts(self.toolbar):
-            self.toolbar.refresh_fonts()
-        if self.status_bar is not None and _supports_fonts(self.status_bar):
-            self.status_bar.refresh_fonts()
-        if self.menu_bar is not None and _supports_fonts(self.menu_bar):
-            self.menu_bar.refresh_fonts()
-        for dlg in list(self.dialogs):
-            if dlg.winfo_exists():
-                if _supports_fonts(dlg):
-                    dlg.refresh_fonts()
-            else:
-                self.dialogs.remove(dlg)
+        for target in self.infrastructure.iter_refreshables("fonts"):
+            if _supports_fonts(target):
+                target.refresh_fonts()
 
     def update_theme(self) -> None:
         """Refresh theme colors across views and dialogs."""
-        for view in self.views.values():
-            if _supports_theme(view):
-                view.refresh_theme()
-        if self.sidebar is not None and _supports_theme(self.sidebar):
-            self.sidebar.refresh_theme()
-        if self.toolbar is not None and _supports_theme(self.toolbar):
-            self.toolbar.refresh_theme()
-        if self.status_bar is not None and _supports_theme(self.status_bar):
-            self.status_bar.refresh_theme()
-        if self.menu_bar is not None and _supports_theme(self.menu_bar):
-            self.menu_bar.refresh_theme()
-        for dlg in list(self.dialogs):
-            if dlg.winfo_exists():
-                if _supports_theme(dlg):
-                    dlg.refresh_theme()
-            else:
-                self.dialogs.remove(dlg)
+        for target in self.infrastructure.iter_refreshables("theme"):
+            if _supports_theme(target):
+                target.refresh_theme()
 
     def _on_quick_settings_closed(self) -> None:
         if self.quick_settings_window is not None and self.quick_settings_window.winfo_exists():
@@ -377,6 +369,8 @@ class CoolBoxApp:
             except Exception:
                 pass
 
+        self.infrastructure.shutdown()
+
         # Destroy window
         self.window.destroy()
         sys.exit(0)
@@ -388,6 +382,16 @@ class CoolBoxApp:
 
     def destroy(self):
         """Destroy the application window."""
-        self.thread_manager.stop()
-        self.window.destroy()
+        self.infrastructure.shutdown()
+        if self.window.winfo_exists():
+            self.window.destroy()
         logger.info("Window destroyed")
+
+    def _register_refreshable_components(self) -> None:
+        """Register core widgets with the infrastructure refresh registries."""
+        self.infrastructure.register_refreshable(self.sidebar, fonts=True, theme=True)
+        self.infrastructure.register_refreshable(self.toolbar, fonts=True, theme=True)
+        self.infrastructure.register_refreshable(self.menu_bar, fonts=True, theme=True)
+        self.infrastructure.register_refreshable(self.status_bar, fonts=True, theme=True)
+        for view in self.views.values():
+            self.infrastructure.register_refreshable(view, fonts=True, theme=True)
