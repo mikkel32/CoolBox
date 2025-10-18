@@ -14,6 +14,7 @@ __all__ = [
     "security_center",
     "security_center_hidden",
     "setup",
+    "recipes",
     "load",
 ]
 
@@ -26,6 +27,7 @@ _COMMAND_NAMES = {
     "security_center",
     "security_center_hidden",
     "setup",
+    "recipes",
 }
 
 if TYPE_CHECKING:

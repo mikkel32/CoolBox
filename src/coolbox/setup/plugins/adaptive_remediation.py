@@ -1,6 +1,7 @@
 """Adaptive remediation plugin that leverages telemetry insights."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Mapping, Sequence, TYPE_CHECKING
 
@@ -8,7 +9,7 @@ from coolbox.console.events import LogEvent, TaskEvent
 from coolbox.telemetry import RemediationSuggestion, TelemetryKnowledgeBase
 
 if TYPE_CHECKING:  # pragma: no cover - imports for typing only
-    from ..orchestrator import SetupResult, SetupStatus, StageContext
+    from ..orchestrator import SetupOrchestrator, SetupResult, SetupStatus, StageContext
 
 from . import RemediationAction, SetupPlugin, ValidatorDecision
 
@@ -29,10 +30,18 @@ class AdaptiveRemediationPlugin(SetupPlugin):
 
     def __init__(self, knowledge_base: TelemetryKnowledgeBase | None = None) -> None:
         self._override_knowledge = knowledge_base
+        self._orchestrator: "SetupOrchestrator | None" = None
 
     # --- SetupPlugin API -------------------------------------------------
     def register(self, registrar) -> None:  # type: ignore[override]
+        self._orchestrator = registrar.orchestrator
         registrar.add_continuous_validator(self._continuous_validator)
+        if getattr(registrar, "add_tool_endpoint", None) is not None:
+            registrar.add_tool_endpoint(
+                "setup.remediation.suggest",
+                self.toolbus_suggest,
+                metadata={"plugin": self.name},
+            )
 
     def before_stage(self, stage, context) -> None:  # pragma: no cover - interface hook
         return
@@ -50,8 +59,14 @@ class AdaptiveRemediationPlugin(SetupPlugin):
         return
 
     # --- internals -------------------------------------------------------
-    def _knowledge(self, context: "StageContext") -> TelemetryKnowledgeBase:
-        return self._override_knowledge or context.orchestrator.telemetry.knowledge
+    def _knowledge(self, context: "StageContext | None") -> TelemetryKnowledgeBase:
+        if self._override_knowledge:
+            return self._override_knowledge
+        if context is not None:
+            return context.orchestrator.telemetry.knowledge
+        if self._orchestrator is not None:
+            return self._orchestrator.telemetry.knowledge
+        raise RuntimeError("Telemetry knowledge source unavailable")
 
     def _continuous_validator(self, result: "SetupResult", context: "StageContext"):
         from ..orchestrator import SetupStatus  # local import to avoid circular dependency
@@ -80,6 +95,39 @@ class AdaptiveRemediationPlugin(SetupPlugin):
             repairs=actions,
             retry=suggestion.retry,
         )
+
+    # --- Tool bus integration ------------------------------------------
+    def toolbus_suggest(self, context, payload: bytes) -> Mapping[str, object]:
+        data: Mapping[str, object]
+        if not payload:
+            data = {}
+        else:
+            try:
+                data = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                data = {}
+        failure_code = data.get("failure_code") if isinstance(data, Mapping) else None
+        error_type = data.get("error_type") if isinstance(data, Mapping) else None
+        stage = data.get("stage") if isinstance(data, Mapping) else None
+        task = data.get("task") if isinstance(data, Mapping) else None
+        knowledge = self._knowledge(None)
+        suggestion = knowledge.suggest_fix(
+            failure_code=failure_code if isinstance(failure_code, str) else None,
+            error_type=error_type if isinstance(error_type, str) else None,
+            stage=stage if isinstance(stage, str) else None,
+            task=task if isinstance(task, str) else None,
+        )
+        if suggestion is None:
+            return {
+                "suggestion": None,
+                "request_id": getattr(context, "request_id", None),
+            }
+        return {
+            "suggestion": suggestion.to_payload(),
+            "confidence": suggestion.confidence,
+            "retry": suggestion.retry,
+            "request_id": getattr(context, "request_id", None),
+        }
 
     def _resolve_failure_code(self, result: "SetupResult") -> str | None:
         payload = result.payload if isinstance(result.payload, Mapping) else {}

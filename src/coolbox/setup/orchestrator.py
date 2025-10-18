@@ -15,6 +15,7 @@ from typing import IO, Any, Callable, Dict, Iterable, Mapping, MutableMapping, O
 
 from coolbox.console.events import DashboardEvent, LogEvent, StageEvent, TaskEvent
 from coolbox.plugins import PluginDefinition, ProfileDevSettings
+from coolbox.tools import ToolBus
 from coolbox.telemetry import NullTelemetryClient, TelemetryClient
 
 from .plugins import (
@@ -283,6 +284,8 @@ class SetupOrchestrator:
         self._results: dict[str, SetupResult] = {}
         self._last_recipe: Recipe | None = None
         self.plugin_manager = plugin_manager or PluginManager()
+        self.tool_bus = ToolBus()
+        self.plugin_manager.attach_tool_bus(self.tool_bus)
         self._subscribers: list[Callable[[DashboardEvent], None]] = []
         self.stage_order: tuple[SetupStage, ...] = STAGE_ORDER
         self.telemetry: TelemetryClient | NullTelemetryClient = telemetry or NullTelemetryClient()
@@ -503,6 +506,17 @@ class SetupOrchestrator:
                 subscriber(event)
             except Exception:  # pragma: no cover - best effort delivery
                 self.logger.debug("dashboard subscriber failed", exc_info=True)
+        try:
+            self.tool_bus.publish(
+                topic="setup.events",
+                payload={
+                    "type": event.__class__.__name__,
+                    "repr": repr(event),
+                },
+                metadata={"source": "orchestrator"},
+            )
+        except Exception:  # pragma: no cover - defensive logging
+            self.logger.debug("tool bus publish failed", exc_info=True)
 
     def replay_events(self, events: Iterable[DashboardEvent]) -> None:
         """Replay historical dashboard events to current subscribers."""

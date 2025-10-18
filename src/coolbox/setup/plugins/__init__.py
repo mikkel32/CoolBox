@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from importlib import metadata
-from typing import Any, Callable, Dict, Iterable, Optional, Protocol, Sequence, TYPE_CHECKING, cast, runtime_checkable
+import inspect
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Protocol, Sequence, TYPE_CHECKING, cast, runtime_checkable
 
 from coolbox.plugins import PluginDefinition, ProfileDevSettings
 from coolbox.plugins.hotreload import HotReloadController
@@ -20,6 +21,7 @@ from coolbox.plugins.worker import (
     WorkerDiagnostics,
     WorkerSupervisor,
 )
+from coolbox.tools import ToolBus, ToolEndpoint
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..orchestrator import SetupOrchestrator, SetupResult, SetupStage, StageContext
@@ -111,6 +113,7 @@ class PluginHandle:
     reporters: list[Reporter] = field(default_factory=list)
     progress_columns: list[ProgressColumnFactory] = field(default_factory=list)
     continuous_validators: list[ContinuousValidator] = field(default_factory=list)
+    tool_endpoints: list[str] = field(default_factory=list)
     disabled: bool = False
     last_diagnostics: WorkerDiagnostics | None = None
 
@@ -132,6 +135,7 @@ class PluginRegistrar:
     orchestrator: "SetupOrchestrator"
     manager: "PluginManager"
     handle: "PluginHandle"
+    tool_bus: ToolBus | None = None
 
     def add_task(self, task: "SetupTask") -> None:
         self.orchestrator.register_task(task)
@@ -151,6 +155,22 @@ class PluginRegistrar:
     def add_continuous_validator(self, validator: ContinuousValidator) -> None:
         self.manager.continuous_validators.append(validator)
         self.handle.continuous_validators.append(validator)
+
+    def add_tool_endpoint(
+        self,
+        name: str,
+        handler: Callable[[Any, Any], Any],
+        *,
+        mode: str = "invoke",
+        metadata: Mapping[str, str] | None = None,
+    ) -> None:
+        self.manager.register_tool_endpoint(
+            self.handle,
+            name,
+            handler,
+            mode=mode,
+            metadata=metadata,
+        )
 
 
 class PluginManager:
@@ -173,6 +193,13 @@ class PluginManager:
         self._profile_dev: ProfileDevSettings | None = None
         self._supervisor = WorkerSupervisor()
         self._violations: list[PluginViolation] = []
+        self._tool_bus: ToolBus | None = None
+        self._tool_endpoint_registry: Dict[str, Dict[str, ToolEndpoint]] = {}
+
+    def attach_tool_bus(self, bus: ToolBus) -> None:
+        """Attach a tool bus to register plugin endpoints with."""
+
+        self._tool_bus = bus
 
     def load_entrypoints(self, orchestrator: "SetupOrchestrator", group: str = ENTRYPOINT_GROUP) -> None:
         """Discover plugins via entry points."""
@@ -210,12 +237,13 @@ class PluginManager:
             runtime_manager=runtime,
             worker=worker,
         )
-        registrar = PluginRegistrar(orchestrator, self, handle)
+        registrar = PluginRegistrar(orchestrator, self, handle, tool_bus=self._tool_bus)
         try:
             plugin.register(registrar)
         except Exception as exc:
             orchestrator.logger.warning("Plugin %s register() failed: %s", getattr(plugin, "name", plugin), exc)
             return
+        self._auto_register_toolbus(handle, orchestrator)
         try:
             self._supervisor.register(identifier, plugin, definition, logger=orchestrator.logger)
         except PluginSandboxError as exc:
@@ -250,6 +278,11 @@ class PluginManager:
         handle.reporters.clear()
         handle.progress_columns.clear()
         handle.continuous_validators.clear()
+        registry = self._tool_endpoint_registry.pop(identifier, None)
+        if registry and self._tool_bus:
+            for endpoint in registry.values():
+                self._tool_bus.unregister(endpoint.name)
+        handle.tool_endpoints.clear()
         self._supervisor.unregister(identifier)
 
     def clear(self) -> None:
@@ -259,6 +292,11 @@ class PluginManager:
             except Exception:  # pragma: no cover - defensive cleanup
                 continue
         self._workers.clear()
+        if self._tool_bus:
+            for registry in self._tool_endpoint_registry.values():
+                for endpoint in registry.values():
+                    self._tool_bus.unregister(endpoint.name)
+        self._tool_endpoint_registry.clear()
         self._handles.clear()
         self.plugins.clear()
         self.validators.clear()
@@ -272,6 +310,107 @@ class PluginManager:
             self._hot_reload = None
         self._violations.clear()
         self._supervisor.clear()
+
+    def register_tool_endpoint(
+        self,
+        handle: PluginHandle,
+        name: str,
+        handler: Callable[[Any, Any], Any],
+        *,
+        mode: str = "invoke",
+        metadata: Mapping[str, str] | None = None,
+    ) -> None:
+        if self._tool_bus is None:
+            raise RuntimeError("Tool bus is not configured")
+        registry = self._tool_endpoint_registry.setdefault(handle.identifier, {})
+        endpoint = registry.get(name)
+        metadata_map = {str(key): str(value) for key, value in (metadata or {}).items()}
+        if endpoint is None:
+            endpoint = ToolEndpoint(
+                name=name,
+                source="local",
+                metadata=dict(metadata_map),
+            )
+            self._tool_bus.register_endpoint(endpoint)
+            registry[name] = endpoint
+            handle.tool_endpoints.append(name)
+        elif metadata_map:
+            merged = dict(endpoint.metadata)
+            merged.update(metadata_map)
+            endpoint.metadata = merged
+        normalized = self._prepare_handler(handler)
+        mode = mode.lower()
+        if mode == "invoke":
+            endpoint.invoke_handler = normalized
+        elif mode == "stream":
+            endpoint.stream_handler = normalized
+        elif mode == "subscribe":
+            endpoint.subscribe_handler = normalized
+        else:
+            raise ValueError(f"Unsupported endpoint mode: {mode}")
+
+    @staticmethod
+    def _prepare_handler(handler: Callable[[Any, Any], Any]) -> Callable[[Any, Any], Any]:
+        signature = inspect.signature(handler)
+        positional = [
+            param
+            for param in signature.parameters.values()
+            if param.kind in (param.POSITIONAL_ONLY, param.POSITIONAL_OR_KEYWORD)
+        ]
+        has_varargs = any(param.kind == param.VAR_POSITIONAL for param in signature.parameters.values())
+        if not positional and not has_varargs:
+            def wrapper(context: Any, payload: Any) -> Any:
+                return handler()
+
+            return wrapper
+        if len(positional) == 1 and positional[0].name not in {"context", "ctx"}:
+            def wrapper(context: Any, payload: Any) -> Any:
+                return handler(payload)
+
+            return wrapper
+
+        def wrapper(context: Any, payload: Any) -> Any:
+            return handler(context, payload)
+
+        return wrapper
+
+    def _auto_register_toolbus(self, handle: PluginHandle, orchestrator: "SetupOrchestrator") -> None:
+        declaration = handle.definition.toolbus if handle.definition else None
+        if declaration is None:
+            return
+        for name, target in declaration.invoke.items():
+            callback = getattr(handle.plugin, target, None)
+            if callable(callback):
+                self.register_tool_endpoint(handle, name, callback, mode="invoke")
+            else:
+                orchestrator.logger.warning(
+                    "Plugin %s missing invoke handler %s for tool %s",
+                    handle.identifier,
+                    target,
+                    name,
+                )
+        for name, target in declaration.stream.items():
+            callback = getattr(handle.plugin, target, None)
+            if callable(callback):
+                self.register_tool_endpoint(handle, name, callback, mode="stream")
+            else:
+                orchestrator.logger.warning(
+                    "Plugin %s missing stream handler %s for tool %s",
+                    handle.identifier,
+                    target,
+                    name,
+                )
+        for name, target in declaration.subscribe.items():
+            callback = getattr(handle.plugin, target, None)
+            if callable(callback):
+                self.register_tool_endpoint(handle, name, callback, mode="subscribe")
+            else:
+                orchestrator.logger.warning(
+                    "Plugin %s missing subscribe handler %s for tool %s",
+                    handle.identifier,
+                    target,
+                    name,
+                )
 
     def iter_reporters(self) -> Iterable[Reporter]:
         return list(self.reporters)

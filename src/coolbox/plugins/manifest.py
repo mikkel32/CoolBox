@@ -126,6 +126,16 @@ class PluginDefinition:
     hooks: StartupHooks
     dev: PluginDevSettings
     description: str | None = None
+    toolbus: "ToolBusDeclaration | None" = None
+
+
+@dataclass(slots=True)
+class ToolBusDeclaration:
+    """Tool bus endpoints declared by a plugin."""
+
+    invoke: Mapping[str, str]
+    stream: Mapping[str, str]
+    subscribe: Mapping[str, str]
 
 
 @dataclass(slots=True)
@@ -237,6 +247,27 @@ def _parse_profile_dev(entry: Mapping[str, Any] | None) -> ProfileDevSettings:
     return ProfileDevSettings(hot_reload=hot_reload, watch_paths=watch_paths, locales=locales)
 
 
+def _parse_toolbus(entry: Mapping[str, Any] | None) -> ToolBusDeclaration | None:
+    if entry is None:
+        return None
+    if not isinstance(entry, Mapping):
+        raise ManifestError("Plugin 'toolbus' section must be a mapping")
+
+    def _mapping(key: str) -> Mapping[str, str]:
+        value = entry.get(key, {})
+        if value is None:
+            return {}
+        if not isinstance(value, Mapping):
+            raise ManifestError(f"toolbus.{key} must be a mapping")
+        return {str(name): str(target) for name, target in value.items()}
+
+    return ToolBusDeclaration(
+        invoke=_mapping("invoke"),
+        stream=_mapping("stream"),
+        subscribe=_mapping("subscribe"),
+    )
+
+
 def _parse_plugin(entry: Mapping[str, Any], default_hot_reload: bool) -> PluginDefinition:
     identifier = str(entry.get("id"))
     description = entry.get("description")
@@ -246,6 +277,7 @@ def _parse_plugin(entry: Mapping[str, Any], default_hot_reload: bool) -> PluginD
     resources = _parse_resources(entry.get("resources", {}))
     hooks = _parse_hooks(entry.get("hooks", {}))
     dev = _parse_dev(entry.get("dev", {}), default_hot_reload=default_hot_reload)
+    toolbus = _parse_toolbus(entry.get("toolbus"))
     return PluginDefinition(
         identifier=identifier,
         runtime=runtime,
@@ -255,6 +287,7 @@ def _parse_plugin(entry: Mapping[str, Any], default_hot_reload: bool) -> PluginD
         hooks=hooks,
         dev=dev,
         description=str(description) if description else None,
+        toolbus=toolbus,
     )
 
 
@@ -355,6 +388,7 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
                 "resources": {"$ref": "#/$defs/resources"},
                 "hooks": {"$ref": "#/$defs/hooks"},
                 "dev": {"$ref": "#/$defs/dev"},
+                "toolbus": {"$ref": "#/$defs/toolbus"},
             },
             "required": ["id", "runtime", "capabilities", "io", "resources", "hooks"],
             "additionalProperties": True,
@@ -431,6 +465,24 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
             },
             "required": ["before", "after", "on_failure"],
         },
+        "toolbus": {
+            "type": "object",
+            "properties": {
+                "invoke": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                },
+                "stream": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                },
+                "subscribe": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                },
+            },
+            "additionalProperties": False,
+        },
     },
 }
 
@@ -448,6 +500,7 @@ __all__ = [
     "ResourceBudget",
     "RuntimeConfiguration",
     "StartupHooks",
+    "ToolBusDeclaration",
     "load_manifest_document",
     "MANIFEST_JSON_SCHEMA",
 ]

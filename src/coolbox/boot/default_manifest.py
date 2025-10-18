@@ -48,6 +48,13 @@ _DEFAULT_MANIFEST: dict[str, Any] = {
                         "after": [],
                         "on_failure": [],
                     },
+                    "toolbus": {
+                        "invoke": {
+                            "setup.remediation.suggest": "toolbus_suggest",
+                        },
+                        "stream": {},
+                        "subscribe": {},
+                    },
                     "dev": {
                         "hot_reload": False,
                         "watch": ["src/coolbox/setup/plugins"],
