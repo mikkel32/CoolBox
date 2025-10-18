@@ -1,11 +1,27 @@
 """Compatibility wrapper for :mod:`coolbox.utils.analysis._score_samples`."""
+# pyright: reportUnsupportedDunderAll=none
 from __future__ import annotations
 
+import importlib
+from types import ModuleType
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .analysis import _score_samples as _score_samples_module
+
 try:  # pragma: no cover - optional extension may be missing
-    from .analysis._score_samples import *  # type: ignore F401,F403
-    try:  # pragma: no cover - target may not define __all__
-        from .analysis._score_samples import __all__  # type: ignore F401
-    except ImportError:  # pragma: no cover - fallback when __all__ missing
-        __all__ = [name for name in globals() if not name.startswith("_")]
+    _score_samples_module = importlib.import_module(
+        "coolbox.utils.analysis._score_samples"
+    )
 except Exception:  # pragma: no cover - extension unavailable
-    __all__ = []
+    __all__: tuple[str, ...] = ()
+else:
+    module = cast(ModuleType, _score_samples_module)
+    exports = getattr(module, "__all__", None)
+    if exports is None:
+        names = tuple(name for name in vars(module) if not name.startswith("_"))
+    else:
+        names = tuple(exports)
+    globals().update({name: getattr(module, name) for name in names})
+    __all__ = names
+    del _score_samples_module

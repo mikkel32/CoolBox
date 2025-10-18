@@ -1,4 +1,5 @@
 """Domain-organized entry points for CoolBox utility helpers."""
+# pyright: reportUnsupportedDunderAll=none
 from __future__ import annotations
 
 import os
@@ -249,4 +250,4 @@ def __dir__() -> list[str]:
     return sorted(names)
 
 
-__all__ = __dir__()
+__all__: tuple[str, ...] = tuple(__dir__())

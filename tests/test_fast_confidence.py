@@ -8,7 +8,7 @@ except Exception:  # pragma: no cover - skip if NumPy unavailable
 
 from coolbox.utils.analysis.scoring_engine import ScoringEngine, tuning
 from coolbox.utils.window_utils import WindowInfo
-from coolbox.ui.views._fast_confidence import weighted_confidence as fast_wc
+from coolbox.ui.views.base._fast_confidence import weighted_confidence as fast_wc
 
 
 def test_fast_confidence_matches_engine() -> None:

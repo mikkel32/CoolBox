@@ -5,10 +5,19 @@ from __future__ import annotations
 import sys
 from importlib import import_module
 from pathlib import Path
-from typing import Awaitable, Callable, MutableMapping, Sequence
+from typing import Any, Coroutine, MutableMapping, Protocol, Sequence
 
-CommandMain = Callable[[Sequence[str] | None], None]
-AsyncCommandMain = Callable[[Sequence[str] | None], Awaitable[None]]
+
+class CommandMain(Protocol):
+    """Callable signature for synchronous command entry points."""
+
+    def __call__(self, argv: Sequence[str] | None = None) -> None: ...
+
+
+class AsyncCommandMain(Protocol):
+    """Callable signature for asynchronous command entry points."""
+
+    def __call__(self, argv: Sequence[str] | None = None) -> Coroutine[Any, Any, None]: ...
 
 
 def _ensure_project_root() -> Path:

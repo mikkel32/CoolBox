@@ -3,7 +3,7 @@ import unittest
 import tkinter as tk
 from unittest.mock import patch
 
-from coolbox.ui.views.click_overlay import ClickOverlay
+from coolbox.ui.views.overlays.click_overlay import ClickOverlay
 
 
 @unittest.skipIf(os.environ.get("DISPLAY") is None, "No display available")
@@ -13,8 +13,8 @@ class TestClickOverlayFPS(unittest.TestCase):
         root = tk.Tk()
         try:
             with (
-                patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-                patch("coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False),
+                patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+                patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False),
             ):
                 overlay = ClickOverlay(root)
             self.assertAlmostEqual(overlay.interval, 1 / 150)
@@ -28,8 +28,8 @@ class TestClickOverlayFPS(unittest.TestCase):
         root = tk.Tk()
         try:
             with (
-                patch("coolbox.ui.views.click_overlay.is_supported", return_value=False),
-                patch("coolbox.ui.views.click_overlay.make_window_clickthrough", return_value=False),
+                patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),
+                patch("coolbox.ui.views.overlays.click_overlay.make_window_clickthrough", return_value=False),
             ):
                 overlay = ClickOverlay(root)
             self.assertEqual(overlay.interval, 0.01)

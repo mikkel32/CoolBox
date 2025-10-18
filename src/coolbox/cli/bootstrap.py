@@ -4,6 +4,9 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import logging
+import hashlib
+import importlib.util
+import logging
 import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -17,7 +20,7 @@ from coolbox.setup.orchestrator import SetupOrchestrator, SetupStatus
 from coolbox.setup.recipes import RecipeLoader
 from coolbox.setup.stages import register_builtin_tasks
 from coolbox.utils.logging_config import setup_logging
-from coolbox import CoolBoxApp
+from coolbox.app import CoolBoxApp
 
 logger = logging.getLogger(__name__)
 

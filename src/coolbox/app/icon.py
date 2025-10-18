@@ -42,7 +42,7 @@ def set_app_icon(window):
     path to a temporary ``.ico`` file on Windows (``None`` otherwise).
     """
     icon_resource = resources.files("coolbox.assets.images").joinpath("Coolbox_logo.png")
-    if not icon_resource.exists():
+    if not icon_resource.is_file():
         msg = f"Icon file not found: {icon_resource}"
         logger.error(msg)
         raise RuntimeError(msg)

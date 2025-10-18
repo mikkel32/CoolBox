@@ -1,0 +1,15 @@
+{
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    "setup.py",
+    "main.py"
+  ],
+  "stubPath": "typings",
+  "extraPaths": [
+    "src",
+    "scripts",
+    "typings"
+  ]
+}

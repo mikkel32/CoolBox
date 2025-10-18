@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import heapq
+import importlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -346,7 +347,7 @@ class SetupOrchestrator:
             offline_enabled = _parse_truthy(os.environ.get("COOLBOX_OFFLINE"))
             if offline_enabled:
                 try:  # pragma: no cover - defensive import
-                    import setup as setup_module  # type: ignore
+                    setup_module = importlib.import_module("setup")
                 except Exception:  # pragma: no cover - setup unavailable
                     pass
                 else:

@@ -53,19 +53,19 @@ class TestForceQuitHighlight(unittest.TestCase):
             "coolbox.utils.mouse_listener": types.SimpleNamespace(
                 get_global_listener=lambda: types.SimpleNamespace(start=lambda: None)
             ),
-            "coolbox.ui.views.click_overlay": types.SimpleNamespace(
+            "coolbox.ui.views.overlays.click_overlay": types.SimpleNamespace(
                 ClickOverlay=object, KILL_BY_CLICK_INTERVAL=0.1
             ),
         }
         self.patcher = mock.patch.dict(sys.modules, modules)
         self.patcher.start()
-        sys.modules.pop("coolbox.ui.views.force_quit_dialog", None)
-        from coolbox.ui.views.force_quit_dialog import ForceQuitDialog
+        sys.modules.pop("coolbox.ui.views.dialogs.force_quit", None)
+        from coolbox.ui.views.dialogs.force_quit import ForceQuitDialog
         self.ForceQuitDialog = ForceQuitDialog
 
     def tearDown(self) -> None:
         self.patcher.stop()
-        sys.modules.pop("coolbox.ui.views.force_quit_dialog", None)
+        sys.modules.pop("coolbox.ui.views.dialogs.force_quit", None)
 
     def test_highlight_pid_skips_duplicate_selection(self) -> None:
         dialog = self.ForceQuitDialog.__new__(self.ForceQuitDialog)

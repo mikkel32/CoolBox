@@ -54,7 +54,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
-    from rich.console import Group
+    from rich.console import Group, RenderableType
     from coolbox.setup.orchestrator import SetupOrchestrator, SetupStage
 else:  # pragma: no cover - runtime import guard
     try:
@@ -69,11 +69,13 @@ else:  # pragma: no cover - runtime import guard
         from rich.panel import Panel
         from rich.table import Table
         from rich.text import Text
-        from rich.console import Group
+        from rich.console import Group, RenderableType
 
         TEXTUAL_AVAILABLE = True
     except Exception:  # pragma: no cover - fallback when textual missing
         TEXTUAL_AVAILABLE = False
+
+        RenderableType = Any  # type: ignore[assignment]
 
         class _StubStyles(SimpleNamespace):
             def __init__(self) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, MutableMapping, Sequence, TYPE_CHECKING
+from typing import Any, Dict, Iterable, Mapping, MutableMapping, Sequence, TYPE_CHECKING, cast
 
 from importlib import resources
 from importlib.resources.abc import Traversable
@@ -13,7 +13,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .orchestrator import SetupStage
 
 try:  # pragma: no cover - optional dependency
-    import yaml  # type: ignore
+    import yaml
 except Exception:  # pragma: no cover - fallback when PyYAML is unavailable
     yaml = None
 
@@ -105,15 +105,15 @@ class RecipeLoader:
             return Recipe(name="default", data=data)
         path = self._resolve(identifier)
         data = self._read_recipe(path)
-        name = data.get("name") or path.stem
-        merged = self._merge_extends(data, path.parent)
+        name = data.get("name") or self._stem(path)
+        merged = self._merge_extends(data, self._parent(path))
         if overrides:
             merged = merge_dicts(merged, dict(overrides))
         return Recipe(name=name, data=merged, source=path)
 
     # ------------------------------------------------------------------
     def _merge_extends(
-        self, data: dict[str, Any], base_dir: Path | Traversable
+        self, data: dict[str, Any], base_dir: Path | Traversable | None
     ) -> dict[str, Any]:
         extends = data.get("extends", [])
         if not extends:
@@ -122,7 +122,7 @@ class RecipeLoader:
         for entry in extends:
             parent_path = self._resolve(entry, base_dir=base_dir)
             parent_data = self._read_recipe(parent_path)
-            parent_merged = self._merge_extends(parent_data, parent_path.parent)
+            parent_merged = self._merge_extends(parent_data, self._parent(parent_path))
             merged = merge_dicts(merged, parent_merged)
         merged = merge_dicts(merged, data)
         return merged
@@ -140,7 +140,7 @@ class RecipeLoader:
                     resolved = self._resolve(candidate.with_suffix(suffix), base_dir=base_dir)
                 except FileNotFoundError:
                     continue
-                if resolved.exists():
+                if self._exists(resolved):
                     return resolved
         if candidate.is_absolute():
             if candidate.exists():
@@ -164,10 +164,33 @@ class RecipeLoader:
 
     @staticmethod
     def _exists(path: Path | Traversable) -> bool:
-        try:
-            return path.exists()
-        except AttributeError:
-            return Path(path).exists()
+        exists = getattr(path, "exists", None)
+        if callable(exists):
+            try:
+                return bool(exists())
+            except OSError:
+                return False
+        return Path(str(path)).exists()
+
+    @staticmethod
+    def _stem(path: Path | Traversable) -> str:
+        if isinstance(path, Path):
+            return path.stem
+        name = getattr(path, "name", None)
+        if isinstance(name, str):
+            return Path(name).stem
+        return Path(str(path)).stem
+
+    @staticmethod
+    def _parent(path: Path | Traversable | None) -> Path | Traversable | None:
+        if path is None:
+            return None
+        if isinstance(path, Path):
+            return path.parent
+        parent = getattr(path, "parent", None)
+        if parent is not None:
+            return parent
+        return Path(str(path)).parent
 
     def _read_recipe(self, path: Path | Traversable) -> dict[str, Any]:
         key = str(path)
@@ -199,8 +222,12 @@ def merge_dicts(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[st
 
     result: dict[str, Any] = dict(base)
     for key, value in override.items():
-        if isinstance(value, Mapping) and isinstance(result.get(key), Mapping):
-            result[key] = merge_dicts(result[key], value)  # type: ignore[arg-type]
+        existing = result.get(key)
+        if isinstance(value, Mapping) and isinstance(existing, Mapping):
+            result[key] = merge_dicts(
+                cast(Mapping[str, Any], existing),
+                cast(Mapping[str, Any], value),
+            )
         elif isinstance(value, list) and isinstance(result.get(key), list):
             result[key] = [*result[key], *value]
         else:

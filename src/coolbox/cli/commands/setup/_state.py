@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Sequence, Tuple
 
-from coolbox import paths as project_paths
+from coolbox.paths import project_root as _discover_project_root
 
 from ._logging import logger
 
@@ -53,7 +53,7 @@ def _project_root() -> Path:
             return candidate.resolve()
         except OSError:
             return candidate
-    detected = project_paths.project_root()
+    detected = _discover_project_root()
     if detected.exists():
         return detected
     return locate_root(Path(__file__).resolve())

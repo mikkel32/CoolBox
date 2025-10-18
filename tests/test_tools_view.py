@@ -5,7 +5,7 @@ from unittest.mock import patch
 from typing import Any, cast
 
 from coolbox.app import CoolBoxApp
-from coolbox.ui.views.tools_view import ToolsView
+from coolbox.ui.views.screens.tools import ToolsView
 
 
 class TestToolsView(unittest.TestCase):

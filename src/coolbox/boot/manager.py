@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from importlib.resources.abc import Traversable
 
 try:  # pragma: no cover - optional dependency
-    import yaml  # type: ignore
+    import yaml
 except Exception:  # pragma: no cover - fall back to JSON parsing only
     yaml = None
 
@@ -223,7 +223,7 @@ class BootManager:
     # ------------------------------------------------------------------
     def _initialize_debugger(self, port: int) -> None:
         try:
-            import debugpy  # type: ignore
+            import debugpy
 
             debugpy.listen(port)
             self.logger.info("Waiting for debugger on port %s...", port)
@@ -233,13 +233,29 @@ class BootManager:
 
     # ------------------------------------------------------------------
     def _load_manifest(self) -> Mapping[str, Any]:
-        if self._default_manifest is None or not self._default_manifest.exists():
+        manifest_path = self._default_manifest
+        if manifest_path is None:
             self.logger.debug("Boot manifest not found, using empty configuration")
             return {"profiles": {"default": {}}}
+
+        exists = False
         try:
-            text = self._default_manifest.read_text(encoding="utf-8")
+            if isinstance(manifest_path, Path):
+                exists = manifest_path.exists()
+            else:
+                exists = manifest_path.is_file()
+        except OSError as exc:
+            self.logger.warning("Unable to access boot manifest %s: %s", manifest_path, exc)
+            return {"profiles": {"default": {}}}
+
+        if not exists:
+            self.logger.debug("Boot manifest not found, using empty configuration")
+            return {"profiles": {"default": {}}}
+
+        try:
+            text = manifest_path.read_text(encoding="utf-8")
         except OSError as exc:  # pragma: no cover - file permissions
-            self.logger.warning("Unable to read boot manifest %s: %s", self._default_manifest, exc)
+            self.logger.warning("Unable to read boot manifest %s: %s", manifest_path, exc)
             return {"profiles": {"default": {}}}
         data: Mapping[str, Any]
         if yaml is not None:

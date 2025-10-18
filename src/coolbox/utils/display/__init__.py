@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .color_utils import adjust_color, darken_color, hex_brightness, lighten_color
 from .rainbow import NeonPulseBorder, RainbowBorder
@@ -25,6 +25,18 @@ __all__ = [
     "center_window",
     "get_screen_refresh_rate",
 ]
+
+if TYPE_CHECKING:
+    from . import window_utils as window_utils
+    from .hover_tracker import HoverTracker
+    from .mouse_listener import (
+        capture_mouse,
+        get_global_listener,
+        is_supported,
+        log,
+    )
+    from .theme import ThemeManager, _ConfigLike
+    from .ui import center_window, get_screen_refresh_rate
 
 
 _LAZY_ATTRS = {

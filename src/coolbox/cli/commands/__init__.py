@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 __all__ = [
     "exe_inspector",
@@ -27,6 +27,16 @@ _COMMAND_NAMES = {
     "security_center_hidden",
     "setup",
 }
+
+if TYPE_CHECKING:
+    from . import exe_inspector as exe_inspector
+    from . import kill_by_click as kill_by_click
+    from . import network_scan as network_scan
+    from . import process_monitor as process_monitor
+    from . import run_vm_debug as run_vm_debug
+    from . import security_center as security_center
+    from . import security_center_hidden as security_center_hidden
+    from . import setup as setup
 
 
 def load(name: str) -> ModuleType:

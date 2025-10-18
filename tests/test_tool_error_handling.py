@@ -3,10 +3,12 @@ import time
 import unittest
 from tkinter import messagebox
 from unittest.mock import patch
+
 os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+
 import customtkinter as ctk
 
-from coolbox.ui.views.tools_view import ToolsView
+from coolbox.ui.views.screens.tools import ToolsView
 from coolbox.utils.thread_manager import ThreadManager
 
 

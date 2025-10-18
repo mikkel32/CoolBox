@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 from coolbox.utils.win_console import (  # noqa: E402
     hide_terminal,
@@ -10,7 +11,7 @@ from coolbox.utils.win_console import (  # noqa: E402
     silence_stdio,
 )
 from coolbox.app import CoolBoxApp  # noqa: E402
-from coolbox.ui.views.security_dialog import SecurityDialog  # noqa: E402
+from coolbox.ui.views.dialogs.security import SecurityDialog  # noqa: E402
 from coolbox.utils import security  # noqa: E402
 import tkinter as tk
 from typing import cast

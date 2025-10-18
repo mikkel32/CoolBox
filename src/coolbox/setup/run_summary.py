@@ -11,15 +11,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from rich.table import Table
     from rich.text import Text
     from rich.console import RenderableType, Group
+    from rich import box as rich_box
+    from rich.markup import escape as rich_escape
+
+    box = rich_box
 else:  # pragma: no cover - runtime import guard
     try:
         from rich.panel import Panel
         from rich.table import Table
         from rich.text import Text
         from rich.console import RenderableType, Group
-        from rich import box
+        from rich import box as rich_box
         from rich.markup import escape as rich_escape
 
+        box = rich_box
         _RICH_AVAILABLE = True
     except Exception:
         _RICH_AVAILABLE = False
@@ -64,7 +69,14 @@ else:  # pragma: no cover - runtime import guard
         Text = _StubText  # type: ignore[assignment]
         RenderableType = str  # type: ignore[assignment]
         Group = _StubGroup  # type: ignore[assignment]
-        rich_escape = lambda value: value  # type: ignore[assignment]
+
+        class _StubBox(SimpleNamespace):
+            SIMPLE_HEAVY: object | None = None
+
+        box = _StubBox()  # type: ignore[assignment]
+
+        def rich_escape(value: str) -> str:  # type: ignore[override]
+            return value
 
 RICH_AVAILABLE = TYPE_CHECKING or globals().get("_RICH_AVAILABLE", True)
 
