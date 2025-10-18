@@ -56,13 +56,15 @@ class DummyOrchestrator(SetupOrchestrator):
         *,
         stages=None,
         task_names=None,
-        load_plugins=True,
+        plugins=None,
+        dev=None,
     ):
         self.last_run = {
             "recipe": recipe,
             "stages": stages,
             "task_names": task_names,
-            "load_plugins": load_plugins,
+            "plugins": plugins,
+            "dev": dev,
         }
         return []
 
@@ -73,8 +75,47 @@ def manifest(tmp_path: Path) -> Path:
         "profiles": {
             "default": {
                 "orchestrator": {"stages": ["verification"], "load_plugins": False},
+                "plugins": [
+                    {
+                        "id": "test-plugin",
+                        "description": "Test plugin",
+                        "runtime": {
+                            "kind": "native",
+                            "entrypoint": "coolbox.setup.plugins:NullPlugin",
+                            "environment": {},
+                            "features": [],
+                        },
+                        "capabilities": {
+                            "provides": [],
+                            "requires": [],
+                            "sandbox": ["native"],
+                        },
+                        "io": {
+                            "inputs": {},
+                            "outputs": {},
+                        },
+                        "resources": {
+                            "cpu": "1",
+                            "memory": "16Mi",
+                            "disk": "16Mi",
+                            "gpu": "0",
+                            "timeout": 5,
+                        },
+                        "hooks": {
+                            "before": [],
+                            "after": [],
+                            "on_failure": [],
+                        },
+                        "dev": {
+                            "hot_reload": False,
+                            "watch": [],
+                            "locales": [],
+                        },
+                    }
+                ],
                 "preload": {"modules": ["pkg.module"], "callables": ["pkg:preload"]},
                 "recovery": {"dashboard": {"mode": "json"}},
+                "dev": {"hot_reload": False, "watch": [], "locales": []},
             }
         }
     }
@@ -166,7 +207,7 @@ def test_boot_manager_passes_manifest_stages(
     orchestrator = cast(DummyOrchestrator, manager.orchestrator)
     assert orchestrator.last_run is not None
     assert orchestrator.last_run["stages"] == [SetupStage.VERIFICATION]
-    assert orchestrator.last_run["load_plugins"] is False
+    assert orchestrator.last_run["plugins"] == ()
 
 
 def test_boot_manager_fallback_to_console(

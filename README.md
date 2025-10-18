@@ -41,6 +41,15 @@ environments behave identically.
 - **Storage adapters**: Telemetry is persisted to `artifacts/telemetry.jsonl` via an append-only JSONL adapter. Tests can swap in-memory adapters to keep runs deterministic.
 - **QA guardrails**: New unit and integration tests simulate online/offline setup flows, recipe variants, and orchestrator edge cases using heavy system-call mocks so regressions are caught quickly without touching the network or filesystem.
 
+## 🔌 Plugin Manifest & Runtimes
+
+- **Typed boot manifest**: `boot_manifest.yaml` and the bundled fallback now describe each profile with a structured `plugins` list, profile-level `dev` settings, and recovery behaviour. The schema captures capabilities, IO contracts, resource budgets, sandbox requirements, startup hooks, and runtime declarations so the orchestrator receives explicit plugin definitions instead of a boolean toggle.
+- **JSON Schema validation**: Boot manifests are validated at startup against a bundled Draft 7 schema. Validation errors surface with JSON Pointer paths so configuration issues fail fast before orchestration begins, whether the manifest is loaded from disk or from the bundled defaults.
+- **Runtime managers**: Native plugins are loaded through the new runtime abstraction, which applies per-plugin environment overrides and supports hot reloading. WASM runtimes are stubbed with safe fallbacks until a full sandbox lands, so manifests can already declare WebAssembly workloads without crashing older environments.
+- **Hot-reload aware sandboxes**: When a profile enables `dev.hot_reload` and supplies watch paths, the plugin manager tracks filesystem changes and reloads only the affected worker. Native runtimes refresh their modules in place while re-registering validators, reporters, and other hooks without restarting the orchestrator.
+- **Recovery profiles**: Recovery manifests can keep `load_plugins` disabled while still providing the full typed layout. The boot manager passes an empty plugin payload to the orchestrator so sandboxes remain offline during diagnostic runs while the rest of the manifest (preload modules, staged recovery tasks, and dashboard configuration) stays active.
+- **Multilingual tooling support**: Profile and plugin development settings expose a `locales` list so tooling can present localized diagnostics or reload language-specific resources during development. Combined with hot reload, this makes it easy to iterate on translated copy or locale-aware plugins without restarting the app.
+
 ## 🚀 Features
 
 - **Modern UI**: Beautiful dark/light theme with smooth animations

@@ -17,6 +17,44 @@ _DEFAULT_MANIFEST: dict[str, Any] = {
                 ],
                 "load_plugins": True,
             },
+            "plugins": [
+                {
+                    "id": "adaptive-remediation",
+                    "description": "Telemetry-guided remediation assistant for installer flows.",
+                    "runtime": {
+                        "kind": "native",
+                        "entrypoint": "coolbox.setup.plugins.adaptive_remediation:AdaptiveRemediationPlugin",
+                        "environment": {},
+                        "features": [],
+                    },
+                    "capabilities": {
+                        "provides": ["setup.remediation"],
+                        "requires": [],
+                        "sandbox": ["native"],
+                    },
+                    "io": {
+                        "inputs": {"telemetry": "coolbox.telemetry.events"},
+                        "outputs": {"remediation": "coolbox.setup.results"},
+                    },
+                    "resources": {
+                        "cpu": "250m",
+                        "memory": "128Mi",
+                        "disk": "64Mi",
+                        "gpu": "0",
+                        "timeout": 30,
+                    },
+                    "hooks": {
+                        "before": [],
+                        "after": [],
+                        "on_failure": [],
+                    },
+                    "dev": {
+                        "hot_reload": False,
+                        "watch": ["src/coolbox/setup/plugins"],
+                        "locales": ["en-US"],
+                    },
+                }
+            ],
             "preload": {
                 "modules": [
                     "coolbox.console.dashboard",
@@ -39,6 +77,11 @@ _DEFAULT_MANIFEST: dict[str, Any] = {
                     "summaries",
                 ],
             },
+            "dev": {
+                "hot_reload": False,
+                "watch": ["src/coolbox/setup/plugins"],
+                "locales": ["en-US", "es-ES"],
+            },
         },
         "recovery": {
             "orchestrator": {
@@ -48,6 +91,7 @@ _DEFAULT_MANIFEST: dict[str, Any] = {
                 ],
                 "load_plugins": False,
             },
+            "plugins": [],
             "preload": {
                 "modules": [
                     "coolbox.console.dashboard",
@@ -63,6 +107,11 @@ _DEFAULT_MANIFEST: dict[str, Any] = {
                 "hints": [
                     "Inspect verification output for actionable errors.",
                 ],
+            },
+            "dev": {
+                "hot_reload": False,
+                "watch": ["src/coolbox/setup/plugins"],
+                "locales": ["en-US"],
             },
         },
     }

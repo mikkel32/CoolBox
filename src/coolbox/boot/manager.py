@@ -14,12 +14,24 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from importlib.resources.abc import Traversable
 
+from jsonschema import Draft7Validator, ValidationError
+
 try:  # pragma: no cover - optional dependency
     import yaml
 except Exception:  # pragma: no cover - fall back to JSON parsing only
     yaml = None
 
 from coolbox.console import DashboardLayout, DashboardTheme, LogEvent, create_dashboard
+from coolbox.plugins import (
+    BootManifest,
+    BootProfile as ManifestBootProfile,
+    ManifestError as PluginManifestError,
+    ManifestValidationError,
+    PluginDefinition,
+    ProfileDevSettings,
+    load_manifest_document,
+    MANIFEST_JSON_SCHEMA,
+)
 from coolbox.console.dashboard import TEXTUAL_AVAILABLE
 from coolbox.paths import ensure_directory, artifacts_dir, project_root
 from coolbox.setup import (
@@ -45,6 +57,8 @@ class ManifestProfile:
     orchestrator: Mapping[str, Any]
     preload: Mapping[str, Any]
     recovery: Mapping[str, Any]
+    plugins: tuple[PluginDefinition, ...]
+    dev: ProfileDevSettings
 
 
 class BootManager:
@@ -82,6 +96,8 @@ class BootManager:
         self.dependency_checker = dependency_checker
         self.logger = logger or logging.getLogger("coolbox.boot.manager")
         self._manifest_cache: dict[str, ManifestProfile] = {}
+        self._manifest_validator = Draft7Validator(MANIFEST_JSON_SCHEMA)
+        self._manifest_document: BootManifest | None = None
         self._last_recipe: Recipe | None = None
 
     # ------------------------------------------------------------------
@@ -116,6 +132,7 @@ class BootManager:
         if args.boot_manifest is not None:
             self._default_manifest = Path(args.boot_manifest)
             self._manifest_cache.clear()
+            self._manifest_document = None
 
         self.logger.debug("Boot arguments parsed", extra={"argv": list(argv or [])})
 
@@ -154,7 +171,14 @@ class BootManager:
         recipe_name = args.setup_recipe or profile.orchestrator.get("recipe")
         stages = self._resolve_stages(profile.orchestrator.get("stages"))
         task_names = self._resolve_task_names(profile.orchestrator.get("tasks"))
-        load_plugins = bool(profile.orchestrator.get("load_plugins", True))
+        plugin_definitions = profile.plugins
+        load_flag = profile.orchestrator.get("load_plugins")
+        if load_flag is False:
+            plugin_payload: Sequence[PluginDefinition] | None = ()
+        elif plugin_definitions:
+            plugin_payload = plugin_definitions
+        else:
+            plugin_payload = None
 
         if not (args.debug or args.vm_debug):
             self._preload_components(
@@ -166,7 +190,13 @@ class BootManager:
 
         try:
             recipe = self._load_recipe(recipe_name)
-            self._execute_setup(recipe, stages=stages, task_names=task_names, load_plugins=load_plugins)
+            self._execute_setup(
+                recipe,
+                stages=stages,
+                task_names=task_names,
+                plugins=plugin_payload,
+                dev=profile.dev,
+            )
             self._launch_application()
         except Exception as exc:
             self.logger.exception("Application launch failed; entering recovery console", exc_info=exc)
@@ -236,8 +266,8 @@ class BootManager:
     def _load_manifest(self) -> Mapping[str, Any]:
         manifest_path = self._default_manifest
         if manifest_path is None:
-            self.logger.debug("Boot manifest not found, using empty configuration")
-            return {"profiles": {"default": {}}}
+            self.logger.debug("Boot manifest not specified; using bundled defaults")
+            return get_default_manifest()
 
         exists = False
         try:
@@ -247,17 +277,19 @@ class BootManager:
                 exists = manifest_path.is_file()
         except OSError as exc:
             self.logger.warning("Unable to access boot manifest %s: %s", manifest_path, exc)
-            return {"profiles": {"default": {}}}
+            self.logger.debug("Boot manifest not accessible, using bundled defaults")
+            return get_default_manifest()
 
         if not exists:
             self.logger.debug("Boot manifest not found, using empty configuration")
-            return {"profiles": {"default": {}}}
+            self.logger.debug("Boot manifest missing, using bundled defaults")
+            return get_default_manifest()
 
         try:
             text = manifest_path.read_text(encoding="utf-8")
         except OSError as exc:  # pragma: no cover - file permissions
             self.logger.warning("Unable to read boot manifest %s: %s", manifest_path, exc)
-            return {"profiles": {"default": {}}}
+            return get_default_manifest()
         data: Mapping[str, Any]
         if yaml is not None:
             data = yaml.safe_load(text) or {}
@@ -269,6 +301,26 @@ class BootManager:
         if not isinstance(data, Mapping):
             raise TypeError("Boot manifest must contain a mapping")
         return data
+
+    def _get_manifest_document(self) -> BootManifest:
+        if self._manifest_document is not None:
+            return self._manifest_document
+        raw = self._load_manifest()
+        try:
+            self._manifest_validator.validate(raw)
+        except ValidationError as exc:
+            pointer = "/".join(str(part) for part in exc.path)
+            message = exc.message
+            if pointer:
+                message = f"{message} (at {pointer})"
+            raise ManifestValidationError(message) from exc
+        try:
+            manifest = load_manifest_document(raw)
+        except PluginManifestError as exc:
+            raise ManifestValidationError(str(exc)) from exc
+        self._manifest_cache.clear()
+        self._manifest_document = manifest
+        return manifest
 
     def _manifest_from_missing_yaml(
         self,
@@ -296,24 +348,19 @@ class BootManager:
     def _load_profile(self, name: str) -> ManifestProfile:
         if name in self._manifest_cache:
             return self._manifest_cache[name]
-        manifest = self._load_manifest()
-        profiles = manifest.get("profiles", {})
-        if not isinstance(profiles, Mapping):
-            raise TypeError("Boot manifest 'profiles' entry must be a mapping")
-        raw_profile = profiles.get(name)
-        if raw_profile is None:
-            available = ", ".join(sorted(str(key) for key in profiles)) or "<none>"
+        manifest = self._get_manifest_document()
+        profiles = manifest.profiles
+        if name not in profiles:
+            available = ", ".join(sorted(profiles)) or "<none>"
             raise ValueError(f"Boot profile '{name}' not found (available: {available})")
-        if not isinstance(raw_profile, Mapping):
-            raise TypeError(f"Profile '{name}' must be a mapping")
-        orchestrator = raw_profile.get("orchestrator", {})
-        preload = raw_profile.get("preload", {})
-        recovery = raw_profile.get("recovery", {})
+        profile_doc: ManifestBootProfile = profiles[name]
         profile = ManifestProfile(
             name=name,
-            orchestrator=orchestrator if isinstance(orchestrator, Mapping) else {},
-            preload=preload if isinstance(preload, Mapping) else {},
-            recovery=recovery if isinstance(recovery, Mapping) else {},
+            orchestrator=dict(profile_doc.orchestrator),
+            preload=dict(profile_doc.preload),
+            recovery=dict(profile_doc.recovery),
+            plugins=profile_doc.plugins,
+            dev=profile_doc.dev,
         )
         self._manifest_cache[name] = profile
         return profile
@@ -406,7 +453,8 @@ class BootManager:
         *,
         stages: Sequence[SetupStage] | None,
         task_names: Sequence[str] | None,
-        load_plugins: bool,
+        plugins: Sequence[PluginDefinition] | None,
+        dev: ProfileDevSettings | None,
     ) -> list[SetupResult]:
         resume_journal: SetupRunJournal | None = None
         if stages and self._last_recipe and recipe.name == self._last_recipe.name:
@@ -420,7 +468,8 @@ class BootManager:
             recipe,
             stages=stages,
             task_names=task_names,
-            load_plugins=load_plugins,
+            plugins=plugins,
+            dev=dev,
         )
         if resume_journal is not None:
             # Ensure the orchestrator preserves the resume context for subsequent recovery attempts.
@@ -476,7 +525,13 @@ class BootManager:
             if stages and self._last_recipe is not None:
                 try:
                     self.logger.info("Running recovery stages: %s", ", ".join(stage.value for stage in stages))
-                    self._execute_setup(self._last_recipe, stages=stages, task_names=None, load_plugins=True)
+                    self._execute_setup(
+                        self._last_recipe,
+                        stages=stages,
+                        task_names=None,
+                        plugins=profile.plugins,
+                        dev=profile.dev,
+                    )
                 except Exception as recovery_exc:  # pragma: no cover - diagnostics only
                     dashboard.handle_event(
                         LogEvent(

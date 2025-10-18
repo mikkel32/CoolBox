@@ -34,7 +34,7 @@ def test_run_validates_missing_dependencies(tmp_path) -> None:
 
     recipe = Recipe(name="missing")
     with pytest.raises(ValueError) as excinfo:
-        orchestrator.run(recipe, load_plugins=False)
+        orchestrator.run(recipe, plugins=())
 
     assert "depends on unknown task 'missing'" in str(excinfo.value)
 
@@ -61,7 +61,7 @@ def test_run_detects_dependency_cycles(tmp_path) -> None:
 
     recipe = Recipe(name="cycle")
     with pytest.raises(ValueError) as excinfo:
-        orchestrator.run(recipe, load_plugins=False)
+        orchestrator.run(recipe, plugins=())
 
     assert "Cyclic dependency" in str(excinfo.value)
 
@@ -93,7 +93,7 @@ def test_dependency_failure_marks_downstream_tasks(tmp_path) -> None:
     )
 
     recipe = Recipe(name="blocked")
-    results = orchestrator.run(recipe, load_plugins=False)
+    results = orchestrator.run(recipe, plugins=())
 
     blocked = next(result for result in results if result.task == "blocked")
     assert blocked.status is SetupStatus.SKIPPED
@@ -129,7 +129,7 @@ def test_fail_fast_blocks_later_stages(tmp_path) -> None:
     )
 
     recipe = Recipe(name="fail-fast")
-    orchestrator.run(recipe, load_plugins=False)
+    orchestrator.run(recipe, plugins=())
 
     assert stage_two.ran is False
 
@@ -162,6 +162,6 @@ def test_continue_on_failure_allows_later_stages(tmp_path) -> None:
         name="continue",
         data={"config": {"continue_on_failure": True}},
     )
-    orchestrator.run(recipe, load_plugins=False)
+    orchestrator.run(recipe, plugins=())
 
     assert stage_two.ran is True

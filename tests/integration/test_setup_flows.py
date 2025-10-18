@@ -133,7 +133,7 @@ def test_setup_flow_stops_after_blocking_failure(tmp_path, telemetry_client: Tel
     )
 
     recipe = Recipe(name="integration", data={"stages": {"preflight": {}, "verification": {}}})
-    orchestrator.run(recipe, load_plugins=False)
+    orchestrator.run(recipe, plugins=())
 
     assert executed == []
     storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
@@ -196,7 +196,8 @@ def test_recovery_resume_skips_completed_tasks(
             recipe_obj,
             stages=None,
             task_names=None,
-            load_plugins=True,
+            plugins=None,
+            dev=None,
         )
 
     assert call_counts["preflight"] == 1
@@ -208,7 +209,8 @@ def test_recovery_resume_skips_completed_tasks(
         recipe_obj,
         stages=[SetupStage.VERIFICATION],
         task_names=None,
-        load_plugins=True,
+        plugins=None,
+        dev=None,
     )
 
     assert call_counts["preflight"] == 1

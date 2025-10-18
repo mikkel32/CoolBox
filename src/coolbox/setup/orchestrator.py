@@ -14,6 +14,7 @@ import time
 from typing import IO, Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence
 
 from coolbox.console.events import DashboardEvent, LogEvent, StageEvent, TaskEvent
+from coolbox.plugins import PluginDefinition, ProfileDevSettings
 from coolbox.telemetry import NullTelemetryClient, TelemetryClient
 
 from .plugins import (
@@ -293,6 +294,8 @@ class SetupOrchestrator:
         self._resume_results: dict[str, SetupResult] = {}
         self._resume_successes: set[str] = set()
         self._resume_success_pending: set[str] = set()
+        self._last_plugins: Sequence[PluginDefinition] | None = None
+        self._profile_dev: ProfileDevSettings | None = None
         if tasks:
             for task in tasks:
                 self.register_task(task)
@@ -325,7 +328,8 @@ class SetupOrchestrator:
         *,
         stages: Sequence[SetupStage] | None = None,
         task_names: Sequence[str] | None = None,
-        load_plugins: bool = True,
+        plugins: Sequence[PluginDefinition] | None = None,
+        dev: ProfileDevSettings | None = None,
     ) -> list[SetupResult]:
         if not self._tasks:
             raise RuntimeError("No tasks registered for setup orchestration")
@@ -362,23 +366,37 @@ class SetupOrchestrator:
         else:
             os.environ.pop("COOLBOX_OFFLINE", None)
         context.set("setup.offline", offline_enabled)
-        if load_plugins:
+
+        plugin_ids: Sequence[str] | None
+        if plugins is None:
             self.plugin_manager.load_entrypoints(self)
+            self._last_plugins = None
+            plugin_ids = None
+        else:
+            plugin_list = list(plugins)
+            self._last_plugins = tuple(plugin_list)
+            self._profile_dev = dev
+            plugin_ids = [definition.identifier for definition in plugin_list]
+            if plugin_list:
+                self.plugin_manager.load_from_manifest(self, plugin_list, dev=dev)
         execution_plan = self._build_execution_plan(stage_filter, task_filter)
         results: list[SetupResult] = []
         self._start_journal(
             recipe,
             requested_stages=requested_stages,
             requested_tasks=requested_tasks,
-            load_plugins=load_plugins,
+            plugins=plugin_ids,
         )
         try:
-            self.telemetry.record_run({
+            run_metadata = {
                 "recipe": recipe.name,
                 "stages": [stage.value for stage in self.stage_order],
                 "task_count": len(self._tasks),
                 "offline": offline_enabled,
-            })
+            }
+            if plugin_ids is not None:
+                run_metadata["plugins"] = list(plugin_ids)
+            self.telemetry.record_run(run_metadata)
             continue_on_failure = bool(recipe.config.get("continue_on_failure"))
             for stage in self.stage_order:
                 if stage_filter and stage not in stage_filter:
@@ -449,7 +467,18 @@ class SetupOrchestrator:
         retry_recipe = recipe or self._last_recipe
         if retry_recipe is None:
             raise RuntimeError("No recipe available for retry")
-        return self.run(retry_recipe, stages=stages, task_names=task_names, load_plugins=False)
+        plugins_arg: Sequence[PluginDefinition] | None
+        if self._last_plugins is None:
+            plugins_arg = None
+        else:
+            plugins_arg = tuple(self._last_plugins)
+        return self.run(
+            retry_recipe,
+            stages=stages,
+            task_names=task_names,
+            plugins=plugins_arg,
+            dev=self._profile_dev,
+        )
 
     def rerun_stage(self, stage: SetupStage) -> list[SetupResult]:
         """Retry a specific stage using the most recent recipe."""
@@ -505,7 +534,7 @@ class SetupOrchestrator:
         *,
         requested_stages: Sequence[SetupStage],
         requested_tasks: Sequence[str],
-        load_plugins: bool,
+        plugins: Sequence[str] | None,
     ) -> None:
         journal_dir = _journal_directory(self.root)
         journal_dir.mkdir(parents=True, exist_ok=True)
@@ -542,7 +571,7 @@ class SetupOrchestrator:
                 "recipe": recipe.as_dict(),
                 "stages": stage_values,
                 "tasks": task_values,
-                "load_plugins": load_plugins,
+                "plugins": list(plugins) if plugins is not None else None,
             }
             if recipe.source is not None:
                 metadata["recipe_source"] = str(recipe.source)

@@ -50,7 +50,7 @@ def test_orchestrator_emits_telemetry(monkeypatch: pytest.MonkeyPatch, tmp_path)
     )
 
     recipe = Recipe(name="demo")
-    results = orchestrator.run(recipe, load_plugins=False)
+    results = orchestrator.run(recipe, plugins=())
 
     assert any(result.status is SetupStatus.FAILED for result in results)
 
