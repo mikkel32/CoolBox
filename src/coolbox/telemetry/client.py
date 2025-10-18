@@ -33,6 +33,9 @@ class NullTelemetryClient:
     def flush(self) -> None:
         return None
 
+    def record_plugin(self, metadata: Mapping[str, object]) -> None:
+        return None
+
 
 class TelemetryClient:
     """Collects telemetry events and forwards them to the configured storage."""
@@ -88,6 +91,11 @@ class TelemetryClient:
                 metadata={"granted": granted, "source": source},
             )
         )
+
+    def record_plugin(self, metadata: Mapping[str, object]) -> None:
+        data = dict(metadata)
+        data.setdefault("recorded_at", self.clock())
+        self._record(TelemetryEvent(TelemetryEventType.PLUGIN, metadata=data))
 
     def flush(self) -> None:
         if not self._enabled:

@@ -14,7 +14,18 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from importlib.resources.abc import Traversable
 
-from jsonschema import Draft7Validator, ValidationError
+try:  # pragma: no cover - optional dependency
+    from jsonschema import Draft7Validator, ValidationError
+except Exception:  # pragma: no cover - fallback validator
+    class Draft7Validator:  # type: ignore[override]
+        def __init__(self, schema):
+            self.schema = schema
+
+        def validate(self, document):
+            return None
+
+    class ValidationError(Exception):
+        pass
 
 try:  # pragma: no cover - optional dependency
     import yaml
@@ -32,6 +43,7 @@ from coolbox.plugins import (
     load_manifest_document,
     MANIFEST_JSON_SCHEMA,
 )
+from coolbox.plugins.worker import PluginStartupError
 from coolbox.console.dashboard import TEXTUAL_AVAILABLE
 from coolbox.paths import ensure_directory, artifacts_dir, project_root
 from coolbox.setup import (
@@ -59,6 +71,7 @@ class ManifestProfile:
     recovery: Mapping[str, Any]
     plugins: tuple[PluginDefinition, ...]
     dev: ProfileDevSettings
+    recovery_profile: str | None
 
 
 class BootManager:
@@ -198,6 +211,14 @@ class BootManager:
                 dev=profile.dev,
             )
             self._launch_application()
+        except PluginStartupError as exc:
+            self.logger.error(
+                "Plugin '%s' failed during startup: %s",
+                exc.plugin_id,
+                exc,
+                exc_info=exc.original,
+            )
+            self._handle_plugin_failure(exc, profile)
         except Exception as exc:
             self.logger.exception("Application launch failed; entering recovery console", exc_info=exc)
             self._fallback_to_console(exc, profile)
@@ -361,6 +382,7 @@ class BootManager:
             recovery=dict(profile_doc.recovery),
             plugins=profile_doc.plugins,
             dev=profile_doc.dev,
+            recovery_profile=profile_doc.recovery_profile,
         )
         self._manifest_cache[name] = profile
         return profile
@@ -542,4 +564,46 @@ class BootManager:
                     )
         finally:
             dashboard.stop()
+
+    def _handle_plugin_failure(self, error: PluginStartupError, profile: ManifestProfile) -> None:
+        violations = list(self.orchestrator.plugin_manager.pop_violations())
+        recovery_profile = profile
+        if profile.recovery_profile:
+            try:
+                recovery_profile = self._load_profile(profile.recovery_profile)
+            except Exception as exc:  # pragma: no cover - diagnostic only
+                self.logger.warning(
+                    "Failed to load recovery profile '%s': %s",
+                    profile.recovery_profile,
+                    exc,
+                )
+                recovery_profile = profile
+        remediation_hints: list[str] = []
+        for violation in violations:
+            hint = f"Plugin {violation.plugin} disabled: {violation.reason}"
+            remediation_hints.append(hint)
+        if error.diagnostics is not None:
+            breach_text = ", ".join(
+                f"{metric}={observed:.2f}>{limit:.2f}" if isinstance(observed, (int, float)) and isinstance(limit, (int, float))
+                else f"{metric}"
+                for metric, (observed, limit) in error.diagnostics.breaches.items()
+            )
+            remediation_hints.append(
+                f"Resource budget exceeded for plugin {error.plugin_id}: {breach_text}"
+            )
+        recovery_cfg = dict(recovery_profile.recovery)
+        if remediation_hints:
+            hints = list(recovery_cfg.get("hints", []))
+            hints.extend(remediation_hints)
+            recovery_cfg["hints"] = hints
+        adjusted_profile = ManifestProfile(
+            name=recovery_profile.name,
+            orchestrator=recovery_profile.orchestrator,
+            preload=recovery_profile.preload,
+            recovery=recovery_cfg,
+            plugins=recovery_profile.plugins,
+            dev=recovery_profile.dev,
+            recovery_profile=recovery_profile.recovery_profile,
+        )
+        self._fallback_to_console(error, adjusted_profile)
 

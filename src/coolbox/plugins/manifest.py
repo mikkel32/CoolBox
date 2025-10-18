@@ -146,6 +146,7 @@ class BootProfile:
     recovery: Mapping[str, Any]
     plugins: tuple[PluginDefinition, ...]
     dev: ProfileDevSettings
+    recovery_profile: str | None = None
 
 
 @dataclass(slots=True)
@@ -287,12 +288,15 @@ def load_manifest_document(data: Mapping[str, Any]) -> BootManifest:
             if not isinstance(plugin_entry, Mapping):
                 raise ManifestError(f"Plugin declaration in profile '{name}' must be a mapping")
             plugin_definitions.append(_parse_plugin(plugin_entry, dev_settings.hot_reload))
+        recovery_profile = profile_data.get("recovery_profile")
+        recovery_name = str(recovery_profile) if recovery_profile else None
         profiles[str(name)] = BootProfile(
             orchestrator=orchestrator,
             preload=preload,
             recovery=recovery,
             plugins=tuple(plugin_definitions),
             dev=dev_settings,
+            recovery_profile=recovery_name,
         )
     return BootManifest(profiles=dict(profiles))
 
@@ -320,6 +324,7 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
                     "default": [],
                 },
                 "dev": {"$ref": "#/$defs/dev"},
+                "recovery_profile": {"type": "string"},
             },
             "required": ["orchestrator", "preload", "recovery", "plugins"],
             "additionalProperties": True,

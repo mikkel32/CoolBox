@@ -15,6 +15,7 @@ class TelemetryEventType(str, Enum):
     TASK = "task"
     CONSENT = "consent"
     RUN = "run"
+    PLUGIN = "plugin"
 
 
 @dataclass(slots=True)

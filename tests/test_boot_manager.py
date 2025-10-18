@@ -14,6 +14,7 @@ from coolbox.setup.plugins import PluginManager
 from coolbox.setup.recipes import Recipe, RecipeLoader
 from coolbox.telemetry import InMemoryTelemetryStorage, TelemetryClient, TelemetryEventType
 from coolbox.telemetry.consent import ConsentDecision, TelemetryConsentManager
+from coolbox.plugins.worker import PluginStartupError
 
 
 class DummyRecipeLoader(RecipeLoader):
@@ -302,3 +303,81 @@ def test_boot_manager_disables_telemetry_when_opt_out(
     manager.run([])
     storage = cast(InMemoryTelemetryStorage, telemetry_client.storage)
     assert not storage.events
+
+
+def test_boot_manager_switches_to_recovery_on_plugin_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_data = {
+        "profiles": {
+            "default": {
+                "orchestrator": {"recipe": "demo"},
+                "preload": {},
+                "recovery": {"dashboard": {"mode": "json"}},
+                "plugins": [
+                    {
+                        "id": "fixtures.crash",
+                        "runtime": {
+                            "kind": "native",
+                            "entrypoint": "tests.fixtures.plugins:CrashPlugin",
+                        },
+                        "capabilities": {
+                            "provides": [],
+                            "requires": [],
+                            "sandbox": [],
+                        },
+                        "io": {"inputs": {}, "outputs": {}},
+                        "resources": {
+                            "cpu": "50%",
+                            "memory": "32M",
+                            "disk": None,
+                            "gpu": None,
+                            "timeout": 5,
+                        },
+                        "hooks": {"before": [], "after": [], "on_failure": []},
+                        "dev": {"hot_reload": False, "watch": [], "locales": []},
+                    }
+                ],
+                "dev": {"hot_reload": False, "watch": [], "locales": []},
+                "recovery_profile": "recovery",
+            },
+            "recovery": {
+                "orchestrator": {"recipe": "recovery"},
+                "preload": {},
+                "recovery": {"hints": ["baseline recovery"]},
+                "plugins": [],
+                "dev": {"hot_reload": False, "watch": [], "locales": []},
+            },
+        }
+    }
+    manifest_path = tmp_path / "crash_manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    fallback_calls = []
+
+    def fake_fallback(self, exc, profile):
+        fallback_calls.append((exc, profile))
+
+    monkeypatch.setattr(BootManager, "_fallback_to_console", fake_fallback)
+
+    storage = InMemoryTelemetryStorage()
+    telemetry = TelemetryClient(storage)
+
+    manager = BootManager(
+        manifest_path=manifest_path,
+        app_factory=_stub_app,
+        orchestrator_factory=SetupOrchestrator,
+        recipe_loader=DummyRecipeLoader(),
+        dependency_checker=lambda root: False,
+        telemetry=telemetry,
+        consent_manager=DummyConsentManager(),
+    )
+
+    manager.run([])
+
+    assert fallback_calls, "expected recovery fallback to trigger"
+    error, profile = fallback_calls[0]
+    assert isinstance(error, PluginStartupError)
+    assert profile.name == "recovery"
+    hints = profile.recovery.get("hints", []) if isinstance(profile.recovery, Mapping) else []
+    assert any("fixtures.crash" in str(hint) for hint in hints)

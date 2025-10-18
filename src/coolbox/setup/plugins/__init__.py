@@ -13,6 +13,13 @@ from coolbox.plugins.runtime import (
     PluginWorker,
     WasmRuntimeManager,
 )
+from coolbox.plugins.worker import (
+    PluginRuntimeError,
+    PluginSandboxError,
+    PluginStartupError,
+    WorkerDiagnostics,
+    WorkerSupervisor,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..orchestrator import SetupOrchestrator, SetupResult, SetupStage, StageContext
@@ -104,6 +111,18 @@ class PluginHandle:
     reporters: list[Reporter] = field(default_factory=list)
     progress_columns: list[ProgressColumnFactory] = field(default_factory=list)
     continuous_validators: list[ContinuousValidator] = field(default_factory=list)
+    disabled: bool = False
+    last_diagnostics: WorkerDiagnostics | None = None
+
+
+@dataclass(slots=True)
+class PluginViolation:
+    """Snapshot of a plugin supervision failure."""
+
+    plugin: str
+    reason: str
+    diagnostics: WorkerDiagnostics | None
+    fatal: bool
 
 
 @dataclass
@@ -152,6 +171,8 @@ class PluginManager:
         self._hot_reload: HotReloadController | None = None
         self._manifest_definitions: Dict[str, PluginDefinition] = {}
         self._profile_dev: ProfileDevSettings | None = None
+        self._supervisor = WorkerSupervisor()
+        self._violations: list[PluginViolation] = []
 
     def load_entrypoints(self, orchestrator: "SetupOrchestrator", group: str = ENTRYPOINT_GROUP) -> None:
         """Discover plugins via entry points."""
@@ -195,6 +216,11 @@ class PluginManager:
         except Exception as exc:
             orchestrator.logger.warning("Plugin %s register() failed: %s", getattr(plugin, "name", plugin), exc)
             return
+        try:
+            self._supervisor.register(identifier, plugin, definition, logger=orchestrator.logger)
+        except PluginSandboxError as exc:
+            orchestrator.logger.warning("Plugin %s sandbox configuration failed: %s", identifier, exc)
+            return
         self.plugins.append(plugin)
         self._handles[identifier] = handle
 
@@ -224,6 +250,7 @@ class PluginManager:
         handle.reporters.clear()
         handle.progress_columns.clear()
         handle.continuous_validators.clear()
+        self._supervisor.unregister(identifier)
 
     def clear(self) -> None:
         for worker in list(self._workers.values()):
@@ -243,6 +270,8 @@ class PluginManager:
         if self._hot_reload is not None:
             self._hot_reload.stop()
             self._hot_reload = None
+        self._violations.clear()
+        self._supervisor.clear()
 
     def iter_reporters(self) -> Iterable[Reporter]:
         return list(self.reporters)
@@ -254,44 +283,135 @@ class PluginManager:
         return list(self.continuous_validators)
 
     def dispatch_before_stage(self, stage: "SetupStage", context: "StageContext") -> None:
-        for plugin in self.plugins:
+        orchestrator = context.orchestrator
+        for handle in list(self._handles.values()):
+            if handle.disabled:
+                continue
             try:
-                plugin.before_stage(stage, context)
-            except Exception as exc:
-                orchestrator = context.orchestrator
-                orchestrator.logger.warning("Plugin %s before_stage failed: %s", getattr(plugin, "name", plugin), exc)
+                self._invoke_plugin(handle, "before_stage", orchestrator, stage, context)
+            except PluginStartupError as exc:
+                self._record_violation(handle, exc, fatal=True, orchestrator=orchestrator)
+                raise
+            except PluginRuntimeError as exc:
+                self._record_violation(handle, exc, fatal=True, orchestrator=orchestrator)
+                raise PluginStartupError(handle.identifier, str(exc), original=exc.original)
 
     def dispatch_after_stage(self, stage: "SetupStage", results: Sequence["SetupResult"], context: "StageContext") -> None:
-        for plugin in self.plugins:
+        orchestrator = context.orchestrator
+        for handle in list(self._handles.values()):
+            if handle.disabled:
+                continue
             try:
-                plugin.after_stage(stage, results, context)
-            except Exception as exc:
-                orchestrator = context.orchestrator
-                orchestrator.logger.warning("Plugin %s after_stage failed: %s", getattr(plugin, "name", plugin), exc)
+                self._invoke_plugin(handle, "after_stage", orchestrator, stage, results, context)
+            except PluginStartupError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
+            except PluginRuntimeError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
 
     def dispatch_before_task(self, task: "SetupTask", context: "StageContext") -> None:
-        for plugin in self.plugins:
+        orchestrator = context.orchestrator
+        for handle in list(self._handles.values()):
+            if handle.disabled:
+                continue
             try:
-                plugin.before_task(task, context)
-            except Exception as exc:
-                orchestrator = context.orchestrator
-                orchestrator.logger.warning("Plugin %s before_task failed: %s", getattr(plugin, "name", plugin), exc)
+                self._invoke_plugin(handle, "before_task", orchestrator, task, context)
+            except PluginStartupError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
+            except PluginRuntimeError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
 
     def dispatch_after_task(self, result: "SetupResult", context: "StageContext") -> None:
-        for plugin in self.plugins:
+        orchestrator = context.orchestrator
+        for handle in list(self._handles.values()):
+            if handle.disabled:
+                continue
             try:
-                plugin.after_task(result, context)
-            except Exception as exc:
-                orchestrator = context.orchestrator
-                orchestrator.logger.warning("Plugin %s after_task failed: %s", getattr(plugin, "name", plugin), exc)
+                self._invoke_plugin(handle, "after_task", orchestrator, result, context)
+            except PluginStartupError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
+            except PluginRuntimeError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
 
     def dispatch_error(self, task: "SetupTask", error: BaseException, context: "StageContext") -> None:
-        for plugin in self.plugins:
+        orchestrator = context.orchestrator
+        for handle in list(self._handles.values()):
+            if handle.disabled:
+                continue
             try:
-                plugin.on_error(task, error, context)
-            except Exception as exc:
-                orchestrator = context.orchestrator
-                orchestrator.logger.warning("Plugin %s on_error failed: %s", getattr(plugin, "name", plugin), exc)
+                self._invoke_plugin(handle, "on_error", orchestrator, task, error, context)
+            except PluginStartupError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
+            except PluginRuntimeError as exc:
+                self._record_violation(handle, exc, fatal=False, orchestrator=orchestrator)
+
+    def _invoke_plugin(
+        self,
+        handle: PluginHandle,
+        method_name: str,
+        orchestrator: "SetupOrchestrator",
+        *args,
+    ) -> None:
+        identifier = handle.identifier
+        try:
+            self._supervisor.call(identifier, method_name, *args)
+        except PluginStartupError as exc:
+            raise
+        except PluginRuntimeError as exc:
+            orchestrator.logger.warning(
+                "Plugin %s %s failed: %s",
+                identifier,
+                method_name,
+                exc,
+            )
+            raise
+
+    def _record_violation(
+        self,
+        handle: PluginHandle,
+        error: PluginStartupError | PluginRuntimeError,
+        *,
+        fatal: bool,
+        orchestrator: "SetupOrchestrator",
+    ) -> None:
+        identifier = handle.identifier
+        handle.disabled = True
+        diagnostics = getattr(error, "diagnostics", None)
+        handle.last_diagnostics = diagnostics
+        reason = str(error)
+        orchestrator.logger.warning(
+            "Disabling plugin %s due to %s",
+            identifier,
+            reason,
+        )
+        violation = PluginViolation(
+            plugin=identifier,
+            reason=reason,
+            diagnostics=diagnostics,
+            fatal=fatal,
+        )
+        self._violations.append(violation)
+        payload = {
+            "plugin": identifier,
+            "reason": reason,
+            "fatal": fatal,
+        }
+        if diagnostics is not None:
+            payload.update(diagnostics.telemetry_payload)
+        telemetry = orchestrator.telemetry
+        recorder = getattr(telemetry, "record_plugin", None)
+        if callable(recorder):
+            recorder(payload)
+
+    def violations(self) -> Sequence[PluginViolation]:
+        return tuple(self._violations)
+
+    def pop_violations(self) -> list[PluginViolation]:
+        violations, self._violations = self._violations, []
+        return violations
+
+    def is_disabled(self, plugin_id: str) -> bool:
+        handle = self._handles.get(plugin_id)
+        return bool(handle and handle.disabled)
 
     def load_from_manifest(
         self,
@@ -390,4 +510,5 @@ __all__ = [
     "RemediationAction",
     "ENTRYPOINT_GROUP",
     "AdaptiveRemediationPlugin",
+    "PluginViolation",
 ]
