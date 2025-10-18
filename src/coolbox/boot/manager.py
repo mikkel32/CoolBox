@@ -34,6 +34,7 @@ from coolbox.setup.recipes import Recipe, RecipeLoader
 from coolbox.setup.stages import register_builtin_tasks
 from coolbox.utils import launch_vm_debug
 from coolbox.telemetry import JsonlTelemetryStorage, TelemetryClient, TelemetryConsentManager
+from .default_manifest import get_default_manifest
 
 
 @dataclass(slots=True)
@@ -261,10 +262,36 @@ class BootManager:
         if yaml is not None:
             data = yaml.safe_load(text) or {}
         else:
-            data = json.loads(text or "{}")
+            try:
+                data = json.loads(text or "{}")
+            except json.JSONDecodeError as exc:
+                data = self._manifest_from_missing_yaml(manifest_path, exc)
         if not isinstance(data, Mapping):
             raise TypeError("Boot manifest must contain a mapping")
         return data
+
+    def _manifest_from_missing_yaml(
+        self,
+        manifest_path: Path | Traversable,
+        error: json.JSONDecodeError,
+    ) -> Mapping[str, Any]:
+        """Return a manifest when PyYAML is unavailable."""
+
+        manifest_name = getattr(manifest_path, "name", None)
+        manifest_display = str(manifest_path)
+        if manifest_name is None:
+            manifest_name = Path(manifest_display).name
+
+        if manifest_name == "boot_manifest.yaml":
+            self.logger.warning(
+                "PyYAML not installed; using bundled boot manifest defaults."
+            )
+            return get_default_manifest()
+
+        raise RuntimeError(
+            "Unable to parse boot manifest without PyYAML: "
+            f"{manifest_display}. Install PyYAML or provide a JSON manifest."
+        ) from error
 
     def _load_profile(self, name: str) -> ManifestProfile:
         if name in self._manifest_cache:

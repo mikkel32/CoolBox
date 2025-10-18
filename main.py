@@ -108,3 +108,9 @@ __all__ = [
     "default_root",
     "main",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
+    import sys
+
+    main(sys.argv[1:])
