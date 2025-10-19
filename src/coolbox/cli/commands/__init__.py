@@ -10,6 +10,7 @@ __all__ = [
     "kill_by_click",
     "network_scan",
     "process_monitor",
+    "preview_plugin",
     "run_vm_debug",
     "security_center",
     "security_center_hidden",
@@ -23,6 +24,7 @@ _COMMAND_NAMES = {
     "kill_by_click",
     "network_scan",
     "process_monitor",
+    "preview_plugin",
     "run_vm_debug",
     "security_center",
     "security_center_hidden",
@@ -35,6 +37,7 @@ if TYPE_CHECKING:
     from . import kill_by_click as kill_by_click
     from . import network_scan as network_scan
     from . import process_monitor as process_monitor
+    from . import preview_plugin as preview_plugin
     from . import run_vm_debug as run_vm_debug
     from . import security_center as security_center
     from . import security_center_hidden as security_center_hidden

@@ -76,6 +76,21 @@ def parse_args(argv: list[str] | None = None) -> Namespace:
         action="store_true",
         help="Skip installing Python dependencies in the VM",
     )
+    parser.add_argument(
+        "--preview-plugin",
+        dest="preview_plugin",
+        help="Plugin identifier to preview in isolation",
+    )
+    parser.add_argument(
+        "--preview-manifest",
+        dest="preview_manifest",
+        help="Path to manifest to load for the preview sandbox",
+    )
+    parser.add_argument(
+        "--preview-profile",
+        dest="preview_profile",
+        help="Profile name within the manifest to boot for preview",
+    )
     return parser.parse_args(argv)
 
 
@@ -96,6 +111,9 @@ def main(argv: list[str] | None = None) -> None:
         open_code=args.code,
         port=args.port,
         skip_deps=args.skip_deps,
+        preview_plugin=args.preview_plugin,
+        preview_manifest=args.preview_manifest,
+        preview_profile=args.preview_profile,
     )
 
 

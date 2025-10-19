@@ -51,6 +51,7 @@ environments behave identically.
 - **Hot-reload aware sandboxes**: When a profile enables `dev.hot_reload` and supplies watch paths, the plugin manager tracks filesystem changes and reloads only the affected worker. Native runtimes refresh their modules in place while re-registering validators, reporters, and other hooks without restarting the orchestrator.
 - **Recovery profiles**: Recovery manifests can keep `load_plugins` disabled while still providing the full typed layout. The boot manager passes an empty plugin payload to the orchestrator so sandboxes remain offline during diagnostic runs while the rest of the manifest (preload modules, staged recovery tasks, and dashboard configuration) stays active.
 - **Multilingual tooling support**: Profile and plugin development settings expose a `locales` list so tooling can present localized diagnostics or reload language-specific resources during development. Combined with hot reload, this makes it easy to iterate on translated copy or locale-aware plugins without restarting the app.
+- **Packaging workflows**: See [`docs/plugin_workflows.md`](docs/plugin_workflows.md) for per-plugin virtual environment provisioning, preview sandbox commands, and the staged update process.
 
 ## 🚀 Features
 

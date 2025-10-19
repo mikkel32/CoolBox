@@ -44,6 +44,7 @@ from coolbox.telemetry.tracing import (
 from coolbox.utils.security.permissions import get_permission_manager
 
 from .manifest import PluginDefinition, ResourceBudget
+from .runtime.environment import RuntimeActivation, apply_runtime_activation
 
 
 class PluginWorkerError(RuntimeError):
@@ -428,6 +429,7 @@ class WorkerSupervisor:
         definition: PluginDefinition | None,
         *,
         logger: logging.Logger | None = None,
+        runtime_activation: RuntimeActivation | None = None,
     ) -> None:
         self._metrics.touch(plugin_id)
         if definition is not None:
@@ -442,12 +444,14 @@ class WorkerSupervisor:
         else:
             limits = BudgetLimits()
             scopes = ()
+        activation_payload = runtime_activation.to_payload() if runtime_activation else None
         self._workers[plugin_id] = _WorkerProcess(
             plugin_id,
             plugin,
             limits,
             scopes=scopes,
             logger=logger,
+            activation_payload=activation_payload,
         )
         self._record_syscall(plugin_id, "worker registered")
 
@@ -688,12 +692,14 @@ class _WorkerProcess:
         *,
         scopes: Iterable[str] = (),
         logger: logging.Logger | None = None,
+        activation_payload: Mapping[str, object] | None = None,
     ) -> None:
         self.plugin_id = plugin_id
         self.limits = limits
         self._scopes = tuple(scopes)
         self._logger_name = logger.name if logger else "coolbox.plugins.supervisor"
         self._logger_level = logger.getEffectiveLevel() if logger else logging.INFO
+        self._activation_payload = dict(activation_payload) if activation_payload else None
         self._closed = False
         self._context = _multiprocessing_context()
         parent_conn, child_conn = self._context.Pipe(duplex=True)
@@ -708,6 +714,7 @@ class _WorkerProcess:
                 self._scopes,
                 self._logger_name,
                 self._logger_level,
+                self._activation_payload,
             ),
             name=f"coolbox-plugin-{plugin_id}",
         )
@@ -991,11 +998,18 @@ def _worker_entrypoint(
     scopes: Iterable[str],
     logger_name: str,
     logger_level: int,
+    activation_payload: Mapping[str, object] | None,
 ) -> None:
     """Entry point for the plugin worker subprocess."""
 
     logger = logging.getLogger(logger_name)
     logger.setLevel(logger_level)
+    try:
+        apply_runtime_activation(activation_payload)
+    except Exception as exc:  # pragma: no cover - defensive
+        connection.send({"status": "error", "message": f"environment activation failed: {exc}"})
+        connection.close()
+        return
     try:
         _apply_sandbox(plugin_id, scopes, logger)
     except Exception as exc:  # pragma: no cover - defensive

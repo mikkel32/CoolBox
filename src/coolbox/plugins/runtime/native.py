@@ -5,10 +5,11 @@ from __future__ import annotations
 import importlib
 import os
 import sys
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Iterator
 
 from .base import PluginRuntimeManager, PluginWorker
+from .environment import ensure_runtime_environment
 
 from coolbox.plugins.manifest import PluginDefinition
 
@@ -39,15 +40,18 @@ class NativeWorker(PluginWorker):
         self._module_name = module
         self._attribute = attr or ""
         self._environment = dict(definition.runtime.environment)
+        runtime_env = ensure_runtime_environment(definition)
+        self._runtime_environment = runtime_env
+        self.runtime_activation = runtime_env.activation
         super().__init__(definition, logger=logger)
 
     def _start(self):  # type: ignore[override]
-        with _temporary_environment(self._environment):
+        with ExitStack() as stack:
+            if self.runtime_activation:
+                stack.enter_context(self.runtime_activation.temporary())
+            stack.enter_context(_temporary_environment(self._environment))
             module = importlib.import_module(self._module_name)
-            if self._attribute:
-                target = getattr(module, self._attribute)
-            else:
-                target = module
+            target = getattr(module, self._attribute) if self._attribute else module
             plugin = target() if callable(target) else target
         return plugin
 

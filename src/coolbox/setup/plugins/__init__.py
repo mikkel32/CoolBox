@@ -22,6 +22,7 @@ from coolbox.plugins.worker import (
     WorkerDiagnostics,
     WorkerSupervisor,
 )
+from coolbox.plugins.update import PluginChannelUpdater
 from coolbox.tools import ToolBus, ToolEndpoint
 from coolbox.utils.security.permissions import get_permission_manager
 
@@ -199,6 +200,7 @@ class PluginManager:
         self._tool_endpoint_registry: Dict[str, Dict[str, ToolEndpoint]] = {}
         self._permission_manager = get_permission_manager()
         self._permission_manager.bind_supervisor(self._supervisor)
+        self._updater = PluginChannelUpdater()
 
     def attach_tool_bus(self, bus: ToolBus) -> None:
         """Attach a tool bus to register plugin endpoints with."""
@@ -209,6 +211,11 @@ class PluginManager:
         """Return a snapshot of per-plugin supervisor metrics."""
 
         return self._supervisor.metrics_snapshot()
+
+    def updater(self) -> PluginChannelUpdater:
+        """Expose the plugin channel updater."""
+
+        return self._updater
 
     def load_entrypoints(self, orchestrator: "SetupOrchestrator", group: str = ENTRYPOINT_GROUP) -> None:
         """Discover plugins via entry points."""
@@ -254,7 +261,14 @@ class PluginManager:
             return
         self._auto_register_toolbus(handle, orchestrator)
         try:
-            self._supervisor.register(identifier, plugin, definition, logger=orchestrator.logger)
+            activation = getattr(worker, "runtime_activation", None)
+            self._supervisor.register(
+                identifier,
+                plugin,
+                definition,
+                logger=orchestrator.logger,
+                runtime_activation=activation,
+            )
         except PluginSandboxError as exc:
             orchestrator.logger.warning("Plugin %s sandbox configuration failed: %s", identifier, exc)
             return
@@ -585,8 +599,13 @@ class PluginManager:
     ) -> None:
         self.clear()
         self._profile_dev = dev
-        self._manifest_definitions = {definition.identifier: definition for definition in definitions}
+        resolved: list[PluginDefinition] = []
         for definition in definitions:
+            self._updater.bootstrap(definition)
+            resolved_definition = self._updater.resolve_definition(definition.identifier, definition)
+            resolved.append(resolved_definition)
+        self._manifest_definitions = {definition.identifier: definition for definition in resolved}
+        for definition in resolved:
             runtime = self._resolve_runtime(definition)
             worker = runtime.create_worker(definition, logger=orchestrator.logger)
             self._workers[definition.identifier] = worker
@@ -598,7 +617,7 @@ class PluginManager:
                 runtime=runtime,
                 worker=worker,
             )
-        self._configure_hot_reload(definitions, orchestrator)
+        self._configure_hot_reload(resolved, orchestrator)
 
     def reload_plugin(self, plugin_id: str, orchestrator: "SetupOrchestrator") -> None:
         definition = self._manifest_definitions.get(plugin_id)

@@ -77,7 +77,7 @@ def _wsl_available() -> bool:
 # --------------------------------------------------------------------------------------
 # strategies
 # --------------------------------------------------------------------------------------
-def _launch_docker(port: int) -> bool:
+def _launch_docker(port: int, env: Optional[Mapping[str, str]] = None) -> bool:
     exe = _which("docker") or _which("podman")
     if not exe:
         return False
@@ -91,16 +91,16 @@ def _launch_docker(port: int) -> bool:
             "bash",
             "-lc",
             f"cd '{ROOT.as_posix()}' && ./scripts/dev/run_devcontainer.sh",
-        ])
+        ], env=_env_with_port(port, env))
         return True
     # POSIX
     if _exists(compose):
-        _spawn(["bash", str(compose)])
+        _spawn(["bash", str(compose)], env=_env_with_port(port, env))
         return True
     return False
 
 
-def _launch_vagrant(port: int) -> bool:
+def _launch_vagrant(port: int, env: Optional[Mapping[str, str]] = None) -> bool:
     exe = _which("vagrant")
     if not exe:
         return False
@@ -114,15 +114,15 @@ def _launch_vagrant(port: int) -> bool:
             "bash",
             "-lc",
             f"cd '{ROOT.as_posix()}' && ./scripts/dev/run_vagrant.sh",
-        ])
+        ], env=_env_with_port(port, env))
         return True
     if _exists(script):
-        _spawn(["bash", str(script)])
+        _spawn(["bash", str(script)], env=_env_with_port(port, env))
         return True
     return False
 
 
-def _launch_vm_debug_wrapper(port: int, open_code: bool) -> bool:
+def _launch_vm_debug_wrapper(port: int, open_code: bool, env: Optional[Mapping[str, str]] = None) -> bool:
     """
     Use the project’s cross-platform wrapper to start a debug environment.
     On Windows prefer the .ps1; on POSIX use the .py or .sh.
@@ -141,7 +141,7 @@ def _launch_vm_debug_wrapper(port: int, open_code: bool) -> bool:
             ]
             if open_code:
                 args += ["--", "--open-code"]
-            _spawn(args, env=_env_with_port(port))
+            _spawn(args, env=_env_with_port(port, env))
             return True
         # If no PS1, try WSL bash for .sh
         if _wsl_available() and _exists(sh):
@@ -151,14 +151,14 @@ def _launch_vm_debug_wrapper(port: int, open_code: bool) -> bool:
                 "bash",
                 "-lc",
                 f"cd '{ROOT.as_posix()}' && ./scripts/dev/run_vm_debug.sh {oc}".strip(),
-            ], env=_env_with_port(port))
+            ], env=_env_with_port(port, env))
             return True
         # Fallback to Python CLI if present
         if _exists(cli_py):
             cmd = [sys.executable, str(cli_py)]
             if open_code:
                 cmd.append("--open-code")
-            _spawn(cmd, env=_env_with_port(port))
+            _spawn(cmd, env=_env_with_port(port, env))
             return True
         return False
 
@@ -167,16 +167,16 @@ def _launch_vm_debug_wrapper(port: int, open_code: bool) -> bool:
         cmd = [sys.executable, str(cli_py)]
         if open_code:
             cmd.append("--open-code")
-        _spawn(cmd, env=_env_with_port(port))
+        _spawn(cmd, env=_env_with_port(port, env))
         return True
     if _exists(sh):
         oc = ["--open-code"] if open_code else []
-        _spawn(["bash", str(sh), *oc], env=_env_with_port(port))
+        _spawn(["bash", str(sh), *oc], env=_env_with_port(port, env))
         return True
     return False
 
 
-def _launch_local_debug(port: int) -> None:
+def _launch_local_debug(port: int, env: Optional[Mapping[str, str]] = None) -> None:
     """Start current app under debugpy, locally."""
     # Use python -m debugpy to avoid relying on a 'debugpy' console script.
     cmd = [
@@ -187,13 +187,22 @@ def _launch_local_debug(port: int) -> None:
         "--wait-for-client",
         str((ROOT / "main.py")),
     ]
-    _spawn(cmd, env=_env_with_port(port))
+    _spawn(cmd, env=_env_with_port(port, env))
 
 
 # --------------------------------------------------------------------------------------
 # public API
 # --------------------------------------------------------------------------------------
-def launch_vm_debug(*, prefer: str | None = None, open_code: bool = False, port: int = 5678, skip_deps: bool = False) -> None:
+def launch_vm_debug(
+    *,
+    prefer: str | None = None,
+    open_code: bool = False,
+    port: int = 5678,
+    skip_deps: bool = False,
+    preview_plugin: str | None = None,
+    preview_manifest: str | None = None,
+    preview_profile: str | None = None,
+) -> None:
     """
     Start CoolBox in a VM/container or locally under debugpy, waiting for an attach.
     Never executes .sh directly on Windows, thus avoiding WinError 193.
@@ -204,6 +213,12 @@ def launch_vm_debug(*, prefer: str | None = None, open_code: bool = False, port:
     skip_deps: accepted for API compatibility; ignored here.
     """
     env = _env_with_port(port)
+    if preview_plugin:
+        env["COOLBOX_PLUGIN_PREVIEW"] = preview_plugin
+    if preview_manifest:
+        env["COOLBOX_PLUGIN_PREVIEW_MANIFEST"] = preview_manifest
+    if preview_profile:
+        env["COOLBOX_PLUGIN_PREVIEW_PROFILE"] = preview_profile
     logger.info("Launching debug environment (prefer=%s, port=%s, open_code=%s)", prefer, port, open_code)
 
     tried: list[str] = []
@@ -211,7 +226,7 @@ def launch_vm_debug(*, prefer: str | None = None, open_code: bool = False, port:
     def _try(name: str, fn) -> bool:
         tried.append(name)
         try:
-            ok = fn(port)
+            ok = fn(port, env)
             if ok:
                 logger.info("Selected backend: %s", name)
                 return True
@@ -229,7 +244,7 @@ def launch_vm_debug(*, prefer: str | None = None, open_code: bool = False, port:
         # If preferred fails, continue to generic order below.
 
     # generic order
-    if _try("vm_debug_wrapper", lambda p: _launch_vm_debug_wrapper(p, open_code)):
+    if _try("vm_debug_wrapper", lambda p, e: _launch_vm_debug_wrapper(p, open_code, e)):
         return
     if _try("docker/podman", _launch_docker):
         return
@@ -237,7 +252,7 @@ def launch_vm_debug(*, prefer: str | None = None, open_code: bool = False, port:
         return
 
     logger.warning("No VM backend available after trying: %s. Running locally under debugpy.", ", ".join(tried))
-    _launch_local_debug(port)
+    _launch_local_debug(port, env)
 
 
 __all__ = ["launch_vm_debug", "available_backends"]

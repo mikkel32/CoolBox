@@ -95,6 +95,11 @@ class RuntimeConfiguration:
     wasi: bool = False
     features: tuple[str, ...] = field(default_factory=tuple)
     environment: Mapping[str, str] = field(default_factory=dict)
+    interpreter: "RuntimeInterpreter | None" = None
+    build: "RuntimeBuild | None" = None
+    lockfile: Path | None = None
+    runtimes: tuple[str, ...] = field(default_factory=tuple)
+    wasm: "WasmPackaging | None" = None
 
     @property
     def is_native(self) -> bool:
@@ -125,6 +130,7 @@ class PluginDefinition:
     resources: ResourceBudget
     hooks: StartupHooks
     dev: PluginDevSettings
+    version: str | None = None
     description: str | None = None
     toolbus: "ToolBusDeclaration | None" = None
 
@@ -166,6 +172,45 @@ class BootManifest:
     profiles: Mapping[str, BootProfile]
 
 
+@dataclass(slots=True)
+class RuntimeInterpreter:
+    """Interpreter constraints for plugin execution environments."""
+
+    python: tuple[str, ...]
+    implementation: str | None
+    platforms: tuple[str, ...]
+    extras: Mapping[str, str]
+
+
+@dataclass(slots=True)
+class RuntimeBuildStep:
+    """Declarative step that may be executed during plugin packaging."""
+
+    name: str
+    command: tuple[str, ...]
+    shell: bool
+    cwd: Path | None
+    environment: Mapping[str, str]
+
+
+@dataclass(slots=True)
+class RuntimeBuild:
+    """Build plan declared by the plugin runtime."""
+
+    steps: tuple[RuntimeBuildStep, ...]
+    lockfile: Path | None
+
+
+@dataclass(slots=True)
+class WasmPackaging:
+    """Metadata describing WASM artefacts for polyglot plugins."""
+
+    module: Path
+    runtimes: tuple[str, ...]
+    entrypoint: str | None
+    build: RuntimeBuild | None
+
+
 def _parse_runtime(entry: Mapping[str, Any]) -> RuntimeConfiguration:
     kind = str(entry.get("kind", "native")).lower()
     entrypoint = entry.get("entrypoint")
@@ -174,6 +219,12 @@ def _parse_runtime(entry: Mapping[str, Any]) -> RuntimeConfiguration:
     wasi = _coerce_bool(entry.get("wasi"), default=False)
     features = _coerce_sequence(entry.get("features"))
     environment = _coerce_mapping(entry.get("environment")) if entry.get("environment") else {}
+    interpreter = _parse_runtime_interpreter(entry.get("interpreter"))
+    build = _parse_runtime_build(entry.get("build"))
+    lock_raw = entry.get("lockfile")
+    lockfile = Path(str(lock_raw)) if lock_raw else None
+    runtimes = _coerce_sequence(entry.get("runtimes"))
+    wasm = _parse_wasm_packaging(entry.get("wasm"))
     return RuntimeConfiguration(
         kind=kind,
         entrypoint=str(entrypoint) if entrypoint else None,
@@ -182,6 +233,11 @@ def _parse_runtime(entry: Mapping[str, Any]) -> RuntimeConfiguration:
         wasi=wasi,
         features=features,
         environment=environment,
+        interpreter=interpreter,
+        build=build,
+        lockfile=lockfile,
+        runtimes=runtimes,
+        wasm=wasm,
     )
 
 
@@ -271,6 +327,7 @@ def _parse_toolbus(entry: Mapping[str, Any] | None) -> ToolBusDeclaration | None
 def _parse_plugin(entry: Mapping[str, Any], default_hot_reload: bool) -> PluginDefinition:
     identifier = str(entry.get("id"))
     description = entry.get("description")
+    version = entry.get("version")
     runtime = _parse_runtime(entry.get("runtime", {}))
     capabilities = _parse_capabilities(entry.get("capabilities", {}))
     io = _parse_io(entry.get("io", {}))
@@ -280,6 +337,7 @@ def _parse_plugin(entry: Mapping[str, Any], default_hot_reload: bool) -> PluginD
     toolbus = _parse_toolbus(entry.get("toolbus"))
     return PluginDefinition(
         identifier=identifier,
+        version=str(version) if version else None,
         runtime=runtime,
         capabilities=capabilities,
         io=io,
@@ -288,6 +346,90 @@ def _parse_plugin(entry: Mapping[str, Any], default_hot_reload: bool) -> PluginD
         dev=dev,
         description=str(description) if description else None,
         toolbus=toolbus,
+    )
+
+
+def _parse_runtime_interpreter(entry: Mapping[str, Any] | None) -> RuntimeInterpreter | None:
+    if entry is None:
+        return None
+    if not isinstance(entry, Mapping):
+        raise ManifestError("Runtime interpreter block must be a mapping")
+    python_versions = _coerce_sequence(entry.get("python"))
+    implementation = entry.get("implementation")
+    platforms = _coerce_sequence(entry.get("platforms"))
+    extras = _coerce_mapping(entry.get("extras")) if entry.get("extras") else {}
+    return RuntimeInterpreter(
+        python=python_versions,
+        implementation=str(implementation) if implementation else None,
+        platforms=platforms,
+        extras=extras,
+    )
+
+
+def _parse_runtime_build(entry: Mapping[str, Any] | Sequence[Mapping[str, Any]] | None) -> RuntimeBuild | None:
+    if entry is None:
+        return None
+    if isinstance(entry, Mapping) and "steps" not in entry and "lockfile" not in entry:
+        # shorthand form: treat mapping as single step definition
+        steps_entry = [entry]
+        lockfile_raw = None
+    elif isinstance(entry, Mapping):
+        steps_entry = entry.get("steps", [])
+        lockfile_raw = entry.get("lockfile")
+    else:
+        steps_entry = entry
+        lockfile_raw = None
+    if steps_entry is None:
+        steps_entry = []
+    if not isinstance(steps_entry, Iterable):
+        raise ManifestError("Runtime build steps must be a sequence")
+    steps: list[RuntimeBuildStep] = []
+    for step in steps_entry:
+        if not isinstance(step, Mapping):
+            raise ManifestError("Runtime build step entries must be mappings")
+        name = str(step.get("name") or step.get("id") or f"step{len(steps)+1}")
+        command_entry = step.get("command")
+        if isinstance(command_entry, (str, bytes)):
+            command = tuple(str(part) for part in command_entry.split())
+        elif isinstance(command_entry, Iterable):
+            command = tuple(str(part) for part in command_entry)
+        elif command_entry is None:
+            command = ()
+        else:
+            raise ManifestError(f"Invalid build command for step '{name}'")
+        shell = bool(step.get("shell", False))
+        cwd_raw = step.get("cwd")
+        cwd = Path(str(cwd_raw)) if cwd_raw else None
+        environment = _coerce_mapping(step.get("environment")) if step.get("environment") else {}
+        steps.append(
+            RuntimeBuildStep(
+                name=name,
+                command=command,
+                shell=shell,
+                cwd=cwd,
+                environment=environment,
+            )
+        )
+    lockfile = Path(str(lockfile_raw)) if lockfile_raw else None
+    return RuntimeBuild(steps=tuple(steps), lockfile=lockfile)
+
+
+def _parse_wasm_packaging(entry: Mapping[str, Any] | None) -> WasmPackaging | None:
+    if entry is None:
+        return None
+    if not isinstance(entry, Mapping):
+        raise ManifestError("Runtime wasm section must be a mapping")
+    module = entry.get("module")
+    if not module:
+        raise ManifestError("Runtime wasm configuration requires a 'module' field")
+    runtimes = _coerce_sequence(entry.get("runtimes"))
+    entrypoint = entry.get("entrypoint")
+    build = _parse_runtime_build(entry.get("build")) if entry.get("build") else None
+    return WasmPackaging(
+        module=Path(str(module)),
+        runtimes=runtimes,
+        entrypoint=str(entrypoint) if entrypoint else None,
+        build=build,
     )
 
 
@@ -381,6 +523,7 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
             "type": "object",
             "properties": {
                 "id": {"type": "string"},
+                "version": {"type": "string"},
                 "description": {"type": "string"},
                 "runtime": {"$ref": "#/$defs/runtime"},
                 "capabilities": {"$ref": "#/$defs/capabilities"},
@@ -406,6 +549,14 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
                     "items": {"type": "string"},
                 },
                 "environment": {"type": "object"},
+                "interpreter": {"$ref": "#/$defs/interpreter"},
+                "build": {"$ref": "#/$defs/build"},
+                "lockfile": {"type": "string"},
+                "runtimes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "wasm": {"$ref": "#/$defs/wasm"},
             },
             "required": ["kind"],
             "additionalProperties": True,
@@ -483,6 +634,63 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
             },
             "additionalProperties": False,
         },
+        "interpreter": {
+            "type": "object",
+            "properties": {
+                "python": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "implementation": {"type": "string"},
+                "platforms": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "extras": {"type": "object"},
+            },
+            "required": ["python"],
+            "additionalProperties": True,
+        },
+        "build": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/build_step"},
+                },
+                "lockfile": {"type": "string"},
+            },
+            "additionalProperties": True,
+        },
+        "build_step": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "command": {
+                    "type": ["array", "string"],
+                    "items": {"type": "string"},
+                },
+                "shell": {"type": ["boolean", "string"]},
+                "cwd": {"type": "string"},
+                "environment": {"type": "object"},
+            },
+            "required": ["name"],
+            "additionalProperties": True,
+        },
+        "wasm": {
+            "type": "object",
+            "properties": {
+                "module": {"type": "string"},
+                "runtimes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "entrypoint": {"type": "string"},
+                "build": {"$ref": "#/$defs/build"},
+            },
+            "required": ["module"],
+            "additionalProperties": True,
+        },
     },
 }
 
@@ -499,8 +707,12 @@ __all__ = [
     "ProfileDevSettings",
     "ResourceBudget",
     "RuntimeConfiguration",
+    "RuntimeBuild",
+    "RuntimeBuildStep",
+    "RuntimeInterpreter",
     "StartupHooks",
     "ToolBusDeclaration",
+    "WasmPackaging",
     "load_manifest_document",
     "MANIFEST_JSON_SCHEMA",
 ]

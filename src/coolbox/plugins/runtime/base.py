@@ -10,6 +10,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     from coolbox.plugins.manifest import PluginDefinition
     from coolbox.setup.plugins import SetupPlugin
+    from .environment import RuntimeActivation
 
 
 class PluginWorker(ABC):
@@ -18,6 +19,8 @@ class PluginWorker(ABC):
     def __init__(self, definition: "PluginDefinition", *, logger: "Logger | None" = None) -> None:
         self.definition = definition
         self.logger = logger
+        if not hasattr(self, "runtime_activation"):
+            self.runtime_activation: "RuntimeActivation | None" = None
         self.plugin: "SetupPlugin" = self._start()
 
     @abstractmethod
