@@ -299,12 +299,25 @@ class SetupOrchestrator:
         self._resume_success_pending: set[str] = set()
         self._last_plugins: Sequence[PluginDefinition] | None = None
         self._profile_dev: ProfileDevSettings | None = None
+        self._active_profile_name: str | None = None
+        self._manifest_hint: str | None = None
         if tasks:
             for task in tasks:
                 self.register_task(task)
 
     def attach_telemetry(self, telemetry: TelemetryClient | None) -> None:
         self.telemetry = telemetry or NullTelemetryClient()
+
+    def set_profile_context(
+        self,
+        *,
+        profile_name: str | None,
+        manifest_path: str | None,
+    ) -> None:
+        """Record contextual metadata for subsequent plugin loading."""
+
+        self._active_profile_name = profile_name
+        self._manifest_hint = manifest_path
 
     # --- registration -------------------------------------------------
     def register_task(self, task: SetupTask) -> None:
@@ -381,7 +394,13 @@ class SetupOrchestrator:
             self._profile_dev = dev
             plugin_ids = [definition.identifier for definition in plugin_list]
             if plugin_list:
-                self.plugin_manager.load_from_manifest(self, plugin_list, dev=dev)
+                self.plugin_manager.load_from_manifest(
+                    self,
+                    plugin_list,
+                    dev=dev,
+                    profile=self._active_profile_name,
+                    manifest_path=self._manifest_hint,
+                )
         execution_plan = self._build_execution_plan(stage_filter, task_filter)
         results: list[SetupResult] = []
         self._start_journal(

@@ -1,12 +1,15 @@
 """Plugin interfaces for the CoolBox setup orchestrator."""
 from __future__ import annotations
 
+import json
+import time
 from dataclasses import dataclass, field
 from importlib import metadata
 import inspect
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Protocol, Sequence, TYPE_CHECKING, cast, runtime_checkable
 
 from coolbox.plugins import PluginDefinition, ProfileDevSettings
+from coolbox.catalog import get_catalog
 from coolbox.plugins.hotreload import HotReloadController
 from coolbox.plugins.runtime import (
     NativeRuntimeManager,
@@ -24,6 +27,7 @@ from coolbox.plugins.worker import (
 )
 from coolbox.plugins.update import PluginChannelUpdater
 from coolbox.tools import ToolBus, ToolEndpoint
+from coolbox.paths import artifacts_dir, ensure_directory
 from coolbox.utils.security.permissions import get_permission_manager
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -596,6 +600,8 @@ class PluginManager:
         definitions: Sequence[PluginDefinition],
         *,
         dev: ProfileDevSettings | None = None,
+        profile: str | None = None,
+        manifest_path: str | None = None,
     ) -> None:
         self.clear()
         self._profile_dev = dev
@@ -605,7 +611,36 @@ class PluginManager:
             resolved_definition = self._updater.resolve_definition(definition.identifier, definition)
             resolved.append(resolved_definition)
         self._manifest_definitions = {definition.identifier: definition for definition in resolved}
+        catalog = get_catalog()
+        profile_name = profile or "default"
         for definition in resolved:
+            try:
+                catalog.record_manifest(profile_name, definition, manifest_path=manifest_path)
+            except Exception:  # pragma: no cover - persistence best effort
+                orchestrator.logger.debug(
+                    "Failed to persist plugin manifest metadata",
+                    exc_info=True,
+                )
+            try:
+                plugin_root = ensure_directory(artifacts_dir() / "plugins" / definition.identifier)
+                manifest_file = plugin_root / "manifest.json"
+                payload = {
+                    "profile": profile_name,
+                    "manifest_path": manifest_path,
+                    "definition": {
+                        "identifier": definition.identifier,
+                        "version": definition.version,
+                        "description": definition.description,
+                    },
+                    "runtime": definition.runtime.kind,
+                    "updated_at": time.time(),
+                }
+                manifest_file.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            except Exception:  # pragma: no cover - diagnostics best effort
+                orchestrator.logger.debug(
+                    "Failed to persist plugin manifest artifact",
+                    exc_info=True,
+                )
             runtime = self._resolve_runtime(definition)
             worker = runtime.create_worker(definition, logger=orchestrator.logger)
             self._workers[definition.identifier] = worker

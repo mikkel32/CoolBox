@@ -16,6 +16,7 @@ __all__ = [
     "security_center_hidden",
     "setup",
     "recipes",
+    "workspace_bundle",
     "load",
 ]
 
@@ -30,6 +31,7 @@ _COMMAND_NAMES = {
     "security_center_hidden",
     "setup",
     "recipes",
+    "workspace_bundle",
 }
 
 if TYPE_CHECKING:
@@ -42,6 +44,7 @@ if TYPE_CHECKING:
     from . import security_center as security_center
     from . import security_center_hidden as security_center_hidden
     from . import setup as setup
+    from . import workspace_bundle as workspace_bundle
 
 
 def load(name: str) -> ModuleType:

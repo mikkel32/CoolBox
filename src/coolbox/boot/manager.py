@@ -54,6 +54,7 @@ from coolbox.setup import (
     SetupStatus,
     load_last_run,
 )
+from coolbox.setup.plugins import PluginViolation
 from coolbox.setup.recipes import Recipe, RecipeLoader
 from coolbox.setup.stages import register_builtin_tasks
 from coolbox.utils import launch_vm_debug
@@ -65,6 +66,7 @@ from coolbox.telemetry import (
     TelemetryConsentManager,
     TelemetryStorageAdapter,
 )
+from coolbox.telemetry.slo import get_slo_tracker
 from coolbox.telemetry.tracing import SpanKind, Status, StatusCode, set_status, start_span
 from .default_manifest import get_default_manifest
 
@@ -187,6 +189,8 @@ class BootManager:
             "coolbox.boot.debug": bool(args.debug),
             "coolbox.boot.vm_debug": bool(args.vm_debug),
         }
+        slo_tracker = get_slo_tracker()
+        slo_tracker.start_run()
         with start_span(
             "coolbox.boot.run",
             kind=SpanKind.SERVER,
@@ -225,6 +229,12 @@ class BootManager:
                     raise
 
             profile = self._load_profile(args.profile)
+            slo_tracker.record_profile(profile.name)
+            manifest_hint = self._manifest_path_hint()
+            self.orchestrator.set_profile_context(
+                profile_name=profile.name,
+                manifest_path=manifest_hint,
+            )
             consent = self.consent_manager.ensure_opt_in()
             if consent.granted and isinstance(self.telemetry, TelemetryClient):
                 metadata = {"profile": profile.name}
@@ -583,6 +593,16 @@ class BootManager:
         app = factory()
         if not hasattr(app, "run"):
             raise TypeError("Application factory must return an object with a 'run' method")
+        tracker = get_slo_tracker()
+        window = getattr(app, "window", None)
+        if window is not None:
+            try:
+                update = getattr(window, "update_idletasks", None)
+                if callable(update):
+                    update()
+            except Exception:  # pragma: no cover - best effort
+                self.logger.debug("Unable to sample TTFF window state", exc_info=True)
+        tracker.record_ttff()
         app.run()
 
     # ------------------------------------------------------------------
@@ -649,6 +669,13 @@ class BootManager:
                     exc,
                 )
                 recovery_profile = profile
+        tracker = get_slo_tracker()
+        tracker.record_profile(recovery_profile.name)
+        manifest_hint = self._manifest_path_hint()
+        self.orchestrator.set_profile_context(
+            profile_name=recovery_profile.name,
+            manifest_path=manifest_hint,
+        )
         remediation_hints: list[str] = []
         for violation in violations:
             hint = f"Plugin {violation.plugin} disabled: {violation.reason}"
@@ -676,5 +703,51 @@ class BootManager:
             dev=recovery_profile.dev,
             recovery_profile=recovery_profile.recovery_profile,
         )
-        self._fallback_to_console(error, adjusted_profile)
+        if not self._attempt_recovery_launch(recovery_profile, violations):
+            self._fallback_to_console(error, adjusted_profile)
+
+    def _attempt_recovery_launch(
+        self,
+        profile: ManifestProfile,
+        violations: Sequence[PluginViolation],
+    ) -> bool:
+        disabled = {violation.plugin for violation in violations}
+        plugin_payload = [
+            definition
+            for definition in profile.plugins
+            if definition.identifier not in disabled
+        ]
+        recipe_name = profile.orchestrator.get("recipe")
+        stages = self._resolve_stages(profile.orchestrator.get("stages"))
+        task_names = self._resolve_task_names(profile.orchestrator.get("tasks"))
+        try:
+            recipe = self._load_recipe(recipe_name)
+            self._execute_setup(
+                recipe,
+                stages=stages,
+                task_names=task_names,
+                plugins=plugin_payload,
+                dev=profile.dev,
+            )
+            self._launch_application()
+        except Exception as exc:
+            self.logger.warning(
+                "Recovery launch failed: %s",
+                exc,
+                exc_info=True,
+            )
+            return False
+        return True
+
+    def _manifest_path_hint(self) -> str | None:
+        manifest = self._default_manifest
+        if manifest is None:
+            return None
+        if isinstance(manifest, Path):
+            return str(manifest)
+        try:
+            name = manifest.name  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - Traversable without name
+            return str(manifest)
+        return str(name)
 

@@ -10,6 +10,8 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Dict
 
+from coolbox.catalog import get_catalog
+
 from .defaults import DEFAULT_SETTINGS
 from .paths import ConfigPaths
 
@@ -95,6 +97,10 @@ class Config:
         try:
             with open(self.paths.config_file, "w", encoding="utf-8") as handle:
                 json.dump(self.config, handle, indent=4)
+            try:
+                get_catalog().record_configuration(self.config)
+            except Exception:  # pragma: no cover - catalog persistence best effort
+                logger.debug("Failed to record configuration snapshot", exc_info=True)
             return True
         except OSError as exc:
             msg = f"Error saving config: {exc}"

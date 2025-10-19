@@ -28,6 +28,8 @@ try:  # pragma: no cover - optional dependency for process inspection
 except Exception:  # pragma: no cover - optional dependency
     psutil = None  # type: ignore[assignment]
 
+from coolbox.catalog import get_catalog
+from coolbox.telemetry.slo import get_slo_tracker
 from coolbox.paths import artifacts_dir, ensure_directory
 
 from coolbox.telemetry.tracing import (
@@ -223,6 +225,19 @@ class PluginMetricsRegistry:
                     error=error,
                 )
             )
+        try:
+            get_catalog().record_plugin_trace(
+                plugin_id,
+                method=method,
+                status=status,
+                duration=duration,
+                timestamp=timestamp,
+                trace_id=trace_id,
+                error=error,
+            )
+        except Exception:  # pragma: no cover - persistence best effort
+            pass
+        get_slo_tracker().record_tool_invocation(plugin_id, duration)
 
     def record_capability_denial(self, plugin_id: str, reason: str | None = None) -> None:
         with self._lock:
@@ -454,6 +469,7 @@ class WorkerSupervisor:
             activation_payload=activation_payload,
         )
         self._record_syscall(plugin_id, "worker registered")
+        get_slo_tracker().record_plugin_spawn(plugin_id)
 
     def unregister(self, plugin_id: str) -> None:
         worker = self._workers.pop(plugin_id, None)
@@ -640,11 +656,28 @@ def _current_memory_usage() -> int | None:
 
 def _write_mini_dump(plugin_id: str, payload: Mapping[str, object]) -> Path | None:
     try:
-        directory = ensure_directory(artifacts_dir() / "plugin_dumps")
+        plugin_root = ensure_directory(artifacts_dir() / "plugins" / plugin_id)
+        directory = ensure_directory(plugin_root / "diagnostics")
         timestamp = int(time.time() * 1000)
-        path = directory / f"{plugin_id}-{timestamp}.json"
+        path = directory / f"{timestamp}.json"
+        enriched = dict(payload)
+        enriched.setdefault("plugin_id", plugin_id)
+        enriched.setdefault("captured_at", time.time())
+        manifest: Mapping[str, object] | None
+        try:
+            manifest = get_catalog().manifest_for_plugin(plugin_id)
+        except Exception:  # pragma: no cover - diagnostics best effort
+            manifest = None
+        if manifest:
+            enriched.setdefault("manifest", manifest)
         with path.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
+            json.dump(enriched, handle, indent=2, sort_keys=True)
+        if manifest:
+            manifest_path = plugin_root / "manifest.json"
+            try:
+                manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+            except Exception:  # pragma: no cover - best effort
+                pass
         return path
     except Exception:  # pragma: no cover - diagnostics best effort
         return None
