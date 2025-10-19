@@ -11,6 +11,7 @@ from __future__ import annotations
 import platform
 import threading
 import tkinter as tk
+from typing import cast
 from tkinter import ttk, messagebox
 
 from coolbox.utils.defender import (
@@ -20,6 +21,7 @@ from coolbox.utils.defender import (
     is_defender_supported,
     set_defender_enabled,
 )
+from coolbox.utils.security.defender import DefenderStatus
 
 
 class DefenderDialog(tk.Toplevel):
@@ -113,7 +115,7 @@ class DefenderDialog(tk.Toplevel):
 
     def refresh(self) -> None:
         self.diag.delete("1.0", "end")
-        st = get_defender_status()
+        st = cast(DefenderStatus, get_defender_status())
         self._set_status(st.realtime)
         rows = [
             f"Realtime enabled: {st.realtime}",

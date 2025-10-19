@@ -15,6 +15,17 @@ _LOGGER = logging.getLogger("coolbox.plugins.state")
 _STATE_FILENAME = "plugin_init_state.json"
 
 
+def _coerce_float(value: object, default: float = 0.0) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip()) if value.strip() else default
+        except ValueError:
+            return default
+    return default
+
+
 @dataclass(frozen=True, slots=True)
 class PluginInitState:
     """Snapshot of the most recent plugin initialization outcome."""
@@ -49,7 +60,7 @@ class PluginInitState:
         status = str(payload.get("status", "")).strip()
         if status not in {"success", "failed"}:
             raise ValueError(f"Invalid plugin init status: {status!r}")
-        timestamp = float(payload.get("updated_at", 0.0) or 0.0)
+        timestamp = _coerce_float(payload.get("updated_at"), 0.0)
         profile = payload.get("profile")
         recovery = payload.get("recovery_profile")
         plugin_id = payload.get("plugin_id")

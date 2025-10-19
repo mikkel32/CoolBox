@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import importlib
 import sys
 from types import ModuleType
+from typing import TYPE_CHECKING, cast
 
 
 def _load_monitor_module() -> ModuleType:
@@ -28,7 +30,10 @@ def _reexport(module: ModuleType) -> tuple[str, ...]:
 
 
 _TARGET_MODULE = _load_monitor_module()
-__all__ = _reexport(_TARGET_MODULE)
+__all__ = cast(tuple[str, ...], _reexport(_TARGET_MODULE))  # pyright: ignore[reportUnsupportedDunderOperation]
+
+if TYPE_CHECKING:  # pragma: no cover - surface runtime exports for type checking
+    from coolbox.utils.processes.monitor import ProcessEntry, ProcessWatcher
 
 
 class _MonitorProxy(ModuleType):

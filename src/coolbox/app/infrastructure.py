@@ -16,12 +16,12 @@ from enum import Enum
 from typing import (
     Any,
     Callable,
+    ContextManager,
     Iterable,
     Iterator,
     Mapping,
     MutableMapping,
     TypeVar,
-    ContextManager,
 )
 import logging
 import platform
@@ -60,7 +60,7 @@ class ServiceDescriptor:
     dependencies: tuple[str, ...]
     contract: type[Any] | tuple[type[Any], ...] | None
     validator: Callable[[Any, "ServiceRegistry"], None] | None
-    resilience: "ResiliencePolicy" | None
+    resilience: ResiliencePolicy | None
     health_check: Callable[[Any, "ServiceRegistry"], Any] | None
     critical: bool
 
@@ -286,7 +286,7 @@ class ServiceScope:
         registry: "ServiceRegistry",
         *,
         name: str,
-        parent: "ServiceScope" | None = None,
+        parent: ServiceScope | None = None,
         _is_root: bool = False,
     ) -> None:
         self._registry = registry
@@ -306,7 +306,7 @@ class ServiceScope:
         return self._name
 
     @property
-    def parent(self) -> "ServiceScope" | None:
+    def parent(self) -> ServiceScope | None:
         return self._parent
 
     def is_closed(self) -> bool:
@@ -1601,16 +1601,6 @@ class ViewStore(MutableMapping[str, Any]):
 
     def __len__(self) -> int:
         return len(self._store)
-
-    def update(self, other: Mapping[str, Any] | Iterable[tuple[str, Any]], **kwargs: Any) -> None:
-        if isinstance(other, Mapping):
-            for key, value in other.items():
-                self[key] = value
-        else:
-            for key, value in other:
-                self[key] = value
-        for key, value in kwargs.items():
-            self[key] = value
 
     def clear(self) -> None:  # type: ignore[override]
         for value in list(self._store.values()):

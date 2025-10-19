@@ -515,7 +515,9 @@ def test_app_infrastructure_reports_modules() -> None:
 
     assert "core-services" in report.installed_modules
     assert report.module_dependencies["ui-services"] == ("core-services",)
-    assert report.module_descriptions["core-services"].startswith("Registers core")
+    description = report.module_descriptions["core-services"]
+    assert description is not None
+    assert description.startswith("Registers core")
 
 
 def test_app_infrastructure_supports_extra_modules() -> None:
@@ -628,7 +630,9 @@ def test_app_infrastructure_resolution_insights_tracks_events() -> None:
 
     updated = infra.resolution_insights()
     assert updated.failure_counts["failing"] == 1
-    assert updated.last_failure_messages["failing"].endswith("broken service")
+    last_failure = updated.last_failure_messages["failing"]
+    assert last_failure is not None
+    assert last_failure.endswith("broken service")
     assert updated.recovery_counts == {}
 
     report = infra.diagnose()
@@ -660,7 +664,9 @@ def test_app_infrastructure_resolution_insights_tracks_events() -> None:
 
     second_report = infra.diagnose()
     assert second_report.recovery_counts["recovering"] >= 1
-    assert second_report.service_resilience["recovering"]["max_attempts"] == 2
+    resilience = second_report.service_resilience.get("recovering")
+    assert resilience is not None
+    assert resilience["max_attempts"] == 2
 
     infra.shutdown()
     post_shutdown = infra.diagnose()

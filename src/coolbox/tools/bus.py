@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field, replace
-import inspect
 from threading import RLock
 from typing import Any, Union
 
@@ -47,17 +47,17 @@ class InvocationContext:
 class InvocationResult:
     """Normalized response returned from a tool invocation."""
 
-    status: int = toolbus_pb2.StatusCode.STATUS_OK
+    status: toolbus_pb2.StatusCode = toolbus_pb2.StatusCode.STATUS_OK
     payload: PayloadType = None
     error: str | None = None
 
     def to_proto(self, request_id: str) -> toolbus_pb2.InvokeResponse:
-        return toolbus_pb2.InvokeResponse(
-            request_id=request_id,
-            status=self.status,
-            payload=_encode_payload(self.payload),
-            error=self.error or "",
-        )
+            return toolbus_pb2.InvokeResponse(
+                request_id=request_id,
+                status=_coerce_status(self.status),
+                payload=_encode_payload(self.payload),
+                error=self.error or "",
+            )
 
 
 @dataclass(slots=True)
@@ -149,7 +149,8 @@ class ToolBus:
             attributes=span_attributes,
         ) as span:
             tracing.inject_context(metadata)
-            if endpoint is None or not endpoint.supports_invoke():
+            handler = endpoint.invoke_handler if endpoint else None
+            if handler is None:
                 if span:
                     span.set_attribute("coolbox.tool.status", "not_found")
                 return toolbus_pb2.InvokeResponse(
@@ -159,7 +160,7 @@ class ToolBus:
                 )
             try:
                 result_obj = await _maybe_await(
-                    endpoint.invoke_handler(context, request.payload)
+                    handler(context, request.payload)
                 )  # type: ignore[arg-type]
                 result = _coerce_invocation_result(result_obj)
             except GuardRejected as exc:
@@ -212,7 +213,8 @@ class ToolBus:
             attributes=span_attributes,
         ) as span:
             tracing.inject_context(metadata)
-            if endpoint is None or not endpoint.supports_stream():
+            handler = endpoint.stream_handler if endpoint else None
+            if handler is None:
                 if span:
                     span.set_attribute("coolbox.tool.status", "not_found")
                 yield toolbus_pb2.StreamChunk(
@@ -223,9 +225,7 @@ class ToolBus:
                 )
                 return
             try:
-                stream_obj = await _maybe_iter(
-                    endpoint.stream_handler, context, request.payload
-                )  # type: ignore[arg-type]
+                stream_obj = await _maybe_iter(handler, context, request.payload)
             except GuardRejected as exc:
                 if span:
                     span.record_exception(exc)
@@ -288,14 +288,13 @@ class ToolBus:
             attributes=span_attributes,
         ) as span:
             tracing.inject_context(metadata)
-            if endpoint and endpoint.supports_subscribe():
+            handler = endpoint.subscribe_handler if endpoint else None
+            if handler is not None:
                 queue: asyncio.Queue[toolbus_pb2.Event | None] = asyncio.Queue()
 
                 async def _forward() -> None:
                     try:
-                        stream_obj = await _maybe_iter(
-                            endpoint.subscribe_handler, context, topics
-                        )  # type: ignore[arg-type]
+                        stream_obj = await _maybe_iter(handler, context, topics)
                         async for item in stream_obj:
                             queue.put_nowait(_coerce_event(item, context.request_id))
                     except asyncio.CancelledError:  # pragma: no cover - subscription teardown
@@ -438,14 +437,34 @@ async def _maybe_iter(
     raise TypeError("Handler must return an async iterator or iterable")
 
 
+def _coerce_status(value: object) -> toolbus_pb2.StatusCode:
+    if isinstance(value, toolbus_pb2.StatusCode):
+        return value
+    if isinstance(value, str):
+        try:
+            return toolbus_pb2.StatusCode[value]
+        except KeyError:
+            return toolbus_pb2.StatusCode.STATUS_OK
+    if isinstance(value, int):
+        try:
+            return toolbus_pb2.StatusCode(value)
+        except ValueError:
+            return toolbus_pb2.StatusCode.STATUS_OK
+    return toolbus_pb2.StatusCode.STATUS_OK
+
+
 def _coerce_invocation_result(obj: InvokeReturn) -> InvocationResult:
     if isinstance(obj, InvocationResult):
         return obj
     if isinstance(obj, toolbus_pb2.InvokeResponse):
-        return InvocationResult(status=obj.status, payload=obj.payload, error=obj.error or None)
+        return InvocationResult(
+            status=_coerce_status(obj.status),
+            payload=obj.payload,
+            error=obj.error or None,
+        )
     if isinstance(obj, tuple) and len(obj) == 2:
         payload, status = obj
-        return InvocationResult(status=int(status), payload=payload)
+        return InvocationResult(status=_coerce_status(status), payload=payload)
     return InvocationResult(payload=obj)
 
 
@@ -457,7 +476,7 @@ def _coerce_stream_chunk(item: StreamItem, request_id: str) -> toolbus_pb2.Strea
     if isinstance(item, InvocationResult):
         return toolbus_pb2.StreamChunk(
             request_id=request_id,
-            status=item.status,
+            status=_coerce_status(item.status),
             payload=_encode_payload(item.payload),
             error=item.error or "",
         )

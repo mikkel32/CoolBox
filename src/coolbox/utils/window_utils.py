@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import importlib
 import sys
 from types import ModuleType
+from typing import TYPE_CHECKING, cast
 
 
 def _load_window_module() -> ModuleType:
@@ -25,7 +27,31 @@ def _reexport(module: ModuleType) -> tuple[str, ...]:
 
 
 _TARGET_MODULE = _load_window_module()
-__all__ = _reexport(_TARGET_MODULE)
+__all__ = cast(tuple[str, ...], _reexport(_TARGET_MODULE))  # pyright: ignore[reportUnsupportedDunderOperation]
+
+if TYPE_CHECKING:  # pragma: no cover - expose runtime attributes for typing
+    from coolbox.utils.display.window_utils import (
+        filter_windows_at,
+        has_active_window_support,
+        has_cursor_window_support,
+        WindowInfo,
+        _CFG_LOADED,
+        _MIN_WINDOW_HEIGHT,
+        _MIN_WINDOW_WIDTH,
+        _WINDOWS_CACHE,
+        _WINDOWS_THREAD,
+        _WINDOWS_EVENT_UNSUB,
+        _WINDOWS_EVENTS_SUPPORTED,
+        get_active_window,
+        get_window_under_cursor,
+        list_windows_at,
+        make_window_clickthrough,
+        remove_window_clickthrough,
+        set_window_colorkey,
+        subscribe_active_window,
+        subscribe_window_change,
+        is_transient_pid,
+    )
 
 
 class _WindowProxy(ModuleType):

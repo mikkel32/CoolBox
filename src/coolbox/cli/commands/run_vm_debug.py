@@ -18,6 +18,9 @@ class _LaunchVMDebug(Protocol):
         open_code: bool = ...,  # noqa: D401 - keyword-only mirror of API
         port: int = ...,  # noqa: D401 - keyword-only mirror of API
         skip_deps: bool = ...,  # noqa: D401 - keyword-only mirror of API
+        preview_plugin: str | None = ...,  # noqa: D401 - keyword-only mirror of API
+        preview_manifest: str | None = ...,  # noqa: D401 - keyword-only mirror of API
+        preview_profile: str | None = ...,  # noqa: D401 - keyword-only mirror of API
     ) -> None:
         """Protocol describing the :func:`launch_vm_debug` callable."""
 

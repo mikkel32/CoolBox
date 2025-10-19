@@ -1,7 +1,8 @@
 import sys
 import time
 import unittest
-from typing import Callable
+from types import ModuleType
+from typing import Any, Callable, cast
 from unittest import mock
 
 from coolbox.utils.window_utils import (
@@ -18,10 +19,12 @@ class TestWindowUtils(unittest.TestCase):
     def setUp(self):
         from coolbox.utils import window_utils as wu
 
-        wu._TRANSIENT_PIDS.clear()
-        wu._MIN_WINDOW_WIDTH = 0
-        wu._MIN_WINDOW_HEIGHT = 0
-        wu._CFG_LOADED = True
+        self.wu: ModuleType = wu
+        self.wu_mod = cast(Any, wu)
+        self.wu_mod._TRANSIENT_PIDS.clear()
+        self.wu_mod._MIN_WINDOW_WIDTH = 0
+        self.wu_mod._MIN_WINDOW_HEIGHT = 0
+        self.wu_mod._CFG_LOADED = True
 
     def test_get_active_window(self):
         info = get_active_window()
@@ -38,7 +41,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertTrue(hasattr(info, "icon"))
 
     def test_get_window_under_cursor_no_match_mac(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         fake_quartz = type(
             "Q",
@@ -62,7 +65,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(info, wu.WindowInfo(None))
 
     def test_get_window_under_cursor_malformed_output(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         fake_info = "WINDOW=0x1\nBADLINE\nEXTRA=foo=bar\n"
         geom_out = (
@@ -94,7 +97,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(info.title, "t")
 
     def test_get_window_at_no_match_mac(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         fake_quartz = type(
             "Q",
@@ -116,7 +119,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(info, wu.WindowInfo(None))
 
     def test_get_window_at_match_mac(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         windows = [
             {"kCGWindowBounds": {"X": 0, "Y": 0, "Width": 5, "Height": 5}},
@@ -152,7 +155,7 @@ class TestWindowUtils(unittest.TestCase):
         self.assertIsInstance(has_cursor_window_support(), bool)
 
     def test_has_cursor_window_support_display_missing(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         with (
             mock.patch.object(wu.sys, "platform", "linux"),
@@ -162,7 +165,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertFalse(wu.has_cursor_window_support())
 
     def test_has_cursor_window_support_display_present(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         with (
             mock.patch.object(wu.sys, "platform", "linux"),
@@ -172,7 +175,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertTrue(wu.has_cursor_window_support())
 
     def test_has_cursor_window_support_warns(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         with mock.patch.object(wu.sys, "platform", "darwin"):
             with self.assertWarns(RuntimeWarning):
@@ -188,7 +191,7 @@ class TestWindowUtils(unittest.TestCase):
             self.assertTrue(hasattr(info, "handle"))
 
     def test_list_windows_fast_path(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         fake = wu.WindowInfo(1)
         with (
@@ -201,10 +204,11 @@ class TestWindowUtils(unittest.TestCase):
         fallback.assert_not_called()
 
     def test_fallback_async_cache(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
+        wu_mod = self.wu_mod
 
         fake_old = WindowInfo(2, (0, 0, 1, 1), "old")
-        wu._WINDOWS_CACHE = {"time": 0.0, "windows": [fake_old]}
+        wu_mod._WINDOWS_CACHE = {"time": 0.0, "windows": [fake_old]}
 
         def fake_enum():
             time.sleep(0.1)
@@ -223,7 +227,8 @@ class TestWindowUtils(unittest.TestCase):
             self.assertEqual(res2[0].pid, 1)
 
     def test_window_change_event_refreshes_cache(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
+        wu_mod = self.wu_mod
 
         fake_old = WindowInfo(1, (0, 0, 1, 1), "old")
         fake_new = WindowInfo(2, (0, 0, 1, 1), "new")
@@ -233,12 +238,12 @@ class TestWindowUtils(unittest.TestCase):
             callbacks.append(cb)
             return lambda: None
 
-        wu._WINDOWS_CACHE = {"time": time.time(), "windows": [fake_old]}
-        wu._WINDOWS_THREAD = None
-        wu._WINDOWS_EVENT_UNSUB = None
-        wu._WINDOWS_EVENTS_SUPPORTED = False
-        wu._WINDOWS_REFRESH.clear()
-        wu._RECENT_WINDOWS.clear()
+        wu_mod._WINDOWS_CACHE = {"time": time.time(), "windows": [fake_old]}
+        wu_mod._WINDOWS_THREAD = None
+        wu_mod._WINDOWS_EVENT_UNSUB = None
+        wu_mod._WINDOWS_EVENTS_SUPPORTED = False
+        wu_mod._WINDOWS_REFRESH.clear()
+        wu_mod._RECENT_WINDOWS.clear()
 
         with (
             mock.patch.object(wu, "subscribe_window_change", fake_subscribe),
@@ -260,7 +265,8 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(res2, [wins[1]])
 
     def test_filter_windows_skips_small_and_tooltip(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
+        wu_mod = self.wu_mod
 
         small = wu.WindowInfo(1, (0, 0, 5, 5), "tiny")
         normal = wu.WindowInfo(2, (0, 0, 50, 50), "normal")
@@ -269,21 +275,22 @@ class TestWindowUtils(unittest.TestCase):
         with mock.patch.object(wu, "_MIN_WINDOW_WIDTH", 10), mock.patch.object(
             wu, "_MIN_WINDOW_HEIGHT", 10
         ):
-            wu._TRANSIENT_PIDS.clear()
+            wu_mod._TRANSIENT_PIDS.clear()
             res = wu.filter_windows_at(1, 1, [small, normal])
             self.assertEqual(res, [normal])
-            self.assertIn(1, wu._TRANSIENT_PIDS)
+            self.assertIn(1, wu_mod._TRANSIENT_PIDS)
 
-        wu._TRANSIENT_PIDS.clear()
+        wu_mod._TRANSIENT_PIDS.clear()
         with mock.patch.object(wu, "_MIN_WINDOW_WIDTH", 0), mock.patch.object(
             wu, "_MIN_WINDOW_HEIGHT", 0
         ):
             res = wu.filter_windows_at(1, 1, [tooltip, normal])
             self.assertEqual(res, [normal])
-            self.assertIn(3, wu._TRANSIENT_PIDS)
+            self.assertIn(3, wu_mod._TRANSIENT_PIDS)
 
     def test_x11_shortcuts(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
+        wu_mod = self.wu_mod
 
         fake = WindowInfo(1, (0, 0, 10, 10), "t")
         pointer = type("P", (), {"root_x": 5, "root_y": 6})()
@@ -292,13 +299,13 @@ class TestWindowUtils(unittest.TestCase):
             mock.patch.object(wu, "_X_DISPLAY", object()),
             mock.patch.object(wu, "_X_ROOT", mock.Mock(query_pointer=lambda: pointer)),
         ):
-            wu._WINDOWS_CACHE = {"time": time.time(), "windows": [fake]}
+            wu_mod._WINDOWS_CACHE = {"time": time.time(), "windows": [fake]}
             self.assertEqual(get_window_under_cursor(), fake)
             self.assertEqual(wu.get_window_at(5, 6), fake)
             self.assertEqual(wu.list_windows_at(5, 6), [fake])
 
     def test_subscribe_active_window(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
 
         infos = [WindowInfo(1), WindowInfo(2)]
 
@@ -318,7 +325,8 @@ class TestWindowUtils(unittest.TestCase):
         self.assertEqual(received[1].pid, 2)
 
     def test_recent_ring_buffer(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
+        wu_mod = self.wu_mod
 
         w1 = wu.WindowInfo(1, (0, 0, 1, 1), "a", handle=1)
         w2 = wu.WindowInfo(2, (0, 0, 1, 1), "b", handle=2)
@@ -326,25 +334,26 @@ class TestWindowUtils(unittest.TestCase):
         with mock.patch.object(wu, "_RECENT_MAX", 2), mock.patch.object(
             wu, "_close_window_handle"
         ) as close_mock:
-            wu._RECENT_WINDOWS.clear()
+            wu_mod._RECENT_WINDOWS.clear()
             wu._remember_window(w1)
             wu._remember_window(w2)
-            self.assertEqual([w1, w2], list(wu._RECENT_WINDOWS))
+            self.assertEqual([w1, w2], list(wu_mod._RECENT_WINDOWS))
             wu._remember_window(w3)
-            self.assertEqual([w2, w3], list(wu._RECENT_WINDOWS))
+            self.assertEqual([w2, w3], list(wu_mod._RECENT_WINDOWS))
             close_mock.assert_called_once_with(w1)
 
     def test_cleanup_recent(self):
-        from coolbox.utils import window_utils as wu
+        wu = self.wu
+        wu_mod = self.wu_mod
 
         w1 = wu.WindowInfo(1, handle=1)
         w2 = wu.WindowInfo(2, handle=2)
-        wu._RECENT_WINDOWS.clear()
+        wu_mod._RECENT_WINDOWS.clear()
         wu._remember_window(w1)
         wu._remember_window(w2)
         with mock.patch.object(wu, "_close_window_handle") as close_mock:
             wu._cleanup_recent({2})
-            self.assertEqual([w2], list(wu._RECENT_WINDOWS))
+            self.assertEqual([w2], list(wu_mod._RECENT_WINDOWS))
             close_mock.assert_called_once_with(w1)
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import sys
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 
 def _load_firewall_module() -> ModuleType:
@@ -26,7 +27,29 @@ def _reexport(module: ModuleType) -> tuple[str, ...]:
 
 
 _TARGET_MODULE = _load_firewall_module()
-__all__ = _reexport(_TARGET_MODULE)
+_reexport(_TARGET_MODULE)
+
+if TYPE_CHECKING:  # pragma: no cover - typing assistance for re-exported members
+    from coolbox.utils.security.firewall import (
+        FirewallStatus,
+        MacFirewallTooling,
+        _MAC_PLIST_BOOTSTRAP_TEMPLATE,
+        _mac_defaults_plist_bootstrap,
+        _mac_defaults_plist_cached,
+        _mac_defaults_plist_value,
+        _mac_defaults_plist_write,
+        _mac_defaults_read_int,
+        _mac_defaults_write_int,
+        _mac_detect_tooling_cached,
+        _mac_firewall_global_state,
+        _mac_query_socketfilterfw,
+        _mac_set_firewall_enabled,
+        _run_ex,
+        get_firewall_status,
+        is_firewall_enabled,
+        is_firewall_supported,
+        set_firewall_enabled,
+    )
 
 
 class _FirewallProxy(ModuleType):

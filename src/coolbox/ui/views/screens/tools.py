@@ -209,7 +209,7 @@ class ToolsView(BaseView):
                     )
                     button.pack(fill="x", padx=4, pady=2)
             self._metrics_rows.append(row)
-        self.apply_fonts(self.metrics_container)
+        self.apply_fonts(cast(ctk.CTkBaseClass, self.metrics_container))
 
     def _format_metrics_summary(self, metrics: PluginMetricsSnapshot) -> str:
         error_rate = f"{metrics.error_rate * 100:.1f}%" if metrics.invocations else "0.0%"

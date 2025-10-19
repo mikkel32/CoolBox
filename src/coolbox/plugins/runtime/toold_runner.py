@@ -20,6 +20,7 @@ from coolbox.plugins.worker import (
     BudgetViolation,
     PluginSandboxError,
     PluginStartupError,
+    WorkerDiagnostics,
     budget_limits_from_payload,
     diagnostics_to_payload,
 )
@@ -152,7 +153,7 @@ def _handle_call(
     ) as span:
         method = getattr(plugin, method_name, None)
         if method is None:
-            response = {
+            response: dict[str, object] = {
                 "status": "runtime_error",
                 "message": f"method '{method_name}' not found",
             }
@@ -161,7 +162,7 @@ def _handle_call(
                 set_status(span, Status(StatusCode.ERROR, "missing_method"))
             trace_payload = current_carrier()
             if trace_payload:
-                response["trace"] = trace_payload
+                response["trace"] = dict(trace_payload)
             trace_id = trace_id_hex(span)
             if trace_id:
                 response["trace_id"] = trace_id
@@ -185,11 +186,10 @@ def _handle_call(
                 span.record_exception(exc)
                 span.set_attribute("coolbox.plugin.status", "startup_error")
                 set_status(span, Status(StatusCode.ERROR, "startup"))
-            diagnostics = (
-                diagnostics_to_payload(exc.diagnostics)
-                if getattr(exc, "diagnostics", None) is not None
-                else None
-            )
+            diagnostics = None
+            raw_diagnostics = getattr(exc, "diagnostics", None)
+            if isinstance(raw_diagnostics, WorkerDiagnostics):
+                diagnostics = diagnostics_to_payload(raw_diagnostics)
             return {
                 "status": "startup_error",
                 "message": str(exc),
@@ -209,10 +209,10 @@ def _handle_call(
             if span:
                 span.set_attribute("coolbox.plugin.status", "ok")
                 set_status(span, Status(StatusCode.OK))
-            response = {"status": "ok", "result": result}
+            response: dict[str, object] = {"status": "ok", "result": result}
     trace_payload = current_carrier()
     if trace_payload:
-        response["trace"] = trace_payload
+        response["trace"] = dict(trace_payload)
     trace_id = trace_id_hex(span)
     if trace_id:
         response["trace_id"] = trace_id
@@ -243,7 +243,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--heartbeat", type=float, default=15.0)
     args = parser.parse_args(argv)
 
-    rpc = _JsonRpcStream(sys.stdout.write)
+    def _write_message(message: str) -> None:
+        sys.stdout.write(message)
+
+    rpc = _JsonRpcStream(_write_message)
     plugin_id = args.plugin_id
 
     try:
@@ -272,12 +275,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     try:
-        environment = json.loads(args.environment) if args.environment else {}
+        environment_payload = json.loads(args.environment) if args.environment else {}
     except json.JSONDecodeError as exc:
         rpc.notify("telemetry.event", {
             "plugin": plugin_id,
             "kind": "stderr",
             "message": f"invalid environment payload: {exc}",
+            "timestamp": time.time(),
+        })
+        return 2
+    environment: dict[str, str]
+    if isinstance(environment_payload, Mapping):
+        environment = {str(key): str(value) for key, value in environment_payload.items()}
+    else:
+        rpc.notify("telemetry.event", {
+            "plugin": plugin_id,
+            "kind": "stderr",
+            "message": "invalid environment payload: expected mapping",
             "timestamp": time.time(),
         })
         return 2
@@ -305,7 +319,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         apply_runtime_activation(activation_payload)
         limits = budget_limits_from_payload(limits_payload if isinstance(limits_payload, Mapping) else None)
-        with _temporary_environment({key: str(value) for key, value in environment.items()}):
+        with _temporary_environment(environment):
             plugin = _load_plugin(args.entrypoint)
         if scopes:
             _apply_sandbox(plugin_id, scopes, logger)

@@ -1,10 +1,10 @@
 """Compatibility wrapper for :mod:`coolbox.utils.security.defender`."""
-# pyright: reportUnsupportedDunderAll=none
 from __future__ import annotations
 
 import importlib
 import sys
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 
 def _load_defender_module() -> ModuleType:
@@ -27,7 +27,18 @@ def _reexport(module: ModuleType) -> tuple[str, ...]:
 
 
 _TARGET_MODULE = _load_defender_module()
-__all__ = _reexport(_TARGET_MODULE)
+_reexport(_TARGET_MODULE)
+
+if TYPE_CHECKING:  # pragma: no cover - typing hints for re-exported helpers
+    from coolbox.utils.security.defender import (
+        get_defender_status,
+        _ps,
+        _run_ex,
+        ensure_admin,
+        is_defender_supported,
+        is_defender_enabled,
+        set_defender_enabled,
+    )
 
 
 class _DefenderProxy(ModuleType):

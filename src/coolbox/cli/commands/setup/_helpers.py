@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import TYPE_CHECKING
 
 __all__ = ["ensure_numpy", "get_system_info", "helper_console"]
 
@@ -20,14 +21,17 @@ except Exception as exc:  # pragma: no cover - fallback when helper missing
             print(msg, file=sys.stderr)
             raise ImportError(msg) from np_exc
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from rich.console import Console
+
 try:  # pragma: no cover - optional helper
-    from coolbox.utils.system_utils import (  # type: ignore
+    from coolbox.utils.system import (
         get_system_info,
         console as helper_console,
     )
 except Exception as exc:  # pragma: no cover - fallback when helper missing
     print(f"Warning: helper utilities unavailable ({exc}). Using fallbacks.", file=sys.stderr)
-    helper_console = None
+    helper_console: "Console | None" = None
 
     def get_system_info() -> str:  # type: ignore
         python = f"Python {sys.version.split()[0]} ({sys.executable})"

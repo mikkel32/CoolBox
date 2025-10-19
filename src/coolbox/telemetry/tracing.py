@@ -7,55 +7,91 @@ import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Mapping, MutableMapping, MutableSequence, Sequence
+from typing import TYPE_CHECKING, Any, Iterator, Mapping, MutableMapping, MutableSequence, Sequence
 
 import requests
+from requests.auth import AuthBase
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from opentelemetry.trace import Span as _SpanType, SpanKind as _SpanKindType, Status as _StatusType, StatusCode as _StatusCodeType
+else:  # pragma: no cover - fallback typing when OpenTelemetry is absent at runtime
+    _SpanType = Any  # type: ignore[assignment]
+    _SpanKindType = Any  # type: ignore[assignment]
+    _StatusType = Any  # type: ignore[assignment]
+    _StatusCodeType = Any  # type: ignore[assignment]
+
+SpanType = _SpanType
+SpanKindType = _SpanKindType
+StatusType = _StatusType
+StatusCodeType = _StatusCodeType
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from opentelemetry.sdk.trace.export import SpanExporter as _SpanExporterType
+else:  # pragma: no cover - fallback typing when OpenTelemetry SDK is absent
+    _SpanExporterType = Any  # type: ignore[assignment]
+
+SpanExporterType = _SpanExporterType
+
+class _FallbackSpanKind:  # pragma: no cover - best effort shim
+    INTERNAL = "INTERNAL"
+    SERVER = "SERVER"
+    CLIENT = "CLIENT"
+    PRODUCER = "PRODUCER"
+    CONSUMER = "CONSUMER"
+
+
+class _FallbackStatus:  # pragma: no cover - shim mirroring minimal API surface
+    def __init__(self, status_code: Any, description: str | None = None) -> None:
+        self.status_code = status_code
+        self.description = description
+
+
+class _FallbackStatusCode:  # pragma: no cover - shim for StatusCode enum
+    UNSET = "UNSET"
+    OK = "OK"
+    ERROR = "ERROR"
+
+
+_OtelSpan: Any = Any  # type: ignore[assignment]
+_OtelSpanKind: Any = _FallbackSpanKind  # type: ignore[assignment]
+_OtelStatus: Any = _FallbackStatus  # type: ignore[assignment]
+_OtelStatusCode: Any = _FallbackStatusCode  # type: ignore[assignment]
 
 
 try:  # pragma: no cover - optional dependency
     from opentelemetry import context as _otel_context
     from opentelemetry import trace as _otel_trace
     from opentelemetry.propagate import extract as _otel_extract, inject as _otel_inject
-    from opentelemetry.trace import Span, SpanKind, Status, StatusCode
+    from opentelemetry.trace import Span as _OtelSpan, SpanKind as _OtelSpanKind, Status as _OtelStatus, StatusCode as _OtelStatusCode
 
     _OTEL_AVAILABLE = True
 except Exception:  # pragma: no cover - fallback when OpenTelemetry is unavailable
-    Span = Any  # type: ignore[misc,assignment]
-
-    class _FallbackSpanKind:  # pragma: no cover - best effort shim
-        INTERNAL = "INTERNAL"
-        SERVER = "SERVER"
-        CLIENT = "CLIENT"
-        PRODUCER = "PRODUCER"
-        CONSUMER = "CONSUMER"
-
-    SpanKind = _FallbackSpanKind  # type: ignore[assignment]
-
-    class Status:  # pragma: no cover - shim mirroring minimal API surface
-        def __init__(self, status_code: Any, description: str | None = None) -> None:
-            self.status_code = status_code
-            self.description = description
-
-    class StatusCode:  # pragma: no cover - shim for StatusCode enum
-        UNSET = "UNSET"
-        OK = "OK"
-        ERROR = "ERROR"
-
     _OTEL_AVAILABLE = False
     _otel_trace = None  # type: ignore[assignment]
     _otel_extract = None  # type: ignore[assignment]
     _otel_inject = None  # type: ignore[assignment]
 
 
+if _OTEL_AVAILABLE:
+    Span = _OtelSpan
+    SpanKind = _OtelSpanKind
+    Status = _OtelStatus
+    StatusCode = _OtelStatusCode
+else:
+    Span = Any  # type: ignore[misc,assignment]
+    SpanKind = _FallbackSpanKind  # type: ignore[assignment]
+    Status = _FallbackStatus
+    StatusCode = _FallbackStatusCode
+
+
 _LOGGER = logging.getLogger(__name__)
 
 try:  # pragma: no cover - optional dependency for exporters
     from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider as _SdkTracerProvider
+    from opentelemetry.sdk.trace import ReadableSpan, TracerProvider as _SdkTracerProvider
     from opentelemetry.sdk.trace.export import (
         BatchSpanProcessor,
         ConsoleSpanExporter,
-        ReadableSpan,
         SpanExporter,
         SpanExportResult,
         SimpleSpanProcessor,
@@ -265,7 +301,9 @@ class ClickHouseSpanExporter(SpanExporter):  # type: ignore[misc]
             self._logger.debug("ClickHouse table creation failed", exc_info=True)
 
     def _execute(self, sql: str, *, data: str | None = None) -> None:
-        auth = (self._username, self._password) if self._username else None
+        auth: AuthBase | tuple[str, str] | None = None
+        if self._username is not None:
+            auth = (self._username, self._password or "")
         response = self._session.post(
             f"{self._endpoint}",
             params={"query": sql},
@@ -284,7 +322,7 @@ def configure_from_environment(*, force: bool = False) -> None:
         return
     if not (_OTEL_AVAILABLE and _OTEL_SDK_AVAILABLE):
         return
-    exporters: list[SpanExporter] = []
+    exporters: list[SpanExporterType] = []
 
     if _env_flag(os.getenv("COOLBOX_OTEL_EXPORT_CONSOLE")) and ConsoleSpanExporter is not None:
         try:
@@ -351,9 +389,9 @@ def configure_from_environment(*, force: bool = False) -> None:
     _CONFIGURED = True
 
 def _default_tracer() -> Any:
-    if not _OTEL_AVAILABLE:
+    if not (_OTEL_AVAILABLE and _otel_trace is not None):
         return None
-    return _otel_trace.get_tracer("coolbox.telemetry")
+    return _otel_trace.get_tracer("coolbox.telemetry")  # type: ignore[attr-defined]
 
 
 def _safe_inject(carrier: MutableMapping[str, str], *, context: Any | None = None) -> None:
@@ -381,8 +419,8 @@ def start_span(
     *,
     context: Any | None = None,
     attributes: Mapping[str, Any] | None = None,
-    kind: SpanKind | str | None = None,
-) -> Iterator[Span | None]:
+    kind: SpanKindType | str | None = None,
+) -> Iterator[SpanType | None]:
     """Start an OpenTelemetry span, yielding ``None`` when tracing is disabled."""
 
     if not _OTEL_AVAILABLE:
@@ -430,7 +468,7 @@ def current_carrier() -> dict[str, str]:
     return carrier
 
 
-def trace_id_hex(span: Span | None) -> str | None:
+def trace_id_hex(span: SpanType | None) -> str | None:
     """Return the hexadecimal trace identifier for *span* when available."""
 
     if not (_OTEL_AVAILABLE and span is not None):
@@ -447,7 +485,7 @@ def trace_id_hex(span: Span | None) -> str | None:
     return f"{trace_id:032x}"
 
 
-def set_status(span: Span | None, status: Status) -> None:
+def set_status(span: SpanType | None, status: StatusType | object) -> None:
     """Assign *status* to *span* if tracing is enabled."""
 
     if not (_OTEL_AVAILABLE and span is not None):

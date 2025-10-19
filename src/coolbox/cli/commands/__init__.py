@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from . import kill_by_click as kill_by_click
     from . import network_scan as network_scan
     from . import process_monitor as process_monitor
+    from . import recipes as recipes
     from . import preview_plugin as preview_plugin
     from . import run_vm_debug as run_vm_debug
     from . import security_center as security_center

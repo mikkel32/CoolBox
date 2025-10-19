@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import Any
 
 from coolbox.console.events import TaskEvent
 from coolbox.proto import toolbus_pb2
@@ -17,7 +18,7 @@ def test_orchestrator_publishes_dashboard_events(tmp_path):
             topics=("setup.events",),
         )
         subscription = await orchestrator.tool_bus.subscribe(request)
-        received: list[dict[str, object]] = []
+        received: list[dict[str, Any]] = []
 
         async def consume():
             async for event in subscription:
@@ -35,7 +36,7 @@ def test_orchestrator_publishes_dashboard_events(tmp_path):
         await asyncio.wait_for(consumer, timeout=1.0)
         await subscription.close()
         assert received
-        event = received[0]
+        event: dict[str, Any] = received[0]
         assert event["topic"] == "setup.events"
         assert event["metadata"]["source"] == "orchestrator"
         assert event["payload"]["type"] == "TaskEvent"

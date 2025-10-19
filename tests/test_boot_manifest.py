@@ -8,6 +8,7 @@ import pytest
 
 from coolbox.boot.manager import BootManager
 from coolbox.paths import asset_path
+from coolbox.setup.orchestrator import SetupOrchestrator
 
 
 class _DummyApp:
@@ -15,43 +16,12 @@ class _DummyApp:
         pass
 
 
-class _DummyOrchestrator:
-    tasks = [object()]
-
-    def attach_telemetry(self, telemetry) -> None:  # pragma: no cover - noop
-        self.telemetry = telemetry
-
-
-class _DummyTelemetry:
-    knowledge = None
-
-    def disable(self) -> None:  # pragma: no cover - noop
-        pass
-
-    def record_environment(self, *_args, **_kwargs) -> None:  # pragma: no cover - noop
-        pass
-
-    def record_consent(self, *_args, **_kwargs) -> None:  # pragma: no cover - noop
-        pass
-
-    def flush(self) -> None:  # pragma: no cover - noop
-        pass
-
-
-class _DummyConsentManager:
-    def ensure_opt_in(self):  # pragma: no cover - simple stub
-        return SimpleNamespace(granted=False, source="tests")
-
-
 def _make_manager(manifest_path):
     return BootManager(
         manifest_path=manifest_path,
         app_factory=_DummyApp,
-        orchestrator_factory=_DummyOrchestrator,
-        recipe_loader=SimpleNamespace(load=lambda _name: None),
+        orchestrator_factory=lambda: SetupOrchestrator(),
         dependency_checker=None,
-        telemetry=_DummyTelemetry(),
-        consent_manager=_DummyConsentManager(),
     )
 
 

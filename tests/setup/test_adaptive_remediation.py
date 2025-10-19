@@ -94,6 +94,7 @@ def test_remediation_action_updates_context(tmp_path) -> None:
 
     action = decision.repairs[0]
     remediation_result = action(context, result)
+    assert remediation_result is not None
     context.results[remediation_result.task] = remediation_result
 
     bucket = context.state["adaptive_remediation"]
@@ -120,7 +121,8 @@ def test_plugin_emits_diagnostic_events(tmp_path) -> None:
     assert decision is not None
 
     action = decision.repairs[0]
-    action(context, result)
+    remediation_result = action(context, result)
+    assert remediation_result is not None
 
     task_events = [event for event in captured if isinstance(event, TaskEvent)]
     log_events = [event for event in captured if isinstance(event, LogEvent)]

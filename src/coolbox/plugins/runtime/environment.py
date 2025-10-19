@@ -81,7 +81,12 @@ class RuntimeActivation:
 
         venv_dir = Path(str(payload["venv_dir"]))
         bin_dir = Path(str(payload["bin_dir"]))
-        site_packages = tuple(Path(str(path)) for path in payload.get("site_packages", ()))
+        raw_paths = payload.get("site_packages")
+        if isinstance(raw_paths, Iterable):
+            paths_iterable = raw_paths
+        else:
+            paths_iterable = ()
+        site_packages = tuple(Path(str(path)) for path in paths_iterable)
         return cls(venv_dir=venv_dir, bin_dir=bin_dir, site_packages=site_packages)
 
 
@@ -173,7 +178,7 @@ def _environment_metadata(runtime: RuntimeConfiguration, plugin_id: str) -> dict
         "plugin": plugin_id,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "runtime": runtime.kind,
-        "environment": dict(runtime.environment),
+        "environment": dict(runtime.environment.items()),
     }
     if runtime.interpreter:
         payload["interpreter"] = {

@@ -21,6 +21,7 @@ except Exception:
     pass
 
 if TYPE_CHECKING:  # pragma: no cover - import real symbols for type checking
+    from . import paths as paths
     from .app import CoolBoxApp
     from .ensure_deps import ensure_customtkinter
 elif not os.environ.get("COOLBOX_LIGHTWEIGHT"):
@@ -28,6 +29,7 @@ elif not os.environ.get("COOLBOX_LIGHTWEIGHT"):
         "CoolBoxApp": ("coolbox.app", "CoolBoxApp"),
         "ensure_customtkinter": ("coolbox.ensure_deps", "ensure_customtkinter"),
     }
+    paths = import_module("coolbox.paths")
 else:  # pragma: no cover - lightweight testing stubs
 
     class CoolBoxApp:
@@ -42,6 +44,7 @@ else:  # pragma: no cover - lightweight testing stubs
         raise RuntimeError("customtkinter is unavailable in lightweight mode")
 
     _LAZY_ATTRS = {}
+    paths = import_module("coolbox.paths")
 
 
 def __getattr__(name: str):
@@ -55,4 +58,4 @@ def __getattr__(name: str):
     return value
 
 
-__all__ = ["CoolBoxApp", "ensure_customtkinter"]
+__all__ = ["CoolBoxApp", "ensure_customtkinter", "paths"]

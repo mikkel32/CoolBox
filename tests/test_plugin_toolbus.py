@@ -15,7 +15,7 @@ from coolbox.proto import toolbus_pb2
 from coolbox.setup.orchestrator import SetupOrchestrator
 from coolbox.setup.plugins import PluginRegistrar, SetupPlugin
 from coolbox.setup.plugins.adaptive_remediation import AdaptiveRemediationPlugin
-from coolbox.telemetry.knowledge import RemediationSuggestion
+from coolbox.telemetry.knowledge import RemediationSuggestion, TelemetryKnowledgeBase
 
 
 class DummyPlugin(SetupPlugin):
@@ -79,18 +79,19 @@ def test_plugin_manager_registers_toolbus_endpoints(tmp_path):
     asyncio.run(runner())
 
 
-class _StubKnowledgeBase:
+class _StubKnowledgeBase(TelemetryKnowledgeBase):
     def __init__(self, suggestion: RemediationSuggestion) -> None:
+        super().__init__()
         self.suggestion = suggestion
         self.calls: list[dict[str, object]] = []
 
     def suggest_fix(
         self,
         *,
-        failure_code: str | None,
-        error_type: str | None,
-        stage: str | None,
-        task: str | None,
+        failure_code: str | None = None,
+        error_type: str | None = None,
+        stage: str | None = None,
+        task: str | None = None,
     ) -> RemediationSuggestion | None:
         self.calls.append(
             {

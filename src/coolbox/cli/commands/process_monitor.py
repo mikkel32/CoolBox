@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import time
 from queue import Queue
+from typing import TYPE_CHECKING
 
 from rich.console import Console, Group  # noqa: E402
 from rich.table import Table  # noqa: E402
 from rich.live import Live  # noqa: E402
 
-from coolbox.utils.process_monitor import ProcessWatcher, ProcessEntry  # noqa: E402
+if TYPE_CHECKING:
+    from coolbox.utils.processes.monitor import ProcessEntry, ProcessWatcher
+else:  # pragma: no cover - dynamic re-export
+    from coolbox.utils.process_monitor import ProcessEntry, ProcessWatcher
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

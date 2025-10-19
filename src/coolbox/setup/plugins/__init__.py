@@ -7,7 +7,20 @@ import time
 from dataclasses import dataclass, field
 from importlib import metadata
 import inspect
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Protocol, Sequence, TYPE_CHECKING, cast, runtime_checkable
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Mapping,
+    MutableSequence,
+    Optional,
+    Protocol,
+    Sequence,
+    TYPE_CHECKING,
+    cast,
+    runtime_checkable,
+)
 
 from coolbox.plugins import PluginDefinition, ProfileDevSettings
 from coolbox.catalog import get_catalog
@@ -315,6 +328,16 @@ class PluginManager:
         self.plugins.append(plugin)
         self._handles[identifier] = handle
 
+    @staticmethod
+    def _remove_registered_entries(
+        collection: MutableSequence[Any], entries: Iterable[Any]
+    ) -> None:
+        for entry in entries:
+            try:
+                collection.remove(entry)
+            except ValueError:
+                continue
+
     def iter_validators(self) -> Iterable[Validator]:
         return list(self.validators)
 
@@ -328,11 +351,7 @@ class PluginManager:
             (self.progress_columns, handle.progress_columns),
             (self.continuous_validators, handle.continuous_validators),
         ):
-            for entry in entries:
-                try:
-                    collection.remove(entry)
-                except ValueError:
-                    continue
+            self._remove_registered_entries(collection, entries)
         try:
             self.plugins.remove(handle.plugin)
         except ValueError:
@@ -416,7 +435,7 @@ class PluginManager:
             raise ValueError(f"Unsupported endpoint mode: {mode}")
 
     @staticmethod
-    def _prepare_handler(handler: Callable[[Any, Any], Any]) -> Callable[[Any, Any], Any]:
+    def _prepare_handler(handler: Callable[..., Any]) -> Callable[[Any, Any], Any]:
         signature = inspect.signature(handler)
         positional = [
             param

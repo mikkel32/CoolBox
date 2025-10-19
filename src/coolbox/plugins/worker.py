@@ -119,6 +119,41 @@ def budget_limits_to_payload(limits: BudgetLimits) -> dict[str, float | int | No
     }
 
 
+def _coerce_optional_float(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return float(stripped)
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_optional_int(value: object) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            return int(stripped)
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_float(value: object, default: float = 0.0) -> float:
+    coerced = _coerce_optional_float(value)
+    return coerced if coerced is not None else default
+
+
 def budget_limits_from_payload(payload: Mapping[str, object] | None) -> BudgetLimits:
     """Deserialize :class:`BudgetLimits` from :func:`budget_limits_to_payload`."""
 
@@ -128,9 +163,9 @@ def budget_limits_from_payload(payload: Mapping[str, object] | None) -> BudgetLi
     memory_bytes = payload.get("memory_bytes")
     wall_time = payload.get("wall_time")
     return BudgetLimits(
-        cpu_percent=float(cpu_percent) if cpu_percent is not None else None,
-        memory_bytes=int(memory_bytes) if memory_bytes is not None else None,
-        wall_time=float(wall_time) if wall_time is not None else None,
+        cpu_percent=_coerce_optional_float(cpu_percent),
+        memory_bytes=_coerce_optional_int(memory_bytes),
+        wall_time=_coerce_optional_float(wall_time),
     )
 
 
@@ -195,9 +230,9 @@ def diagnostics_from_payload(payload: Mapping[str, object]) -> WorkerDiagnostics
     mini_dump = Path(mini_dump_raw) if isinstance(mini_dump_raw, str) else None
     return WorkerDiagnostics(
         plugin_id=str(payload.get("plugin_id", "")),
-        wall_time=float(payload.get("wall_time", 0.0)),
-        cpu_time=float(payload.get("cpu_time", 0.0)),
-        memory_usage=int(payload["memory_usage"]) if payload.get("memory_usage") is not None else None,
+        wall_time=_coerce_float(payload.get("wall_time"), 0.0),
+        cpu_time=_coerce_float(payload.get("cpu_time"), 0.0),
+        memory_usage=_coerce_optional_int(payload.get("memory_usage")),
         limits=limits,
         breaches=breaches,
         mini_dump=mini_dump,
@@ -474,15 +509,45 @@ class BudgetController:
         memory_usage: int | None,
         breaches: Mapping[str, tuple[float | int | None, float | int | None]],
     ) -> WorkerDiagnostics:
-        payload = {
+        normalized_breaches: dict[
+            str, tuple[float | int | None, float | int | None]
+        ] = {}
+        for key, (actual, limit) in breaches.items():
+            actual_value: float | int | None
+            if isinstance(actual, (int, float)):
+                actual_value = float(actual)
+            else:
+                actual_value = actual
+            limit_value: float | int | None
+            if isinstance(limit, (int, float)):
+                limit_value = float(limit)
+            else:
+                limit_value = limit
+            normalized_breaches[key] = (actual_value, limit_value)
+
+        payload: dict[str, object] = {
             "plugin": self.plugin_id,
             "wall_time": wall_elapsed,
             "cpu_time": cpu_elapsed,
-            "breaches": {key: (float(actual), float(limit)) if isinstance(actual, (int, float)) else (actual, limit) for key, (actual, limit) in breaches.items()},
+            "breaches": normalized_breaches,
         }
         if memory_usage is not None:
             payload["memory_usage"] = memory_usage
         dump = _write_mini_dump(self.plugin_id, payload)
+        telemetry: dict[str, object] = {
+            "plugin": self.plugin_id,
+            "wall_time": wall_elapsed,
+            "cpu_time": cpu_elapsed,
+            "memory_usage": memory_usage,
+            "breaches": {
+                key: {
+                    "observed": actual,
+                    "limit": limit,
+                }
+                for key, (actual, limit) in breaches.items()
+            },
+            "mini_dump": str(dump) if dump else None,
+        }
         diagnostics = WorkerDiagnostics(
             plugin_id=self.plugin_id,
             wall_time=wall_elapsed,
@@ -491,20 +556,7 @@ class BudgetController:
             limits=self.limits,
             breaches=breaches,
             mini_dump=dump,
-            telemetry_payload={
-                "plugin": self.plugin_id,
-                "wall_time": wall_elapsed,
-                "cpu_time": cpu_elapsed,
-                "memory_usage": memory_usage,
-                "breaches": {
-                    key: {
-                        "observed": actual,
-                        "limit": limit,
-                    }
-                    for key, (actual, limit) in breaches.items()
-                },
-                "mini_dump": str(dump) if dump else None,
-            },
+            telemetry_payload=telemetry,
         )
         return diagnostics
 
@@ -858,6 +910,8 @@ class _WorkerProcess:
             self._local_plugin = plugin
             self._controller = BudgetController(plugin_id, limits, logger=logger)
             return
+        if definition is None:
+            raise PluginSandboxError(plugin_id, "Sandboxed execution requires a plugin definition")
         environment = dict(definition.runtime.environment)
         heartbeat_interval = limits.wall_time or 15.0
         limits_payload = budget_limits_to_payload(limits)
@@ -906,7 +960,7 @@ class _WorkerProcess:
         *args,
         trace_context: Mapping[str, str] | None = None,
         **kwargs,
-    ) -> Mapping[str, Any]:
+    ) -> object:
         if self._remote is not None:
             try:
                 response = self._remote.call(
@@ -969,11 +1023,11 @@ class _WorkerProcess:
             raise
         except Exception as exc:
             raise PluginRuntimeError(self.plugin_id, f"Plugin '{self.plugin_id}' raised: {exc}", original=exc) from exc
-        response: dict[str, Any] = {"status": "ok", "result": result}
         if trace_context:
-            response["trace"] = dict(trace_context)
-        self._update_trace_snapshot(None, trace_context)
-        return response
+            self._update_trace_snapshot(None, trace_context)
+        else:
+            self._update_trace_snapshot(None, None)
+        return result
 
     def runtime_snapshot(self) -> WorkerRuntimeSnapshot:
         if self._remote is None:

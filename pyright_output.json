@@ -1,13 +1,13 @@
 {
     "version": "1.1.406",
-    "time": "1760696480928",
+    "time": "1760859696775",
     "generalDiagnostics": [],
     "summary": {
-        "filesAnalyzed": 262,
+        "filesAnalyzed": 310,
         "errorCount": 0,
         "warningCount": 0,
         "informationCount": 0,
-        "timeInSec": 46.172
+        "timeInSec": 28.64
     }
 }
 

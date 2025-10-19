@@ -15,17 +15,35 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from importlib.resources.abc import Traversable
 
 try:  # pragma: no cover - optional dependency
-    from jsonschema import Draft7Validator, ValidationError
+    from jsonschema import (
+        Draft7Validator as _JsonschemaDraft7Validator,
+        ValidationError as _JsonschemaValidationError,
+    )
 except Exception:  # pragma: no cover - fallback validator
-    class Draft7Validator:  # type: ignore[override]
-        def __init__(self, schema):
+    _JsonschemaDraft7Validator = None
+    _JsonschemaValidationError = None
+
+if _JsonschemaDraft7Validator is None or _JsonschemaValidationError is None:
+
+    class _FallbackDraft7Validator:  # pragma: no cover - fallback validator
+        def __init__(self, schema: Mapping[str, Any]):
             self.schema = schema
 
-        def validate(self, document):
+        def validate(self, document: Mapping[str, Any]) -> None:
             return None
 
-    class ValidationError(Exception):
-        pass
+    class _FallbackValidationError(Exception):
+        def __init__(self, message: str = "", *, path: Sequence[Any] | None = None) -> None:
+            super().__init__(message)
+            self.message = message
+            self.path: Sequence[Any] = tuple(path or ())
+
+    Draft7Validator = _FallbackDraft7Validator
+    ValidationError = _FallbackValidationError
+
+else:  # pragma: no cover - jsonschema available
+    Draft7Validator = _JsonschemaDraft7Validator
+    ValidationError = _JsonschemaValidationError
 
 try:  # pragma: no cover - optional dependency
     import yaml
@@ -308,7 +326,10 @@ class BootManager:
             except PluginStartupError as exc:
                 if span:
                     span.record_exception(exc)
-                    set_status(span, Status(StatusCode.ERROR, exc.plugin_id))
+                    set_status(
+                        span,
+                        Status(StatusCode.ERROR, exc.plugin_id),
+                    )
                 self.logger.error(
                     "Plugin '%s' failed during startup: %s",
                     exc.plugin_id,
@@ -319,7 +340,10 @@ class BootManager:
             except Exception as exc:
                 if span:
                     span.record_exception(exc)
-                    set_status(span, Status(StatusCode.ERROR, "launch"))
+                    set_status(
+                        span,
+                        Status(StatusCode.ERROR, "launch"),
+                    )
                 self.logger.exception(
                     "Application launch failed; entering recovery console",
                     exc_info=exc,
@@ -442,8 +466,9 @@ class BootManager:
             try:
                 self._minimal_manifest_validator.validate(raw)
             except ValidationError:
-                pointer = "/".join(str(part) for part in exc.path)
-                message = exc.message
+                path = getattr(exc, "path", ())
+                pointer = "/".join(str(part) for part in path)
+                message = str(exc)
                 if pointer:
                     message = f"{message} (at {pointer})"
                 raise ManifestValidationError(message) from exc

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import sys
 from types import ModuleType
+from typing import TYPE_CHECKING, cast
 
 
 def _load_kill_module() -> ModuleType:
@@ -25,7 +26,10 @@ def _reexport(module: ModuleType) -> tuple[str, ...]:
 
 
 _TARGET_MODULE = _load_kill_module()
-__all__ = _reexport(_TARGET_MODULE)
+__all__ = cast(tuple[str, ...], _reexport(_TARGET_MODULE))  # pyright: ignore[reportUnsupportedDunderOperation]
+
+if TYPE_CHECKING:  # pragma: no cover - typing aid for exported helpers
+    from coolbox.utils.processes.kill import kill_process, kill_process_tree
 
 
 class _KillProxy(ModuleType):

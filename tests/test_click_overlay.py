@@ -23,6 +23,7 @@ import tempfile
 
 os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
 from coolbox.config import Config  # noqa: E402
+from coolbox.utils.window_utils import WindowInfo as SystemWindowInfo  # noqa: E402
 
 from coolbox.ui.views.overlays.click_overlay import (  # noqa: E402
     ClickOverlay,
@@ -633,12 +634,12 @@ class TestClickOverlay(unittest.TestCase):
         root = tk.Tk()
         from coolbox.utils import window_utils as wu
 
-        fake_old = wu.WindowInfo(2, (0, 0, 1, 1), "old")
+        fake_old = SystemWindowInfo(2, (0, 0, 1, 1), "old")
         wu._WINDOWS_CACHE = {"time": 0.0, "windows": [fake_old]}
 
-        def fake_refresh() -> list[wu.WindowInfo]:
+        def fake_refresh() -> list[SystemWindowInfo]:
             time.sleep(0.1)
-            return [wu.WindowInfo(1, (0, 0, 1, 1), "new")]
+            return [SystemWindowInfo(1, (0, 0, 1, 1), "new")]
 
         with (
             patch("coolbox.ui.views.overlays.click_overlay.is_supported", return_value=False),

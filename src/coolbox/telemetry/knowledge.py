@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, replace
 import json
-from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple
+from typing import Any, Dict, Hashable, Iterable, Mapping, MutableMapping, Optional, Sequence, Tuple, TypeVar
 
 from .events import TelemetryEvent, TelemetryEventType
 
@@ -104,7 +104,7 @@ class FailureInsight:
     """Aggregated failure insight used for suggestion ranking."""
 
     occurrences: int
-    suggestions: Counter
+    suggestions: Counter[str]
     library: MutableMapping[str, RemediationSuggestion]
 
     def register(self, suggestion: RemediationSuggestion) -> None:
@@ -135,6 +135,9 @@ _CONTEXT_WEIGHTS: Mapping[str, float] = {
     "error": 1.4,
     "global": 1.2,
 }
+
+
+_KeyType = TypeVar("_KeyType", bound=Hashable)
 
 
 class TelemetryKnowledgeBase:
@@ -265,8 +268,8 @@ class TelemetryKnowledgeBase:
 
     def _get_or_create(
         self,
-        store: MutableMapping[Tuple[str, str] | str, FailureInsight],
-        key: Tuple[str, str] | str,
+        store: MutableMapping[_KeyType, FailureInsight],
+        key: _KeyType,
     ) -> FailureInsight:
         insight = store.get(key)
         if insight is None:

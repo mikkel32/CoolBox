@@ -6,7 +6,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from threading import RLock
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Mapping, Optional
 
 from .core import (
     CapabilityGrantState,
@@ -232,16 +232,26 @@ class PermissionManager:
                 process_tree: tuple[str, ...]
                 pid: Optional[int]
                 status: Optional[str]
-                if runtime_info is None:
+                if isinstance(runtime_info, Mapping):
+                    raw_ports = runtime_info.get("open_ports", ())
+                    if isinstance(raw_ports, Iterable) and not isinstance(raw_ports, (str, bytes, bytearray)):
+                        open_ports = tuple(str(port) for port in raw_ports)
+                    else:
+                        open_ports = ()
+                    raw_tree = runtime_info.get("process_tree", ())
+                    if isinstance(raw_tree, Iterable) and not isinstance(raw_tree, (str, bytes, bytearray)):
+                        process_tree = tuple(str(entry) for entry in raw_tree)
+                    else:
+                        process_tree = ()
+                    pid_value = runtime_info.get("pid")
+                    pid = int(pid_value) if isinstance(pid_value, int) else None
+                    status_value = runtime_info.get("status")
+                    status = str(status_value) if isinstance(status_value, str) else None
+                else:
                     open_ports = ()
                     process_tree = ()
                     pid = None
                     status = None
-                else:
-                    open_ports = tuple(runtime_info.get("open_ports", ()))
-                    process_tree = tuple(runtime_info.get("process_tree", ()))
-                    pid = runtime_info.get("pid")
-                    status = runtime_info.get("status")
                 recent = tuple(syscalls.get(plugin_id, ()))
                 workers.append(
                     WorkerSecurityInsight(
@@ -288,8 +298,10 @@ class PermissionManager:
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         queue.appendleft(f"[{timestamp}] {summary}")
 
-    def _collect_supervisor_state(self) -> tuple[dict, dict[str, tuple[str, ...]]]:
-        runtime: dict = {}
+    def _collect_supervisor_state(
+        self,
+    ) -> tuple[dict[str, dict[str, object]], dict[str, tuple[str, ...]]]:
+        runtime: dict[str, dict[str, object]] = {}
         syscalls: dict[str, tuple[str, ...]] = {}
         supervisor = self._supervisor
         if supervisor is None:
@@ -297,16 +309,31 @@ class PermissionManager:
         runtime_method = getattr(supervisor, "security_runtime_snapshot", None)
         if callable(runtime_method):
             try:
-                runtime = runtime_method()
+                result = runtime_method()
+                if isinstance(result, Mapping):
+                    runtime = {}
+                    for key, value in result.items():
+                        if isinstance(value, Mapping):
+                            runtime[str(key)] = {str(k): v for k, v in value.items()}
+                        else:
+                            runtime[str(key)] = {}
+                else:
+                    runtime = {}
             except Exception:
                 runtime = {}
         syscall_method = getattr(supervisor, "recent_syscalls_snapshot", None)
         if callable(syscall_method):
             try:
-                syscalls = {
-                    key: tuple(value)
-                    for key, value in syscall_method().items()
-                }
+                result = syscall_method()
+                if isinstance(result, Mapping):
+                    syscalls = {}
+                    for key, value in result.items():
+                        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, bytearray)):
+                            syscalls[str(key)] = tuple(str(entry) for entry in value)
+                        else:
+                            syscalls[str(key)] = ()
+                else:
+                    syscalls = {}
             except Exception:
                 syscalls = {}
         else:
