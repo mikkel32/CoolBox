@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, MutableMapping, Sequence
@@ -590,11 +591,11 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
         "resources": {
             "type": "object",
             "properties": {
-                "cpu": {"type": ["string", "number"]},
-                "memory": {"type": ["string", "number"]},
-                "disk": {"type": ["string", "number"]},
-                "gpu": {"type": ["string", "number"]},
-                "timeout": {"type": ["integer", "string"]},
+                "cpu": {"type": ["string", "number", "null"]},
+                "memory": {"type": ["string", "number", "null"]},
+                "disk": {"type": ["string", "number", "null"]},
+                "gpu": {"type": ["string", "number", "null"]},
+                "timeout": {"type": ["integer", "string", "null"]},
             },
             "required": ["cpu", "memory", "disk", "gpu", "timeout"],
         },
@@ -695,6 +696,22 @@ MANIFEST_JSON_SCHEMA: Mapping[str, Any] = {
 }
 
 
+MINIMAL_MANIFEST_JSON_SCHEMA: Mapping[str, Any] = deepcopy(MANIFEST_JSON_SCHEMA)
+_MINIMAL_PROFILE = MINIMAL_MANIFEST_JSON_SCHEMA["$defs"]["profile"]
+_MINIMAL_PROFILE["required"] = ["plugins"]
+_MINIMAL_PLUGIN = MINIMAL_MANIFEST_JSON_SCHEMA["$defs"]["plugin"]
+_MINIMAL_PLUGIN["required"] = ["id", "runtime"]
+_MINIMAL_CAPABILITIES = MINIMAL_MANIFEST_JSON_SCHEMA["$defs"]["capabilities"]
+_MINIMAL_CAPABILITIES["required"] = []
+_MINIMAL_RESOURCES = MINIMAL_MANIFEST_JSON_SCHEMA["$defs"]["resources"]
+_MINIMAL_RESOURCES["required"] = []
+_MINIMAL_HOOKS = MINIMAL_MANIFEST_JSON_SCHEMA["$defs"]["hooks"]
+_MINIMAL_HOOKS["required"] = []
+_MINIMAL_IO = MINIMAL_MANIFEST_JSON_SCHEMA["$defs"]["io"]
+_MINIMAL_IO["required"] = []
+
+
+
 __all__ = [
     "BootManifest",
     "BootProfile",
@@ -715,4 +732,5 @@ __all__ = [
     "WasmPackaging",
     "load_manifest_document",
     "MANIFEST_JSON_SCHEMA",
+    "MINIMAL_MANIFEST_JSON_SCHEMA",
 ]

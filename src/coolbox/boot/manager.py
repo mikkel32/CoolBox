@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from argparse import ArgumentParser, Namespace
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import threading
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -38,10 +38,15 @@ from coolbox.plugins import (
     BootProfile as ManifestBootProfile,
     ManifestError as PluginManifestError,
     ManifestValidationError,
+    PluginCapabilities,
     PluginDefinition,
+    PluginIOSchema,
     ProfileDevSettings,
+    ResourceBudget,
+    StartupHooks,
     load_manifest_document,
     MANIFEST_JSON_SCHEMA,
+    MINIMAL_MANIFEST_JSON_SCHEMA,
 )
 from coolbox.plugins.worker import PluginStartupError
 from coolbox.console.dashboard import TEXTUAL_AVAILABLE
@@ -124,7 +129,9 @@ class BootManager:
         self.logger = logger or logging.getLogger("coolbox.boot.manager")
         self._manifest_cache: dict[str, ManifestProfile] = {}
         self._manifest_validator = Draft7Validator(MANIFEST_JSON_SCHEMA)
+        self._minimal_manifest_validator = Draft7Validator(MINIMAL_MANIFEST_JSON_SCHEMA)
         self._manifest_document: BootManifest | None = None
+        self._using_minimal_manifest = False
         self._last_recipe: Recipe | None = None
 
     # ------------------------------------------------------------------
@@ -200,6 +207,7 @@ class BootManager:
                 self._default_manifest = Path(args.boot_manifest)
                 self._manifest_cache.clear()
                 self._manifest_document = None
+                self._using_minimal_manifest = False
 
             self.logger.debug("Boot arguments parsed", extra={"argv": list(argv or [])})
 
@@ -408,20 +416,31 @@ class BootManager:
         if self._manifest_document is not None:
             return self._manifest_document
         raw = self._load_manifest()
+        minimal_schema = False
         try:
             self._manifest_validator.validate(raw)
         except ValidationError as exc:
-            pointer = "/".join(str(part) for part in exc.path)
-            message = exc.message
-            if pointer:
-                message = f"{message} (at {pointer})"
-            raise ManifestValidationError(message) from exc
+            try:
+                self._minimal_manifest_validator.validate(raw)
+            except ValidationError:
+                pointer = "/".join(str(part) for part in exc.path)
+                message = exc.message
+                if pointer:
+                    message = f"{message} (at {pointer})"
+                raise ManifestValidationError(message) from exc
+            else:
+                minimal_schema = True
         try:
             manifest = load_manifest_document(raw)
         except PluginManifestError as exc:
             raise ManifestValidationError(str(exc)) from exc
         self._manifest_cache.clear()
         self._manifest_document = manifest
+        self._using_minimal_manifest = minimal_schema
+        if minimal_schema:
+            self.logger.info(
+                "Loaded manifest using minimal schema; applying capability/resource defaults"
+            )
         return manifest
 
     def _manifest_from_missing_yaml(
@@ -456,17 +475,44 @@ class BootManager:
             available = ", ".join(sorted(profiles)) or "<none>"
             raise ValueError(f"Boot profile '{name}' not found (available: {available})")
         profile_doc: ManifestBootProfile = profiles[name]
+        plugins = tuple(self._ensure_plugin_defaults(plugin) for plugin in profile_doc.plugins)
         profile = ManifestProfile(
             name=name,
             orchestrator=dict(profile_doc.orchestrator),
             preload=dict(profile_doc.preload),
             recovery=dict(profile_doc.recovery),
-            plugins=profile_doc.plugins,
+            plugins=plugins,
             dev=profile_doc.dev,
             recovery_profile=profile_doc.recovery_profile,
         )
         self._manifest_cache[name] = profile
         return profile
+
+    def _ensure_plugin_defaults(self, definition: PluginDefinition) -> PluginDefinition:
+        capabilities = definition.capabilities
+        if capabilities is None or not isinstance(capabilities, PluginCapabilities):
+            capabilities = PluginCapabilities((), (), ())
+        else:
+            provides = tuple(capabilities.provides or ())
+            requires = tuple(capabilities.requires or ())
+            sandbox = tuple(capabilities.sandbox or ())
+            capabilities = PluginCapabilities(provides, requires, sandbox)
+        resources = definition.resources
+        if resources is None or not isinstance(resources, ResourceBudget):
+            resources = ResourceBudget(None, None, None, None, None)
+        hooks = definition.hooks
+        if hooks is None or not isinstance(hooks, StartupHooks):
+            hooks = StartupHooks((), (), ())
+        io_schema = definition.io
+        if io_schema is None or not isinstance(io_schema, PluginIOSchema):
+            io_schema = PluginIOSchema(inputs={}, outputs={})
+        return replace(
+            definition,
+            capabilities=capabilities,
+            resources=resources,
+            hooks=hooks,
+            io=io_schema,
+        )
 
     # ------------------------------------------------------------------
     def _resolve_stages(self, raw: Any) -> Sequence[SetupStage] | None:

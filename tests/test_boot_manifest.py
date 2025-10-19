@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import json
+
 import pytest
 
 from coolbox.boot.manager import BootManager
@@ -74,3 +76,44 @@ def test_load_manifest_without_yaml_requires_json(tmp_path, monkeypatch):
         manager._load_manifest()
 
     assert "Install PyYAML" in str(excinfo.value)
+
+
+def test_minimal_manifest_applies_defaults(tmp_path):
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "profiles": {
+                    "minimal": {
+                        "plugins": [
+                            {
+                                "id": "demo-plugin",
+                                "runtime": {
+                                    "kind": "native",
+                                    "entrypoint": "coolbox.setup.plugins:NullPlugin",
+                                },
+                            }
+                        ]
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    manager = _make_manager(manifest_path)
+
+    profile = manager._load_profile("minimal")
+
+    assert profile.orchestrator == {}
+    assert profile.preload == {}
+    assert profile.recovery == {}
+    assert len(profile.plugins) == 1
+    plugin = profile.plugins[0]
+    assert plugin.capabilities.provides == ()
+    assert plugin.capabilities.requires == ()
+    assert plugin.capabilities.sandbox == ()
+    assert plugin.resources.cpu is None
+    assert plugin.resources.memory is None
+    assert plugin.hooks.before == ()
+    assert plugin.hooks.after == ()
+    assert plugin.hooks.on_failure == ()

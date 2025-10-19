@@ -21,6 +21,7 @@ from .manifest import (
     WasmPackaging,
     load_manifest_document,
     MANIFEST_JSON_SCHEMA,
+    MINIMAL_MANIFEST_JSON_SCHEMA,
 )
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "WasmPackaging",
     "load_manifest_document",
     "MANIFEST_JSON_SCHEMA",
+    "MINIMAL_MANIFEST_JSON_SCHEMA",
 ]

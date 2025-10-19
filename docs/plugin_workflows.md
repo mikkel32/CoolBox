@@ -28,6 +28,43 @@ the resolved metadata, and executes any declared build steps. WASM modules are
 prepared by running the associated build plan if the expected artefact is
 missing.
 
+## Migrating legacy boot manifests
+
+Earlier boot manifests could omit the `capabilities` and `resources` sections
+on each plugin entry. Those manifests continue to load, but the boot manager
+now applies empty defaults for the missing sections. Adding explicit entries is
+recommended so future sandboxing phases can enforce the correct boundaries.
+
+To migrate an existing manifest, add a `capabilities` block with
+`provides`, `requires`, and `sandbox` arrays, and a `resources` block declaring
+your baseline budgets:
+
+```yaml
+profiles:
+  default:
+    plugins:
+      - id: example
+        runtime:
+          kind: native
+          entrypoint: mypkg.plugins:ExamplePlugin
+        capabilities:
+          provides: ["setup.example"]
+          requires: ["network"]
+          sandbox: ["filesystem", "network"]
+        resources:
+          cpu: "250m"
+          memory: "128Mi"
+          disk: "64Mi"
+          gpu: "0"
+          timeout: 30
+```
+
+The orchestration layer now propagates the declared sandbox scopes to the
+plugin supervisor. Leaving the fields blank defaults to an unrestricted
+configuration, matching previous behaviour, but adding explicit metadata allows
+you to progressively tighten permissions without breaking compatibility with
+older manifests.
+
 ## Launching preview sandboxes
 
 For rapid iteration you can start a preview sandbox that boots a single plugin
