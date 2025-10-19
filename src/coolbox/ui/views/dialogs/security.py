@@ -117,6 +117,8 @@ class SecurityDialog(ttk.Frame):
         self._worker_snapshot: dict[str, security.WorkerSecurityInsight] = {}
         self._plugin_snapshot: Optional[security.SecurityPluginsSnapshot] = None
         self._selected_worker: Optional[str] = None
+        self._syncing_worker_selection = False
+        self._inventory_tree: ttk.Treeview | None = None
 
         # Track dialogs opened from the "+" buttons so they can be
         # positioned near the main window on any available side.
@@ -169,7 +171,6 @@ class SecurityDialog(ttk.Frame):
 
         # Initial load
         self.refresh_async()
-        self._refresh_plugins()
 
     def _build_system_tab(self, panel: ttk.Frame) -> None:
         """Build the legacy firewall/Defender controls inside *panel*."""
@@ -338,6 +339,7 @@ class SecurityDialog(ttk.Frame):
         panel.columnconfigure(0, weight=3)
         panel.columnconfigure(1, weight=2)
         panel.rowconfigure(3, weight=1)
+        panel.rowconfigure(4, weight=1)
 
         description = ttk.Label(
             panel,
@@ -465,6 +467,33 @@ class SecurityDialog(ttk.Frame):
         ]
         self._set_capability_buttons_state("disabled")
 
+        inventory_frame = ttk.LabelFrame(panel, text="Worker manifest overview")
+        inventory_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        inventory_frame.columnconfigure(0, weight=1)
+        inventory_frame.rowconfigure(0, weight=1)
+
+        manifest_columns = ("status", "requested", "grants")
+        self._inventory_tree = ttk.Treeview(
+            inventory_frame,
+            columns=manifest_columns,
+            show="headings",
+            height=6,
+        )
+        self._inventory_tree.heading("status", text="Status")
+        self._inventory_tree.heading("requested", text="Manifest capabilities")
+        self._inventory_tree.heading("grants", text="Granted")
+        self._inventory_tree.column("status", width=110, anchor="w")
+        self._inventory_tree.column("requested", width=260, anchor="w")
+        self._inventory_tree.column("grants", width=140, anchor="center")
+        self._inventory_tree.grid(row=0, column=0, sticky="nsew")
+
+        inventory_scroll = ttk.Scrollbar(
+            inventory_frame, orient="vertical", command=self._inventory_tree.yview
+        )
+        self._inventory_tree.configure(yscrollcommand=inventory_scroll.set)
+        inventory_scroll.grid(row=0, column=1, sticky="ns")
+        self._inventory_tree.bind("<<TreeviewSelect>>", self._on_inventory_selected)
+
     def _refresh_plugins(self) -> None:
         try:
             snapshot = security.get_plugin_security_snapshot()
@@ -489,13 +518,23 @@ class SecurityDialog(ttk.Frame):
                 iid=worker.plugin_id,
                 values=(status, pid, grants, ports),
             )
+        if self._inventory_tree is not None:
+            for item in self._inventory_tree.get_children():
+                self._inventory_tree.delete(item)
+            for worker in snapshot.workers:
+                manifest = self._summarize_manifest(worker)
+                grants = self._summarize_grants(worker)
+                status = self._summarize_status(worker)
+                self._inventory_tree.insert(
+                    "",
+                    "end",
+                    iid=worker.plugin_id,
+                    values=(status, manifest, grants),
+                )
         if self._selected_worker and self._selected_worker in self._worker_snapshot:
-            self._worker_tree.selection_set(self._selected_worker)
-            self._worker_tree.focus(self._selected_worker)
-            self._update_worker_detail(self._worker_snapshot[self._selected_worker])
+            self._apply_worker_selection(self._selected_worker, origin="refresh")
         else:
-            self._selected_worker = None
-            self._clear_worker_detail()
+            self._apply_worker_selection(None, origin="refresh")
 
     def _update_pending_summary(self, snapshot: security.SecurityPluginsSnapshot) -> None:
         pending = len(snapshot.pending_requests)
@@ -507,13 +546,30 @@ class SecurityDialog(ttk.Frame):
             self._pending_summary_var.set("No pending capability requests.")
 
     def _summarize_grants(self, worker: security.WorkerSecurityInsight) -> str:
-        total = len(worker.grants)
+        declared = set(worker.requires)
+        grant_caps = {grant.capability for grant in worker.grants}
+        total = len(grant_caps | declared)
         granted = sum(1 for grant in worker.grants if grant.state == "allowed")
         pending = sum(1 for grant in worker.grants if grant.pending)
         summary = f"{granted}/{total} allowed"
         if pending:
             summary += f" • {pending} pending"
+        manifest_only = len(declared - grant_caps)
+        if manifest_only:
+            summary += f" • {manifest_only} declared"
         return summary
+
+    def _summarize_manifest(self, worker: security.WorkerSecurityInsight) -> str:
+        if worker.requires:
+            return ", ".join(worker.requires)
+        return "—"
+
+    def _summarize_status(self, worker: security.WorkerSecurityInsight) -> str:
+        if worker.status:
+            return worker.status
+        if worker.pid:
+            return "running"
+        return "idle"
 
     def _clear_worker_detail(self) -> None:
         for item in self._capabilities_tree.get_children():
@@ -528,6 +584,7 @@ class SecurityDialog(ttk.Frame):
     def _update_worker_detail(self, worker: security.WorkerSecurityInsight) -> None:
         for item in self._capabilities_tree.get_children():
             self._capabilities_tree.delete(item)
+        seen: set[str] = set()
         for grant in worker.grants:
             expires = self._format_timestamp(grant.expires_at)
             last_used = self._format_timestamp(grant.last_used_at)
@@ -546,6 +603,17 @@ class SecurityDialog(ttk.Frame):
                 iid=f"{worker.plugin_id}:{grant.capability}",
                 text=grant.capability,
                 values=(grant.state, expires, last_used, ", ".join(notes)),
+            )
+            seen.add(grant.capability)
+        for capability in worker.requires:
+            if capability in seen:
+                continue
+            self._capabilities_tree.insert(
+                "",
+                "end",
+                iid=f"{worker.plugin_id}:manifest:{capability}",
+                text=capability,
+                values=("—", "—", "—", "Declared in manifest"),
             )
         self._set_capability_buttons_state("disabled")
         self._populate_syscalls(worker.recent_syscalls)
@@ -569,18 +637,49 @@ class SecurityDialog(ttk.Frame):
         self._process_text.configure(state="disabled")
 
     def _on_worker_selected(self, _event=None) -> None:
+        if self._syncing_worker_selection:
+            return
         selection = self._worker_tree.selection()
-        if not selection:
-            self._selected_worker = None
-            self._clear_worker_detail()
+        worker_id = selection[0] if selection else None
+        self._apply_worker_selection(worker_id, origin="runtime")
+
+    def _on_inventory_selected(self, _event=None) -> None:
+        if self._syncing_worker_selection:
             return
-        worker_id = selection[0]
+        if self._inventory_tree is None:
+            return
+        selection = self._inventory_tree.selection()
+        worker_id = selection[0] if selection else None
+        self._apply_worker_selection(worker_id, origin="inventory")
+
+    def _apply_worker_selection(self, worker_id: Optional[str], *, origin: str) -> None:
         self._selected_worker = worker_id
-        worker = self._worker_snapshot.get(worker_id)
-        if worker is None:
+        worker = self._worker_snapshot.get(worker_id) if worker_id else None
+        if worker:
+            self._update_worker_detail(worker)
+        else:
             self._clear_worker_detail()
-            return
-        self._update_worker_detail(worker)
+
+        self._syncing_worker_selection = True
+        try:
+            if worker_id:
+                if origin != "runtime" and self._worker_tree.exists(worker_id):
+                    self._worker_tree.selection_set(worker_id)
+                    self._worker_tree.focus(worker_id)
+                if (
+                    origin != "inventory"
+                    and self._inventory_tree is not None
+                    and self._inventory_tree.exists(worker_id)
+                ):
+                    self._inventory_tree.selection_set(worker_id)
+                    self._inventory_tree.focus(worker_id)
+            else:
+                if origin != "runtime":
+                    self._worker_tree.selection_set(())
+                if origin != "inventory" and self._inventory_tree is not None:
+                    self._inventory_tree.selection_set(())
+        finally:
+            self._syncing_worker_selection = False
 
     def _on_capability_selected(self, _event=None) -> None:
         capability = self._get_selected_capability()
@@ -805,6 +904,7 @@ class SecurityDialog(ttk.Frame):
     # ------------------------------- Refresh --------------------------------
 
     def refresh_async(self):
+        self._refresh_plugins()
         self._announce_pending("Refreshing security snapshot…")
         self._set_status_badge(self._fw_status, "Status: refreshing…", "info")
         self._set_status_badge(self._rt_status, "Status: refreshing…", "info")
