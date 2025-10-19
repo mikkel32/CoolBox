@@ -29,9 +29,11 @@ from coolbox.telemetry.tracing import (
     Status,
     StatusCode,
     current_carrier,
+    current_trace_id,
     extract_context,
     set_status,
     start_span,
+    trace_id_hex,
 )
 
 
@@ -81,15 +83,16 @@ class _TelemetryStream:
             self._emit(data)
 
     def _emit(self, message: str) -> None:
-        self._rpc.notify(
-            "telemetry.event",
-            {
-                "plugin": self._plugin_id,
-                "kind": self._stream,
-                "message": message,
-                "timestamp": time.time(),
-            },
-        )
+        payload = {
+            "plugin": self._plugin_id,
+            "kind": self._stream,
+            "message": message,
+            "timestamp": time.time(),
+        }
+        trace_id = current_trace_id()
+        if trace_id:
+            payload["trace_id"] = trace_id
+        self._rpc.notify("telemetry.event", payload)
 
 
 class _TelemetryLogHandler(logging.Handler):
@@ -111,6 +114,9 @@ class _TelemetryLogHandler(logging.Handler):
             "logger": record.name,
             "timestamp": time.time(),
         }
+        trace_id = current_trace_id()
+        if trace_id:
+            payload["trace_id"] = trace_id
         self._rpc.notify("telemetry.event", payload)
 
 
@@ -135,20 +141,31 @@ def _handle_call(
         return {"status": "runtime_error", "message": "arguments must be a sequence"}
     if not isinstance(kwargs, Mapping):
         return {"status": "runtime_error", "message": "keyword arguments must be a mapping"}
-    trace_context = params.get("trace") if isinstance(params.get("trace"), Mapping) else None
     span_attributes = {
         "coolbox.plugin.id": controller.plugin_id,
         "coolbox.plugin.method": method_name,
     }
-    method = getattr(plugin, method_name, None)
-    if method is None:
-        return {"status": "runtime_error", "message": f"method '{method_name}' not found"}
     with start_span(
         "coolbox.plugins.worker",
-        context=extract_context(trace_context),
         kind=SpanKind.SERVER,
         attributes=span_attributes,
     ) as span:
+        method = getattr(plugin, method_name, None)
+        if method is None:
+            response = {
+                "status": "runtime_error",
+                "message": f"method '{method_name}' not found",
+            }
+            if span:
+                span.set_attribute("coolbox.plugin.status", "missing_method")
+                set_status(span, Status(StatusCode.ERROR, "missing_method"))
+            trace_payload = current_carrier()
+            if trace_payload:
+                response["trace"] = trace_payload
+            trace_id = trace_id_hex(span)
+            if trace_id:
+                response["trace_id"] = trace_id
+            return response
         try:
             if controller.limits.is_enforced():
                 result = controller.run(method, *list(args), **dict(kwargs))
@@ -193,9 +210,12 @@ def _handle_call(
                 span.set_attribute("coolbox.plugin.status", "ok")
                 set_status(span, Status(StatusCode.OK))
             response = {"status": "ok", "result": result}
-        trace_payload = current_carrier()
+    trace_payload = current_carrier()
     if trace_payload:
         response["trace"] = trace_payload
+    trace_id = trace_id_hex(span)
+    if trace_id:
+        response["trace_id"] = trace_id
     return response
 
 
@@ -344,7 +364,31 @@ def main(argv: Sequence[str] | None = None) -> int:
                     }
                 )
             continue
-        result = _handle_call(plugin, message.get("params", {}), controller)
+        params = message.get("params", {})
+        trace_carrier = params.get("trace") if isinstance(params, Mapping) else None
+        method_name = params.get("method") if isinstance(params, Mapping) else None
+        rpc_attributes = {
+            "coolbox.plugin.id": plugin_id,
+            "coolbox.plugin.rpc.method": str(method_name) if method_name is not None else "<unknown>",
+        }
+        parent_context = extract_context(trace_carrier if isinstance(trace_carrier, Mapping) else None)
+        with start_span(
+            "coolbox.plugins.rpc",
+            context=parent_context,
+            kind=SpanKind.SERVER,
+            attributes=rpc_attributes,
+        ) as rpc_span:
+            result = _handle_call(plugin, params, controller)
+            if rpc_span:
+                status = result.get("status") if isinstance(result, Mapping) else None
+                if status:
+                    rpc_span.set_attribute("coolbox.plugin.rpc.status", status)
+                    set_status(
+                        rpc_span,
+                        Status(StatusCode.OK)
+                        if status == "ok"
+                        else Status(StatusCode.ERROR, str(status)),
+                    )
         rpc.send({"jsonrpc": "2.0", "id": identifier, "result": result})
 
     stop_event.set()

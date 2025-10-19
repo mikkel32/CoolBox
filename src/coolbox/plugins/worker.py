@@ -597,12 +597,17 @@ class WorkerSupervisor:
             ) as span_obj:
                 span = span_obj
                 carrier = current_carrier()
-                result = worker.call(
-                    method_name,
-                    *args,
-                    trace_context=carrier,
-                    **kwargs,
-                )
+                trace_identifier = trace_id_hex(span_obj)
+                worker.set_active_trace(trace_identifier, carrier)
+                try:
+                    result = worker.call(
+                        method_name,
+                        *args,
+                        trace_context=carrier,
+                        **kwargs,
+                    )
+                finally:
+                    worker.clear_active_trace()
                 if span:
                     span.set_attribute("coolbox.plugin.status", "ok")
                     set_status(span, Status(StatusCode.OK))
@@ -839,7 +844,10 @@ class _WorkerProcess:
         self._local_plugin = plugin if not self._sandbox_enabled else None
         self._controller: BudgetController | None = None
         self._remote: TooldProcess | None = None
-        self._last_trace: Mapping[str, str] | None = None
+        self._active_trace_context: Mapping[str, str] | None = None
+        self._active_trace_id: str | None = None
+        self._last_trace_context: Mapping[str, str] | None = None
+        self._last_trace_id: str | None = None
         if not self._sandbox_enabled:
             if plugin is not None:
                 self._controller = BudgetController(plugin_id, limits, logger=logger)
@@ -869,6 +877,29 @@ class _WorkerProcess:
         except TooldProcessError as exc:
             raise PluginSandboxError(plugin_id, str(exc)) from exc
 
+    def set_active_trace(
+        self,
+        trace_id: str | None,
+        carrier: Mapping[str, str] | None,
+    ) -> None:
+        self._active_trace_id = trace_id
+        self._active_trace_context = dict(carrier) if carrier else None
+
+    def clear_active_trace(self) -> None:
+        self._active_trace_context = None
+        self._active_trace_id = None
+
+    def _update_trace_snapshot(
+        self, trace_id: str | None, trace_context: Mapping[str, str] | None
+    ) -> None:
+        self._last_trace_context = dict(trace_context) if trace_context else None
+        if trace_id:
+            self._last_trace_id = trace_id
+        elif self._active_trace_id:
+            self._last_trace_id = self._active_trace_id
+        else:
+            self._last_trace_id = None
+
     def call(
         self,
         method_name: str,
@@ -886,6 +917,19 @@ class _WorkerProcess:
                 )
             except TooldProcessError as exc:
                 raise PluginRuntimeError(self.plugin_id, str(exc)) from exc
+            trace_payload = response.get("trace")
+            trace_context_payload = (
+                dict(trace_payload)
+                if isinstance(trace_payload, Mapping)
+                else None
+            )
+            trace_identifier = response.get("trace_id")
+            self._update_trace_snapshot(
+                str(trace_identifier)
+                if isinstance(trace_identifier, str)
+                else None,
+                trace_context_payload,
+            )
             status = response.get("status")
             if status == "ok":
                 return response.get("result")
@@ -928,6 +972,7 @@ class _WorkerProcess:
         response: dict[str, Any] = {"status": "ok", "result": result}
         if trace_context:
             response["trace"] = dict(trace_context)
+        self._update_trace_snapshot(None, trace_context)
         return response
 
     def runtime_snapshot(self) -> WorkerRuntimeSnapshot:
@@ -961,7 +1006,11 @@ class _WorkerProcess:
         recorder = getattr(client, "record_plugin", None)
         if callable(recorder):
             try:
-                recorder(dict(payload))
+                enriched = dict(payload)
+                trace_id = self._active_trace_id or self._last_trace_id
+                if trace_id and "trace_id" not in enriched:
+                    enriched["trace_id"] = trace_id
+                recorder(enriched)
             except Exception:  # pragma: no cover - defensive logging only
                 logging.getLogger("coolbox.plugins.supervisor").debug(
                     "Telemetry callback raised", exc_info=True

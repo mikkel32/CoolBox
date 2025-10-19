@@ -17,6 +17,15 @@ from coolbox.console.events import DashboardEvent, LogEvent, StageEvent, TaskEve
 from coolbox.plugins import PluginDefinition, ProfileDevSettings
 from coolbox.tools import ToolBus
 from coolbox.telemetry import NullTelemetryClient, TelemetryClient
+from coolbox.telemetry.tracing import (
+    SpanKind,
+    Status,
+    StatusCode,
+    current_trace_id,
+    set_status,
+    start_span,
+    trace_id_hex,
+)
 
 from .plugins import (
     PluginManager,
@@ -649,237 +658,322 @@ class SetupOrchestrator:
         stage_results: list[SetupResult] = []
         stage_started_at = time.time()
         context.set(f"stage.{stage.value}.started", stage_started_at)
-        self._publish(StageEvent(stage, status="started"))
-        self.plugin_manager.dispatch_before_stage(stage, context)
-        stage_config = context.stage_config(stage)
-        disabled_tasks = set(stage_config.get("skip", []) if isinstance(stage_config, dict) else [])
-        stage_failed = False
-
-        def _skip_task(
-            task_obj: SetupTask,
-            reason: str,
-            payload: Mapping[str, Any] | None = None,
-        ) -> None:
-            base_payload: dict[str, Any] = {"reason": reason}
-            if payload:
-                base_payload.update(payload)
-            failure_suffix: dict[str, str] = {
-                "dependency-blocked": "dependency-blocked",
-                "dependency-missing": "dependency-missing",
-                "stage-aborted": "stage-aborted",
-            }
-            suffix = failure_suffix.get(reason)
-            if suffix:
-                base_payload["failure_code"] = f"{stage.value}:{task_obj.name}:{suffix}"
-            result = SetupResult(
-                task=task_obj.name,
-                stage=stage,
-                status=SetupStatus.SKIPPED,
-                payload=base_payload,
-                attempts=0,
+        span_attributes = {
+            "coolbox.setup.stage": stage.value,
+            "coolbox.setup.task_count": len(tasks),
+        }
+        with start_span(
+            "coolbox.setup.stage",
+            kind=SpanKind.INTERNAL,
+            attributes=span_attributes,
+        ) as stage_span:
+            self._publish(StageEvent(stage, status="started"))
+            self.plugin_manager.dispatch_before_stage(stage, context)
+            stage_config = context.stage_config(stage)
+            disabled_tasks = set(
+                stage_config.get("skip", []) if isinstance(stage_config, dict) else []
             )
-            context.results[task_obj.name] = result
-            stage_results.append(result)
-            self._publish(
-                TaskEvent(
-                    task_obj.name,
-                    stage,
-                    status="skipped",
-                    payload=base_payload,
-                )
-            )
-            self._record_task_telemetry(task_obj, result)
+            stage_failed = False
 
-        for task in tasks:
-            if task.name in self._resume_success_pending:
-                existing = context.results.get(task.name)
-                if existing:
-                    stage_results.append(existing)
-                self._resume_success_pending.discard(task.name)
-                continue
-            if task.name in disabled_tasks:
+            def _skip_task(
+                task_obj: SetupTask,
+                reason: str,
+                payload: Mapping[str, Any] | None = None,
+            ) -> None:
+                base_payload: dict[str, Any] = {"reason": reason}
+                if payload:
+                    base_payload.update(payload)
+                failure_suffix: dict[str, str] = {
+                    "dependency-blocked": "dependency-blocked",
+                    "dependency-missing": "dependency-missing",
+                    "stage-aborted": "stage-aborted",
+                }
+                suffix = failure_suffix.get(reason)
+                if suffix:
+                    base_payload["failure_code"] = (
+                        f"{stage.value}:{task_obj.name}:{suffix}"
+                    )
                 result = SetupResult(
-                    task=task.name,
+                    task=task_obj.name,
                     stage=stage,
                     status=SetupStatus.SKIPPED,
-                    payload={"reason": "recipe-skip"},
+                    payload=base_payload,
+                    attempts=0,
                 )
-                context.results[task.name] = result
+                context.results[task_obj.name] = result
                 stage_results.append(result)
-                self._publish(TaskEvent(task.name, stage, status="skipped", payload=result.payload))
-                continue
-            dependency_results = {dep: context.results.get(dep) for dep in task.dependencies}
-            missing_dependencies = sorted(name for name, res in dependency_results.items() if res is None)
-            blocked_dependencies = {
-                name: res.status.value
-                for name, res in dependency_results.items()
-                if res is not None and res.status is not SetupStatus.SUCCESS
-            }
-            if missing_dependencies:
-                _skip_task(
-                    task,
-                    "dependency-missing",
-                    {"missing": missing_dependencies},
+                self._publish(
+                    TaskEvent(
+                        task_obj.name,
+                        stage,
+                        status="skipped",
+                        payload=base_payload,
+                    )
                 )
-                continue
-            if blocked_dependencies:
-                _skip_task(
-                    task,
-                    "dependency-blocked",
-                    {"dependencies": blocked_dependencies},
+                self._record_task_telemetry(
+                    task_obj, result, trace_id=trace_id_hex(stage_span)
                 )
-                stage_failed = True
-                continue
-            if stage_failed:
-                _skip_task(task, "stage-aborted")
-                continue
-            self._publish(
-                TaskEvent(
-                    task.name,
-                    stage,
-                    status="started",
-                    payload={"dependencies": list(task.dependencies)},
-                )
-            )
-            while True:
-                run_attempts = self._attempts.get(task.name, 0) + 1
-                self._attempts[task.name] = run_attempts
-                self.plugin_manager.dispatch_before_task(task, context)
-                started_at = time.time()
-                result: SetupResult | None = None
-                try:
-                    raw = task.action(context)
-                    if isinstance(raw, SetupResult):
-                        result = raw
-                        result.attempts = run_attempts
-                    else:
-                        payload = dict(raw or {})
-                        result = SetupResult(
-                            task=task.name,
-                            stage=stage,
-                            status=SetupStatus.SUCCESS,
-                            payload=payload,
-                            attempts=run_attempts,
-                        )
-                except Exception as exc:  # pragma: no cover - defensive
-                    self.plugin_manager.dispatch_error(task, exc, context)
+
+            for task in tasks:
+                if task.name in self._resume_success_pending:
+                    existing = context.results.get(task.name)
+                    if existing:
+                        stage_results.append(existing)
+                    self._resume_success_pending.discard(task.name)
+                    continue
+                if task.name in disabled_tasks:
                     result = SetupResult(
                         task=task.name,
                         stage=stage,
-                        status=SetupStatus.FAILED,
-                        payload={},
-                        error=exc,
-                        attempts=run_attempts,
+                        status=SetupStatus.SKIPPED,
+                        payload={"reason": "recipe-skip"},
                     )
-                    if not task.allow_fail:
-                        self._publish(
-                            LogEvent("error", f"Task {task.name} failed: {exc}")
-                        )
-                        self.logger.error(
-                            "Task %s failed during %s: %s", task.name, stage.value, exc
-                        )
-                finished_at = time.time()
-                if result is None:
-                    raise RuntimeError("Task action did not produce a SetupResult")
-                result.started_at = started_at
-                result.finished_at = finished_at
-                context.results[task.name] = result
-                self._record_journal_result(result)
-                stage_results.append(result)
-                self.plugin_manager.dispatch_after_task(result, context)
-                if result.status is SetupStatus.SUCCESS:
+                    context.results[task.name] = result
+                    stage_results.append(result)
                     self._publish(
-                        TaskEvent(
-                            task.name,
-                            stage,
-                            status="completed",
-                            payload=result.payload,
-                        )
+                        TaskEvent(task.name, stage, status="skipped", payload=result.payload)
                     )
-                elif result.status is SetupStatus.FAILED:
-                    failure_code = self._failure_code(result)
-                    failure_payload: dict[str, Any] = {}
-                    if failure_code:
-                        failure_payload["failure_code"] = failure_code
-                    if result.payload:
-                        failure_payload["payload"] = result.payload
-                    if result.error:
-                        failure_payload["error_type"] = type(result.error).__name__
-                    self._publish(
-                        TaskEvent(
-                            task.name,
-                            stage,
-                            status="failed",
-                            error=repr(result.error),
-                            payload=failure_payload or None,
-                        )
-                    )
-                else:
-                    self._publish(
-                        TaskEvent(
-                            task.name,
-                            stage,
-                            status=result.status.value,
-                            payload=result.payload,
-                        )
-                    )
-                self._record_task_telemetry(task, result)
-                retry_requested = False
-                for validator in self._validators():
-                    try:
-                        validator(result, context)
-                    except Exception as exc:
-                        self.logger.warning("Validator error for %s: %s", task.name, exc)
-                retry_requested = (
-                    self._apply_continuous_validators(result, context, stage_results)
-                    or retry_requested
-                )
-                if (
-                    retry_requested
-                    and result.status is SetupStatus.FAILED
-                    and not task.allow_fail
-                    and run_attempts < task.max_retries
-                ):
-                    self._publish(
-                        LogEvent(
-                            "info",
-                            f"Retrying task {task.name} after remediation (attempt {run_attempts + 1})",
-                        )
-                    )
-                    self.logger.info(
-                        "Retrying task %s after remediation (attempt %s)",
-                        task.name,
-                        run_attempts + 1,
+                    self._record_task_telemetry(
+                        task, result, trace_id=trace_id_hex(stage_span)
                     )
                     continue
-                if result.status is SetupStatus.FAILED and not task.allow_fail:
+                dependency_results = {
+                    dep: context.results.get(dep) for dep in task.dependencies
+                }
+                missing_dependencies = sorted(
+                    name for name, res in dependency_results.items() if res is None
+                )
+                blocked_dependencies = {
+                    name: res.status.value
+                    for name, res in dependency_results.items()
+                    if res is not None and res.status is not SetupStatus.SUCCESS
+                }
+                if missing_dependencies:
+                    _skip_task(
+                        task,
+                        "dependency-missing",
+                        {"missing": missing_dependencies},
+                    )
+                    continue
+                if blocked_dependencies:
+                    _skip_task(
+                        task,
+                        "dependency-blocked",
+                        {"dependencies": blocked_dependencies},
+                    )
                     stage_failed = True
-                break
-        self.plugin_manager.dispatch_after_stage(stage, stage_results, context)
-        for reporter in self.plugin_manager.iter_reporters():
-            try:
-                reporter(stage_results, context)
-            except Exception as exc:
-                self.logger.warning("Reporter error for stage %s: %s", stage.value, exc)
-        self._results.update({r.task: r for r in stage_results})
-        duration = time.time() - stage_started_at
-        stage_failure = next((res for res in stage_results if res.status is SetupStatus.FAILED), None)
-        status = "failed" if stage_failure else "completed"
-        self._publish(
-            StageEvent(
+                    continue
+                if stage_failed:
+                    _skip_task(task, "stage-aborted")
+                    continue
+                self._publish(
+                    TaskEvent(
+                        task.name,
+                        stage,
+                        status="started",
+                        payload={"dependencies": list(task.dependencies)},
+                    )
+                )
+                while True:
+                    run_attempts = self._attempts.get(task.name, 0) + 1
+                    self._attempts[task.name] = run_attempts
+                    task_attributes = {
+                        "coolbox.setup.stage": stage.value,
+                        "coolbox.setup.task": task.name,
+                        "coolbox.setup.attempt": run_attempts,
+                    }
+                    started_at = time.time()
+                    result: SetupResult | None = None
+                    with start_span(
+                        "coolbox.setup.task",
+                        kind=SpanKind.INTERNAL,
+                        attributes=task_attributes,
+                    ) as task_span:
+                        self.plugin_manager.dispatch_before_task(task, context)
+                        try:
+                            raw = task.action(context)
+                            if isinstance(raw, SetupResult):
+                                result = raw
+                                result.attempts = run_attempts
+                            else:
+                                payload = dict(raw or {})
+                                result = SetupResult(
+                                    task=task.name,
+                                    stage=stage,
+                                    status=SetupStatus.SUCCESS,
+                                    payload=payload,
+                                    attempts=run_attempts,
+                                )
+                        except Exception as exc:  # pragma: no cover - defensive
+                            self.plugin_manager.dispatch_error(task, exc, context)
+                            result = SetupResult(
+                                task=task.name,
+                                stage=stage,
+                                status=SetupStatus.FAILED,
+                                payload={},
+                                error=exc,
+                                attempts=run_attempts,
+                            )
+                            if not task.allow_fail:
+                                self._publish(
+                                    LogEvent("error", f"Task {task.name} failed: {exc}")
+                                )
+                                self.logger.error(
+                                    "Task %s failed during %s: %s",
+                                    task.name,
+                                    stage.value,
+                                    exc,
+                                )
+                            if task_span:
+                                task_span.record_exception(exc)
+                                task_span.set_attribute("coolbox.setup.status", "failed")
+                                set_status(
+                                    task_span,
+                                    Status(
+                                        StatusCode.ERROR,
+                                        f"{stage.value}:{task.name}:exception",
+                                    ),
+                                )
+                        finished_at = time.time()
+                        if result is None:
+                            raise RuntimeError("Task action did not produce a SetupResult")
+                        result.started_at = started_at
+                        result.finished_at = finished_at
+                        context.results[task.name] = result
+                        self._record_journal_result(result)
+                        stage_results.append(result)
+                        self.plugin_manager.dispatch_after_task(result, context)
+                        if result.status is SetupStatus.SUCCESS:
+                            self._publish(
+                                TaskEvent(
+                                    task.name,
+                                    stage,
+                                    status="completed",
+                                    payload=result.payload,
+                                )
+                            )
+                            if task_span:
+                                task_span.set_attribute("coolbox.setup.status", "ok")
+                                set_status(task_span, Status(StatusCode.OK))
+                        elif result.status is SetupStatus.FAILED:
+                            failure_code = self._failure_code(result)
+                            failure_payload: dict[str, Any] = {}
+                            if failure_code:
+                                failure_payload["failure_code"] = failure_code
+                            if result.payload:
+                                failure_payload["payload"] = result.payload
+                            if result.error:
+                                failure_payload["error_type"] = type(result.error).__name__
+                            self._publish(
+                                TaskEvent(
+                                    task.name,
+                                    stage,
+                                    status="failed",
+                                    error=repr(result.error),
+                                    payload=failure_payload or None,
+                                )
+                            )
+                            if task_span:
+                                task_span.set_attribute("coolbox.setup.status", "failed")
+                                set_status(
+                                    task_span,
+                                    Status(
+                                        StatusCode.ERROR,
+                                        failure_code or "failed",
+                                    ),
+                                )
+                        else:
+                            self._publish(
+                                TaskEvent(
+                                    task.name,
+                                    stage,
+                                    status=result.status.value,
+                                    payload=result.payload,
+                                )
+                            )
+                            if task_span:
+                                task_span.set_attribute(
+                                    "coolbox.setup.status", result.status.value
+                                )
+                                set_status(task_span, Status(StatusCode.UNSET))
+                        self._record_task_telemetry(
+                            task, result, trace_id=trace_id_hex(task_span)
+                        )
+                        retry_requested = False
+                        for validator in self._validators():
+                            try:
+                                validator(result, context)
+                            except Exception as exc:
+                                self.logger.warning(
+                                    "Validator error for %s: %s", task.name, exc
+                                )
+                        retry_requested = (
+                            self._apply_continuous_validators(result, context, stage_results)
+                            or retry_requested
+                        )
+                        if (
+                            retry_requested
+                            and result.status is SetupStatus.FAILED
+                            and not task.allow_fail
+                            and run_attempts < task.max_retries
+                        ):
+                            self._publish(
+                                LogEvent(
+                                    "info",
+                                    f"Retrying task {task.name} after remediation (attempt {run_attempts + 1})",
+                                )
+                            )
+                            self.logger.info(
+                                "Retrying task %s after remediation (attempt %s)",
+                                task.name,
+                                run_attempts + 1,
+                            )
+                            if task_span:
+                                task_span.set_attribute("coolbox.setup.retry", True)
+                            continue
+                        if result.status is SetupStatus.FAILED and not task.allow_fail:
+                            stage_failed = True
+                        break
+                if stage_failed and stage_span:
+                    stage_span.set_attribute("coolbox.setup.stage_failed", True)
+
+            self.plugin_manager.dispatch_after_stage(stage, stage_results, context)
+            for reporter in self.plugin_manager.iter_reporters():
+                try:
+                    reporter(stage_results, context)
+                except Exception as exc:
+                    self.logger.warning("Reporter error for stage %s: %s", stage.value, exc)
+            self._results.update({r.task: r for r in stage_results})
+            duration = time.time() - stage_started_at
+            stage_failure = next(
+                (res for res in stage_results if res.status is SetupStatus.FAILED),
+                None,
+            )
+            status = "failed" if stage_failure else "completed"
+            if stage_span:
+                stage_span.set_attribute("coolbox.setup.status", status)
+                set_status(
+                    stage_span,
+                    Status(StatusCode.ERROR, status)
+                    if status == "failed"
+                    else Status(StatusCode.OK),
+                )
+            self._publish(
+                StageEvent(
+                    stage,
+                    status=status,
+                    payload={"results": [res.as_dict() for res in stage_results]},
+                )
+            )
+            failure_code = self._failure_code(stage_failure) if stage_failure else None
+            self._record_stage_telemetry(
                 stage,
                 status=status,
-                payload={"results": [res.as_dict() for res in stage_results]},
+                duration=duration,
+                failure_code=failure_code,
+                metadata={"results": [res.as_dict() for res in stage_results]},
+                trace_id=trace_id_hex(stage_span),
             )
-        )
-        failure_code = self._failure_code(stage_failure) if stage_failure else None
-        self._record_stage_telemetry(
-            stage,
-            status=status,
-            duration=duration,
-            failure_code=failure_code,
-            metadata={"results": [res.as_dict() for res in stage_results]},
-        )
         return stage_results
 
     def _failure_code(self, result: SetupResult | None) -> str | None:
@@ -900,6 +994,7 @@ class SetupOrchestrator:
         duration: float,
         failure_code: str | None,
         metadata: Mapping[str, Any] | None = None,
+        trace_id: str | None = None,
     ) -> None:
         payload: dict[str, Any] = {
             "stage": stage.value,
@@ -910,9 +1005,18 @@ class SetupOrchestrator:
             payload["failure_code"] = failure_code
         if metadata:
             payload.update(metadata)
+        trace_id = trace_id or current_trace_id()
+        if trace_id:
+            payload["trace_id"] = trace_id
         self.telemetry.record_stage(payload)
 
-    def _record_task_telemetry(self, task: SetupTask, result: SetupResult) -> None:
+    def _record_task_telemetry(
+        self,
+        task: SetupTask,
+        result: SetupResult,
+        *,
+        trace_id: str | None = None,
+    ) -> None:
         duration = max(result.finished_at - result.started_at, 0.0)
         payload: dict[str, Any] = {
             "task": task.name,
@@ -921,6 +1025,9 @@ class SetupOrchestrator:
             "duration_ms": int(duration * 1000),
             "attempts": result.attempts,
         }
+        trace_id = trace_id or current_trace_id()
+        if trace_id:
+            payload["trace_id"] = trace_id
         failure_code = None
         if isinstance(result.payload, Mapping):
             fc = result.payload.get("failure_code")

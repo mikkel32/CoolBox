@@ -46,6 +46,7 @@ class TooldProcess:
         self._last_heartbeat = time.time()
         self._next_id = 1
         self._logger = logging.getLogger("coolbox.plugins.toold.client")
+        self._last_trace_id: str | None = None
         args = [
             sys.executable,
             "-m",
@@ -132,6 +133,7 @@ class TooldProcess:
         }
         if trace_context:
             payload["params"]["trace"] = dict(trace_context)
+        self._last_trace_id = None
         self._send(payload)
         with self._response_cv:
             while request_id not in self._responses:
@@ -146,6 +148,12 @@ class TooldProcess:
         result = response.get("result")
         if not isinstance(result, Mapping):
             raise TooldProcessError("malformed response payload from toold")
+        trace_id = response.get("trace_id")
+        if isinstance(trace_id, str):
+            self._last_trace_id = trace_id
+        trace_payload = response.get("trace")
+        if isinstance(trace_payload, Mapping):
+            self._last_trace_id = response.get("trace_id", self._last_trace_id)
         return result
 
     def shutdown(self) -> None:
@@ -237,6 +245,8 @@ class TooldProcess:
                 payload = dict(params)
                 payload.setdefault("plugin", self.plugin_id)
                 payload.setdefault("timestamp", time.time())
+                if self._last_trace_id and "trace_id" not in payload:
+                    payload["trace_id"] = self._last_trace_id
                 self._emit_telemetry(payload)
             return
         if "id" in message:

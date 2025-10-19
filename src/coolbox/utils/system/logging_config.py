@@ -7,6 +7,8 @@ from logging.handlers import RotatingFileHandler
 
 from rich.logging import RichHandler
 
+from coolbox.telemetry.tracing import configure_from_environment
+
 
 def setup_logging(level: int = logging.INFO, log_file: str | None = None) -> None:
     """Configure standard logging with RichHandler and optional file output.
@@ -43,6 +45,13 @@ def setup_logging(level: int = logging.INFO, log_file: str | None = None) -> Non
         format="%(message)s",
         force=True,
     )
+
+    try:
+        configure_from_environment()
+    except Exception:  # pragma: no cover - tracing configuration best effort
+        logging.getLogger(__name__).debug(
+            "Failed to configure OpenTelemetry exporters", exc_info=True
+        )
 
 
 __all__ = ["setup_logging"]

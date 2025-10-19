@@ -30,6 +30,14 @@ from coolbox.plugins.update import PluginChannelUpdater
 from coolbox.tools import ToolBus, ToolEndpoint
 from coolbox.paths import artifacts_dir, ensure_directory
 from coolbox.utils.security.permissions import get_permission_manager
+from coolbox.telemetry.tracing import (
+    SpanKind,
+    Status,
+    StatusCode,
+    current_trace_id,
+    set_status,
+    start_span,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..orchestrator import SetupOrchestrator, SetupResult, SetupStage, StageContext
@@ -549,18 +557,39 @@ class PluginManager:
         *args,
     ) -> None:
         identifier = handle.identifier
-        try:
-            self._supervisor.call(identifier, method_name, *args)
-        except PluginStartupError as exc:
-            raise
-        except PluginRuntimeError as exc:
-            orchestrator.logger.warning(
-                "Plugin %s %s failed: %s",
-                identifier,
-                method_name,
-                exc,
-            )
-            raise
+        attributes = {
+            "coolbox.plugin.id": identifier,
+            "coolbox.plugin.hook": method_name,
+        }
+        with start_span(
+            "coolbox.setup.plugin.invoke",
+            kind=SpanKind.CLIENT,
+            attributes=attributes,
+        ) as span:
+            try:
+                self._supervisor.call(identifier, method_name, *args)
+            except PluginStartupError as exc:
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.plugin.status", "startup_error")
+                    set_status(span, Status(StatusCode.ERROR, "startup"))
+                raise
+            except PluginRuntimeError as exc:
+                orchestrator.logger.warning(
+                    "Plugin %s %s failed: %s",
+                    identifier,
+                    method_name,
+                    exc,
+                )
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.plugin.status", "runtime_error")
+                    set_status(span, Status(StatusCode.ERROR, "runtime"))
+                raise
+            else:
+                if span:
+                    span.set_attribute("coolbox.plugin.status", "ok")
+                    set_status(span, Status(StatusCode.OK))
 
     def _record_violation(
         self,
@@ -594,6 +623,9 @@ class PluginManager:
         }
         if diagnostics is not None:
             payload.update(diagnostics.telemetry_payload)
+        trace_id = current_trace_id()
+        if trace_id:
+            payload["trace_id"] = trace_id
         telemetry = orchestrator.telemetry
         recorder = getattr(telemetry, "record_plugin", None)
         if callable(recorder):
