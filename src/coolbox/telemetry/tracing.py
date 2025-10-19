@@ -9,8 +9,25 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Mapping, MutableMapping, MutableSequence, Sequence
 
-import requests
-from requests.auth import AuthBase
+try:  # pragma: no cover - optional dependency for telemetry exporters
+    import requests  # type: ignore[assignment]
+except Exception:  # pragma: no cover - gracefully degrade when requests is absent
+    requests = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - optional dependency for telemetry exporters
+    from requests.auth import AuthBase  # type: ignore[assignment]
+except Exception:  # pragma: no cover - fallback shim when requests is unavailable
+    class AuthBase:  # type: ignore[too-many-ancestors]
+        """Fallback authentication base used when ``requests`` is missing."""
+
+        def __call__(self, r):  # pragma: no cover - defensive shim
+            raise RuntimeError("requests is required for HTTP authentication support")
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from requests import Session as _RequestsSession
+else:  # pragma: no cover - fallback typing when requests is absent
+    _RequestsSession = Any  # type: ignore[assignment]
 
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -249,7 +266,7 @@ class ClickHouseSpanExporter(SpanExporter):  # type: ignore[misc]
         table: str = "otel_spans",
         username: str | None = None,
         password: str | None = None,
-        session: requests.Session | None = None,
+        session: _RequestsSession | None = None,
         auto_create: bool = True,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
@@ -257,7 +274,14 @@ class ClickHouseSpanExporter(SpanExporter):  # type: ignore[misc]
         self._table = table
         self._username = username
         self._password = password
-        self._session = session or requests.Session()
+        if session is not None:
+            self._session = session
+        elif requests is not None:
+            self._session = requests.Session()
+        else:
+            raise RuntimeError(
+                "requests is required to use the ClickHouse span exporter"
+            )
         self._logger = logging.getLogger("coolbox.telemetry.trace.clickhouse")
         if auto_create:
             self._ensure_table()
@@ -304,6 +328,8 @@ class ClickHouseSpanExporter(SpanExporter):  # type: ignore[misc]
         auth: AuthBase | tuple[str, str] | None = None
         if self._username is not None:
             auth = (self._username, self._password or "")
+        if not hasattr(self._session, "post"):
+            raise RuntimeError("Configured HTTP session does not provide a 'post' method")
         response = self._session.post(
             f"{self._endpoint}",
             params={"query": sql},
@@ -344,18 +370,23 @@ def configure_from_environment(*, force: bool = False) -> None:
             table = os.getenv("COOLBOX_CLICKHOUSE_TABLE", "otel_spans")
             username = os.getenv("COOLBOX_CLICKHOUSE_USER")
             password = os.getenv("COOLBOX_CLICKHOUSE_PASSWORD")
-            try:
-                exporters.append(
-                    ClickHouseSpanExporter(
-                        endpoint=endpoint,
-                        database=database,
-                        table=table,
-                        username=username,
-                        password=password,
-                    )
+            if requests is None:
+                _LOGGER.debug(
+                    "Skipping ClickHouse span exporter because requests is unavailable"
                 )
-            except Exception:  # pragma: no cover - defensive
-                _LOGGER.debug("Failed to initialise ClickHouse span exporter", exc_info=True)
+            else:
+                try:
+                    exporters.append(
+                        ClickHouseSpanExporter(
+                            endpoint=endpoint,
+                            database=database,
+                            table=table,
+                            username=username,
+                            password=password,
+                        )
+                    )
+                except Exception:  # pragma: no cover - defensive
+                    _LOGGER.debug("Failed to initialise ClickHouse span exporter", exc_info=True)
 
     if not exporters:
         _CONFIGURED = True

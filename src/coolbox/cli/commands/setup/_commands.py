@@ -1,6 +1,7 @@
 """High level setup commands and actions."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -15,6 +16,7 @@ from ._config import CONFIG
 from ._execution import _retry, _run
 from ._helpers import ensure_numpy, get_system_info
 from ._logging import log
+from ._packaging import supports_native_builds
 from ._pip import (
     _build_install_plan,
     _execute_install_plan,
@@ -22,6 +24,7 @@ from ._pip import (
     _restore_wheel_artifacts,
     _store_wheel_artifacts,
     _write_req_stamp,
+    offline_install_skipped,
 )
 from ._state import BASE_ENV, ROOT_DIR, REQUIREMENTS_FILE, is_offline
 from ._summary import SUMMARY
@@ -76,8 +79,25 @@ def build_extensions() -> None:
         else:
             SUMMARY.add_warning("Offline mode: no cached wheels available for reuse.")
         return
+    if not supports_native_builds(ROOT_DIR):
+        log("Skipping native build; packaging metadata not detected.")
+        return
     try:
         py = ensure_venv()
+        if importlib.util.find_spec("build") is None:
+            try:
+                _pip(["install", "build"], python=py, upgrade_pip=False, attempts=2)
+            except Exception as install_exc:
+                SUMMARY.add_warning(
+                    "native build skipped: unable to install build tooling"
+                    f" ({install_exc})"
+                )
+                return
+            if importlib.util.find_spec("build") is None:
+                SUMMARY.add_warning(
+                    "native build skipped: build tooling is still unavailable after installation"
+                )
+                return
         _run([py, "-m", "build", "--wheel", "--no-isolation"], cwd=ROOT_DIR)
     except Exception as exc:
         SUMMARY.add_warning(f"native build skipped: {exc}")
@@ -298,15 +318,20 @@ def install(
         with border_ctx:
             show_setup_banner()
             _execute_install_plan(planned)
-            try:
-                _retry([py, "-m", "pip", "check"], attempts=1)
-            except Exception as exc:
-                SUMMARY.add_warning(f"pip check reported issues: {exc}")
-            build_extensions()
+            if offline_install_skipped():
+                log(
+                    "Offline mode: skipped pip check and native build because installs were bypassed."
+                )
+            else:
+                try:
+                    _retry([py, "-m", "pip", "check"], attempts=1)
+                except Exception as exc:
+                    SUMMARY.add_warning(f"pip check reported issues: {exc}")
+                build_extensions()
     finally:
         console.flush()
 
-    if requirements_path.is_file():
+    if requirements_path.is_file() and not offline_install_skipped():
         try:
             _write_req_stamp(requirements_path)
         except Exception as exc:

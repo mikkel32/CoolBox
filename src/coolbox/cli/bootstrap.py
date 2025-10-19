@@ -17,6 +17,7 @@ from coolbox.setup.orchestrator import SetupOrchestrator, SetupStatus
 from coolbox.setup.recipes import RecipeLoader
 from coolbox.setup.stages import register_builtin_tasks
 from coolbox.utils.logging_config import setup_logging
+from coolbox.cli.commands.setup._state import release_lightweight_mode
 
 logger = logging.getLogger(__name__)
 
@@ -118,30 +119,37 @@ def run_setup_if_needed(root: Path | None = None) -> bool:
 
     missing = missing_requirements(requirements)
     should_run = recorded != digest or bool(missing)
-    if not should_run:
-        return False
-
-    module = _load_setup_module(target_root)
-    banner = getattr(module, "show_setup_banner", None)
-    if callable(banner):
-        banner()
-
-    check_python = getattr(module, "check_python_version", None)
-    if callable(check_python):
-        check_python()
-
-    installer = getattr(module, "install", None)
-    if callable(installer):
-        try:
-            installer(skip_update=True)
-        except TypeError:
-            installer()
+    ran = False
 
     try:
-        sentinel.write_text(digest, encoding="utf-8")
-    except OSError:  # pragma: no cover - defensive
-        logger.warning("Could not update setup sentinel at %s", sentinel)
-    return True
+        if not should_run:
+            return ran
+
+        module = _load_setup_module(target_root)
+        banner = getattr(module, "show_setup_banner", None)
+        if callable(banner):
+            banner()
+
+        check_python = getattr(module, "check_python_version", None)
+        if callable(check_python):
+            check_python()
+
+        installer = getattr(module, "install", None)
+        if callable(installer):
+            try:
+                installer(skip_update=True)
+            except TypeError:
+                installer()
+
+        try:
+            sentinel.write_text(digest, encoding="utf-8")
+        except OSError:  # pragma: no cover - defensive
+            logger.warning("Could not update setup sentinel at %s", sentinel)
+        ran = True
+        return ran
+    finally:
+        if release_lightweight_mode():
+            logger.debug("Re-enabled full application mode after setup run")
 
 
 def run_setup(recipe_name: str | None) -> None:
@@ -168,6 +176,8 @@ def main(argv: Iterable[str] | None = None) -> None:
     """Entry point used by ``python -m coolbox`` and the legacy ``main.py``."""
 
     setup_logging()
+    if release_lightweight_mode():
+        logger.debug("Re-enabled full application mode for GUI launch")
     from coolbox.app import CoolBoxApp  # local import to avoid circular dependency during module import
     manifest_resource = asset_path("boot_manifest.yaml")
     manager = BootManager(
@@ -175,7 +185,18 @@ def main(argv: Iterable[str] | None = None) -> None:
         app_factory=CoolBoxApp,
         dependency_checker=run_setup_if_needed,
     )
-    manager.run(list(argv) if argv is not None else None)
+    argv_list = list(argv) if argv is not None else []
+    manager.run(argv_list)
+    if (
+        not manager.launched_application
+        and not manager.launch_deferred
+        and not argv_list
+    ):
+        logger.warning(
+            "Boot pipeline exited without launching the UI; attempting direct start"
+        )
+        app = CoolBoxApp()
+        app.run()
 
 
 __all__ = [

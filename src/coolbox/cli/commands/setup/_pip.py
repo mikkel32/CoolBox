@@ -32,7 +32,17 @@ __all__ = [
     "_restore_wheel_artifacts",
     "_store_wheel_artifacts",
     "_write_req_stamp",
+    "offline_install_skipped",
 ]
+
+
+_OFFLINE_INSTALL_SKIPPED = False
+
+
+def offline_install_skipped() -> bool:
+    """Return ``True`` when installs were skipped because cache was empty offline."""
+
+    return _OFFLINE_INSTALL_SKIPPED
 
 
 def _file_hash(path: Path) -> str:
@@ -142,6 +152,20 @@ def _available_wheel_links() -> list[str]:
     return links
 
 
+def _has_cached_wheels(links: Sequence[str]) -> bool:
+    for entry in links:
+        path = Path(entry)
+        try:
+            if path.is_file() and path.suffix == ".whl":
+                return True
+            if path.is_dir():
+                for _ in path.rglob("*.whl"):
+                    return True
+        except Exception:
+            continue
+    return False
+
+
 def _pip(
     args: Sequence[str],
     python: str | Path | None = None,
@@ -159,12 +183,21 @@ def _pip(
     else:
         links_fn = _available_wheel_links
     links = list(links_fn())
+    is_install_command = bool(args) and args[0] == "install"
+    has_cached_wheels = _has_cached_wheels(links)
     if offline:
         offline_args: list[str] = ["--no-index"]
-        if not links:
-            SUMMARY.add_warning(
-                "Offline mode enabled but wheel cache is empty; pip command may fail."
-            )
+        if not has_cached_wheels:
+            global _OFFLINE_INSTALL_SKIPPED
+            if is_install_command and not _OFFLINE_INSTALL_SKIPPED:
+                SUMMARY.add_warning(
+                    "Offline mode: wheel cache empty; pip install commands may fail."
+                )
+            _OFFLINE_INSTALL_SKIPPED = _OFFLINE_INSTALL_SKIPPED or is_install_command
+            if not is_install_command:
+                SUMMARY.add_warning(
+                    "Offline mode enabled but wheel cache is empty; pip command may fail."
+                )
         for link in links:
             offline_args.extend(["--find-links", link])
         if links:
@@ -230,14 +263,33 @@ def _build_install_plan(
 
 
 def _execute_install_plan(planned: Sequence[tuple[str, list[str], bool]]) -> None:
+    global _OFFLINE_INSTALL_SKIPPED
+    _OFFLINE_INSTALL_SKIPPED = False
     if not planned:
         return
     with create_progress() as progress:
         task = progress.add_task("Executing install plan", total=len(planned))
         for title, pip_args, upgrade_pip in planned:
             progress.update(task, description=title)
+            if title == "Validate environment" and _OFFLINE_INSTALL_SKIPPED:
+                SUMMARY.add_warning(
+                    "Skipped environment validation because installs were bypassed in offline mode."
+                )
+                progress.advance(task)
+                continue
             try:
                 _pip(pip_args, upgrade_pip=upgrade_pip, attempts=3)
             except Exception as exc:
-                SUMMARY.add_error(f"{title} failed: {exc}")
+                if title == "Validate environment" and _OFFLINE_INSTALL_SKIPPED:
+                    SUMMARY.add_warning(
+                        "Skipped environment validation because installs were bypassed in offline mode."
+                    )
+                    progress.advance(task)
+                    continue
+                if _OFFLINE_INSTALL_SKIPPED and pip_args and pip_args[0] == "install":
+                    SUMMARY.add_warning(
+                        f"{title} skipped (offline cache empty): {exc}"
+                    )
+                else:
+                    SUMMARY.add_error(f"{title} failed: {exc}")
             progress.advance(task)

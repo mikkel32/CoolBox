@@ -3,12 +3,16 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Lock
-from typing import Iterable, List, MutableSequence, Protocol, Sequence
+
+from typing import Any, Iterable, List, MutableSequence, Protocol, Sequence
 import json
 import logging
 import threading
 
-import requests
+try:  # pragma: no cover - optional dependency for telemetry exporters
+    import requests  # type: ignore[assignment]
+except Exception:  # pragma: no cover - degrade gracefully when requests is absent
+    requests = None  # type: ignore[assignment]
 
 from .events import TelemetryEvent
 
@@ -131,7 +135,7 @@ class ClickHouseTelemetryStorage:
         table: str = "telemetry_events",
         username: str | None = None,
         password: str | None = None,
-        session: requests.Session | None = None,
+        session: Any | None = None,
         batch_size: int = 64,
         auto_create: bool = True,
     ) -> None:
@@ -140,7 +144,12 @@ class ClickHouseTelemetryStorage:
         self.table = table
         self.username = username
         self.password = password
-        self._session = session or requests.Session()
+        if session is not None:
+            self._session = session
+        elif requests is not None:
+            self._session = requests.Session()
+        else:
+            raise RuntimeError("requests is required to use ClickHouse telemetry storage")
         self._batch_size = max(1, batch_size)
         self._buffer: MutableSequence[TelemetryEvent] = []
         self._lock = threading.Lock()
@@ -201,6 +210,8 @@ class ClickHouseTelemetryStorage:
         auth = None
         if self.username is not None and self.password is not None:
             auth = (self.username, self.password)
+        if not hasattr(self._session, "post"):
+            raise RuntimeError("Configured HTTP session does not provide a 'post' method")
         response = self._session.post(
             self.endpoint,
             params={"query": sql},

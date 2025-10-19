@@ -1,0 +1,190 @@
+2025-10-16 12:02:34,578 [ERROR] coolbox.boot.manager: Application launch failed; entering recovery console
+Traceback (most recent call last):
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 144, in run
+    self._execute_setup(recipe, stages=stages, task_names=task_names, load_plugins=load_plugins)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 355, in _execute_setup
+    raise RuntimeError(f"Setup orchestration failed for tasks: {summary}")
+RuntimeError: Setup orchestration failed for tasks: verify.environment:verification, summary.render:summaries
+2025-10-16 12:02:34,623 [INFO] coolbox.boot.manager: Running recovery stages: verification, summaries
+2025-10-16 12:43:54,648 [ERROR] coolbox.boot.manager: Application launch failed; entering recovery console
+Traceback (most recent call last):
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 144, in run
+    self._execute_setup(recipe, stages=stages, task_names=task_names, load_plugins=load_plugins)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 355, in _execute_setup
+    raise RuntimeError(f"Setup orchestration failed for tasks: {summary}")
+RuntimeError: Setup orchestration failed for tasks: verify.environment:verification, summary.render:summaries
+2025-10-16 12:43:54,713 [INFO] coolbox.boot.manager: Running recovery stages: verification, summaries
+2025-10-16 13:02:26,314 [ERROR] coolbox.boot.manager: Application launch failed; entering recovery console
+Traceback (most recent call last):
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 144, in run
+    self._execute_setup(recipe, stages=stages, task_names=task_names, load_plugins=load_plugins)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 355, in _execute_setup
+    raise RuntimeError(f"Setup orchestration failed for tasks: {summary}")
+RuntimeError: Setup orchestration failed for tasks: verify.environment:verification, summary.render:summaries
+2025-10-16 13:02:26,360 [INFO] coolbox.boot.manager: Running recovery stages: verification, summaries
+2025-10-16 13:02:43,473 [ERROR] coolbox.boot.manager: Application launch failed; entering recovery console
+Traceback (most recent call last):
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 144, in run
+    self._execute_setup(recipe, stages=stages, task_names=task_names, load_plugins=load_plugins)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/boot/manager.py", line 355, in _execute_setup
+    raise RuntimeError(f"Setup orchestration failed for tasks: {summary}")
+RuntimeError: Setup orchestration failed for tasks: verify.environment:verification, summary.render:summaries
+2025-10-16 13:02:43,518 [INFO] coolbox.boot.manager: Running recovery stages: verification, summaries
+2025-10-16 13:02:56,141 [WARNING] src.app.icon: Failed to set dock icon: No module named 'AppKit'
+2025-10-16 13:02:56,142 [WARNING] src.app: Icon setup failed: Failed to set dock icon: No module named 'AppKit'
+2025-10-16 13:02:56,145 [INFO] src.app: Initialized theme manager
+2025-10-16 13:02:56,969 [INFO] src.app: Switched view to home
+2025-10-16 13:02:56,970 [INFO] src.app: Starting main loop
+2025-10-16 13:03:01,920 [INFO] src.app: Switched view to tools
+2025-10-16 13:03:19,788 [INFO] root: Starting Security Center
+2025-10-16 13:03:22,108 [INFO] root: Security Center completed
+2025-10-16 13:03:22,118 [INFO] root: Security Center finished in 2.33s
+2025-10-16 13:03:53,131 [INFO] src.app: Switched view to tools
+2025-10-16 13:03:53,748 [INFO] src.app: Switched view to tools
+2025-10-16 13:03:54,455 [INFO] src.app: Switched view to tools
+2025-10-16 13:03:58,743 [INFO] root: Starting System Info
+2025-10-16 13:03:59,792 [INFO] root: System Info completed
+2025-10-16 13:03:59,794 [INFO] root: System Info finished in 1.05s
+2025-10-16 13:04:33,151 [INFO] src.app: Application closing
+2025-10-16 21:16:18,189 [WARNING] src.app.icon: Failed to set dock icon: No module named 'AppKit'
+2025-10-16 21:16:18,192 [WARNING] src.app: Icon setup failed: Failed to set dock icon: No module named 'AppKit'
+2025-10-16 21:16:18,194 [INFO] src.app: Initialized theme manager
+2025-10-16 21:16:18,947 [INFO] src.app: Switched view to home
+2025-10-16 21:16:18,949 [INFO] src.app: Starting main loop
+2025-10-16 21:16:24,505 [INFO] src.app: Switched view to tools
+2025-10-16 21:16:28,511 [INFO] src.app: Application closing
+2025-10-16 21:56:21,683 [WARNING] src.app.icon: Failed to set dock icon: No module named 'AppKit'
+2025-10-16 21:56:21,685 [WARNING] src.app: Icon setup failed: Failed to set dock icon: No module named 'AppKit'
+2025-10-16 21:56:21,687 [INFO] src.app: Initialized theme manager
+2025-10-16 21:56:22,466 [INFO] src.app: Switched view to home
+2025-10-16 21:56:22,468 [INFO] src.app: Starting main loop
+2025-10-16 21:57:10,438 [INFO] src.app: Switched view to settings
+2025-10-16 21:57:53,014 [INFO] src.app: Switched view to tools
+2025-10-16 21:58:00,813 [INFO] src.app: Switched view to home
+2025-10-16 21:58:02,358 [INFO] src.app: Switched view to settings
+2025-10-16 21:58:03,155 [INFO] src.app: Switched view to tools
+2025-10-16 21:58:28,510 [INFO] src.app: Switched view to home
+2025-10-16 21:58:32,040 [INFO] src.app: Application closing
+2025-10-17 01:56:20,702 [WARNING] src.app.icon: Failed to set dock icon: No module named 'AppKit'
+2025-10-17 01:56:20,704 [WARNING] src.app: Icon setup failed: Failed to set dock icon: No module named 'AppKit'
+2025-10-17 01:56:20,706 [INFO] src.app: Initialized theme manager
+2025-10-17 01:56:21,635 [INFO] src.app: Switched view to home
+2025-10-17 01:56:21,637 [INFO] src.app: Starting main loop
+2025-10-17 02:54:51,847 [INFO] src.app: Application closing
+2025-10-18 12:50:05,538 [WARNING] coolbox.boot.manager: PyYAML not installed; using bundled boot manifest defaults.
+2025-10-18 12:50:07,472 [INFO] coolbox.app: Initialized theme manager
+2025-10-18 12:50:08,251 [INFO] coolbox.app: Switched view to home
+2025-10-18 12:50:08,252 [INFO] coolbox.app: Starting main loop
+2025-10-18 12:50:11,455 [INFO] coolbox.app: Switched view to tools
+2025-10-18 12:50:17,598 [INFO] root: Starting Network Scanner
+2025-10-18 12:50:20,068 [ERROR] root: Network Scanner failed: window ".!ctkframe.!ctkframe.!ctkframe.!toolsview.!_querystring" was deleted before its visibility changed
+2025-10-18 12:50:20,075 [ERROR] root: Traceback (most recent call last):
+2025-10-18 12:50:20,077 [ERROR] root:   File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/utils/processes/thread_manager.py", line 103, in runner
+2025-10-18 12:50:20,080 [ERROR] root:     func()
+2025-10-18 12:50:20,081 [ERROR] root:     ~~~~^^
+2025-10-18 12:50:20,081 [ERROR] root:   File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/ui/views/screens/tools.py", line 1066, in _network_scan
+2025-10-18 12:50:20,085 [ERROR] coolbox.app.error_handler: Unhandled exception TclError at /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/__init__.py:753 on 2025-10-18T12:50:20.085541
+Traceback (most recent call last):
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/utils/processes/thread_manager.py", line 103, in runner
+    func()
+    ~~~~^^
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/ui/views/screens/tools.py", line 1066, in _network_scan
+    hosts_raw = simpledialog.askstring(
+        "Network Scanner", "Hosts (comma separated)", parent=self
+    )
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 411, in askstring
+    d = _QueryString(title, prompt, **kw)
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 388, in __init__
+    _QueryDialog.__init__(self, *args, **kw)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 283, in __init__
+    Dialog.__init__(self, parent, title)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 143, in __init__
+    self.wait_visibility()
+    ~~~~~~~~~~~~~~~~~~~~^^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/__init__.py", line 753, in wait_visibility
+    self.tk.call('tkwait', 'visibility', window._w)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_tkinter.TclError: window ".!ctkframe.!ctkframe.!ctkframe.!toolsview.!_querystring" was deleted before its visibility changed
+2025-10-18 12:50:20,106 [ERROR] root:     hosts_raw = simpledialog.askstring(
+2025-10-18 12:50:20,145 [ERROR] root:         "Network Scanner", "Hosts (comma separated)", parent=self
+2025-10-18 12:50:20,147 [ERROR] root:     )
+2025-10-18 12:50:20,148 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 411, in askstring
+2025-10-18 12:50:20,163 [ERROR] root:     d = _QueryString(title, prompt, **kw)
+2025-10-18 12:50:20,166 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 388, in __init__
+2025-10-18 12:50:20,168 [ERROR] root:     _QueryDialog.__init__(self, *args, **kw)
+2025-10-18 12:50:20,169 [ERROR] root:     ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+2025-10-18 12:50:20,172 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 283, in __init__
+2025-10-18 12:50:20,175 [ERROR] root:     Dialog.__init__(self, parent, title)
+2025-10-18 12:50:20,176 [ERROR] root:     ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+2025-10-18 12:50:20,177 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/simpledialog.py", line 143, in __init__
+2025-10-18 12:50:20,180 [ERROR] root:     self.wait_visibility()
+2025-10-18 12:50:20,181 [ERROR] root:     ~~~~~~~~~~~~~~~~~~~~^^
+2025-10-18 12:50:20,182 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/__init__.py", line 753, in wait_visibility
+2025-10-18 12:50:20,185 [ERROR] root:     self.tk.call('tkwait', 'visibility', window._w)
+2025-10-18 12:50:20,186 [ERROR] root:     ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-18 12:50:20,187 [ERROR] root: _tkinter.TclError: window ".!ctkframe.!ctkframe.!ctkframe.!toolsview.!_querystring" was deleted before its visibility changed
+2025-10-18 12:50:20,190 [INFO] root: Network Scanner finished in 2.49s
+2025-10-18 22:11:50,333 [WARNING] coolbox.boot.manager: PyYAML not installed; using bundled boot manifest defaults.
+2025-10-18 22:11:51,031 [INFO] coolbox.app: Initialized theme manager
+2025-10-18 22:11:51,761 [INFO] coolbox.app: Switched view to home
+2025-10-18 22:11:51,763 [INFO] coolbox.app: Starting main loop
+2025-10-18 22:11:57,858 [INFO] coolbox.app: Switched view to tools
+2025-10-18 22:12:10,446 [INFO] root: Starting Security Center
+2025-10-18 22:12:12,795 [INFO] root: Security Center completed
+2025-10-18 22:12:12,804 [INFO] root: Security Center finished in 2.36s
+2025-10-18 22:12:13,989 [INFO] root: Starting Security Center
+2025-10-18 22:12:14,012 [ERROR] root: Security Center failed: 
+2025-10-18 22:12:14,015 [ERROR] root: Traceback (most recent call last):
+2025-10-18 22:12:14,016 [ERROR] root:   File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/utils/processes/thread_manager.py", line 103, in runner
+2025-10-18 22:12:14,019 [ERROR] root:     func()
+2025-10-18 22:12:14,019 [ERROR] root:     ~~~~^^
+2025-10-18 22:12:14,020 [ERROR] root:   File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/ui/views/screens/tools.py", line 733, in _security_center
+2025-10-18 22:12:14,022 [ERROR] root:     self.app.open_security_center()
+2025-10-18 22:12:14,024 [ERROR] root:     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+2025-10-18 22:12:14,025 [ERROR] root:   File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/app/__init__.py", line 285, in open_security_center
+2025-10-18 22:12:14,028 [ERROR] root:     messagebox.showwarning(
+2025-10-18 22:12:14,029 [ERROR] root:     ~~~~~~~~~~~~~~~~~~~~~~^
+2025-10-18 22:12:14,030 [ERROR] root:         "Security Center", "Administrator rights required."
+2025-10-18 22:12:14,031 [ERROR] root:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-10-18 22:12:14,033 [ERROR] root:     )
+2025-10-18 22:12:14,033 [ERROR] root:     ^
+2025-10-18 22:12:14,034 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/messagebox.py", line 93, in showwarning
+2025-10-18 22:12:14,038 [ERROR] root:     return _show(title, message, WARNING, OK, **options)
+2025-10-18 22:12:14,040 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/messagebox.py", line 76, in _show
+2025-10-18 22:12:14,043 [ERROR] root:     res = Message(**options).show()
+2025-10-18 22:12:14,044 [ERROR] root:   File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/commondialog.py", line 45, in show
+2025-10-18 22:12:14,047 [ERROR] root:     s = master.tk.call(self.command, *master._options(self.options))
+2025-10-18 22:12:14,048 [ERROR] root: _tkinter.TclError
+2025-10-18 22:12:14,052 [INFO] root: Security Center finished in 0.06s
+2025-10-18 22:12:14,066 [ERROR] coolbox.app.error_handler: Unhandled exception TclError at /Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/commondialog.py:45 on 2025-10-18T22:12:14.066509
+Traceback (most recent call last):
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/utils/processes/thread_manager.py", line 103, in runner
+    func()
+    ~~~~^^
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/ui/views/screens/tools.py", line 733, in _security_center
+    self.app.open_security_center()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/mikkelmynderup/Desktop/CoolBox/src/coolbox/app/__init__.py", line 285, in open_security_center
+    messagebox.showwarning(
+    ~~~~~~~~~~~~~~~~~~~~~~^
+        "Security Center", "Administrator rights required."
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/messagebox.py", line 93, in showwarning
+    return _show(title, message, WARNING, OK, **options)
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/messagebox.py", line 76, in _show
+    res = Message(**options).show()
+  File "/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/tkinter/commondialog.py", line 45, in show
+    s = master.tk.call(self.command, *master._options(self.options))
+_tkinter.TclError
+2025-10-19 09:51:11,216 [WARNING] coolbox.boot.manager: PyYAML not installed; using bundled boot manifest defaults.
+2025-10-19 10:54:15,079 [WARNING] coolbox.boot.manager: PyYAML not installed; using bundled boot manifest defaults.
+2025-10-19 10:54:58,702 [WARNING] coolbox.boot.manager: PyYAML not installed; using bundled boot manifest defaults.
+2025-10-19 11:18:57,601 [WARNING] coolbox.boot.manager: PyYAML not installed; using bundled boot manifest defaults.

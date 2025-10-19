@@ -1,6 +1,7 @@
 """Environment and filesystem helpers for the setup command."""
 from __future__ import annotations
 
+import importlib
 import hashlib
 import os
 import socket
@@ -28,6 +29,7 @@ __all__ = [
     "is_offline",
     "locate_root",
     "offline_auto_detected",
+    "release_lightweight_mode",
     "set_offline",
 ]
 
@@ -98,7 +100,10 @@ def _cache_dir(name: str) -> Path:
 WHEEL_CACHE_ROOT = _cache_dir("wheels")
 STAMP_CACHE_ROOT = _cache_dir("stamps")
 
-os.environ.setdefault("COOLBOX_LIGHTWEIGHT", "1")
+_LIGHTWEIGHT_FORCED = False
+if "COOLBOX_LIGHTWEIGHT" not in os.environ:
+    os.environ["COOLBOX_LIGHTWEIGHT"] = "1"
+    _LIGHTWEIGHT_FORCED = True
 
 
 BASE_ENV = {
@@ -150,6 +155,77 @@ def is_offline() -> bool:
 
 def offline_auto_detected() -> bool:
     return (_OFFLINE_AUTO is True) and not _OFFLINE_FORCED
+
+
+def _refresh_coolbox_bindings() -> None:
+    """Ensure the public ``coolbox`` module exposes the full application."""
+
+    module = sys.modules.get("coolbox")
+    if module is None:
+        return
+
+    try:
+        coolbox_app_mod = importlib.import_module("coolbox.app")
+    except Exception:
+        logger.debug("Failed to import coolbox.app when releasing lightweight mode", exc_info=True)
+        return
+
+    try:
+        coolbox_app = getattr(coolbox_app_mod, "CoolBoxApp")
+    except AttributeError:
+        logger.debug("coolbox.app missing CoolBoxApp attribute", exc_info=True)
+        return
+
+    setattr(module, "CoolBoxApp", coolbox_app)
+    lazy_attrs = getattr(module, "_LAZY_ATTRS", None)
+    if isinstance(lazy_attrs, dict):
+        lazy_attrs["CoolBoxApp"] = ("coolbox.app", "CoolBoxApp")
+
+
+def _reload_module(name: str) -> None:
+    """Reload *name* when it is already imported.
+
+    Modules like :mod:`coolbox.utils` and :mod:`coolbox.app.error_handler` cache
+    lightweight-mode state at import time.  Reloading them after toggling the
+    ``COOLBOX_LIGHTWEIGHT`` flag ensures they observe the updated environment.
+    """
+
+    module = sys.modules.get(name)
+    if module is None:
+        return
+
+    try:
+        importlib.reload(module)
+    except Exception:  # pragma: no cover - defensive diagnostics
+        logger.debug("Failed to reload %s when releasing lightweight mode", name, exc_info=True)
+
+
+def release_lightweight_mode() -> bool:
+    """Undo lightweight mode and restore the real GUI class when possible."""
+
+    global _LIGHTWEIGHT_FORCED
+    toggled = False
+
+    if os.environ.pop("COOLBOX_LIGHTWEIGHT", None) is not None:
+        toggled = True
+    if BASE_ENV.pop("COOLBOX_LIGHTWEIGHT", None) is not None:
+        toggled = True
+
+    if _LIGHTWEIGHT_FORCED:
+        _LIGHTWEIGHT_FORCED = False
+        toggled = True
+
+    if toggled:
+        for module_name in (
+            "coolbox.utils",
+            "coolbox.utils.display.ui",
+            "coolbox.app.error_handler",
+            "coolbox.app",
+        ):
+            _reload_module(module_name)
+        _refresh_coolbox_bindings()
+
+    return toggled
 
 
 def check_python_version(min_version: tuple[int, int] = (3, 8)) -> None:

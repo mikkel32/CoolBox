@@ -158,6 +158,8 @@ class BootManager:
         self._manifest_document: BootManifest | None = None
         self._using_minimal_manifest = False
         self._last_recipe: Recipe | None = None
+        self._launched_app = False
+        self._launch_deferred = False
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -215,6 +217,8 @@ class BootManager:
     def run(self, argv: Sequence[str] | None = None) -> None:
         """Execute the full boot pipeline."""
 
+        self._launched_app = False
+        self._launch_deferred = False
         args = self._parse_args(argv)
         span_attributes = {
             "coolbox.boot.profile": args.profile,
@@ -246,6 +250,7 @@ class BootManager:
                 if span:
                     span.set_attribute("coolbox.boot.stage", "vm-debug")
                     set_status(span, Status(StatusCode.OK))
+                self._launch_deferred = True
                 return
 
             if args.debug:
@@ -693,7 +698,12 @@ class BootManager:
             except Exception:  # pragma: no cover - best effort
                 self.logger.debug("Unable to sample TTFF window state", exc_info=True)
         tracker.record_ttff()
-        app.run()
+        try:
+            self._launched_app = True
+            app.run()
+        except Exception:
+            self._launched_app = False
+            raise
 
     # ------------------------------------------------------------------
     def _fallback_to_console(self, exc: Exception, profile: ManifestProfile) -> None:
@@ -916,4 +926,16 @@ class BootManager:
                 f"Resource budget exceeded for plugin {error.plugin_id}: {breach_text}"
             )
         return remediation_hints
+
+    @property
+    def launched_application(self) -> bool:
+        """Return ``True`` when the most recent run started the GUI."""
+
+        return self._launched_app
+
+    @property
+    def launch_deferred(self) -> bool:
+        """Return ``True`` when the run deferred launching the GUI intentionally."""
+
+        return self._launch_deferred
 

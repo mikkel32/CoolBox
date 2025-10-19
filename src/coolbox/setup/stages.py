@@ -29,6 +29,7 @@ _SKIP_KEY = "setup.skip"
 _SHOULD_INSTALL_KEY = "setup.should_install"
 _MISSING_KEY = "setup.missing"
 _MODULE_KEY = "setup.module"
+_OFFLINE_SKIPPED_KEY = "setup.offline_skipped"
 
 
 def _is_str_path(value: object) -> TypeGuard[str | os.PathLike[str]]:
@@ -146,6 +147,7 @@ def _dependency_resolution(context: StageContext) -> SetupResult:
 # ---------------------------------------------------------------------------
 
 def _run_installers(context: StageContext) -> SetupResult:
+    context.set(_OFFLINE_SKIPPED_KEY, False)
     if context.get(_SKIP_KEY):
         return SetupResult(
             task="install.run",
@@ -181,6 +183,16 @@ def _run_installers(context: StageContext) -> SetupResult:
             module.check_python_version()
         if hasattr(module, "install"):
             module.install(**kwargs)
+        offline_getter = getattr(module, "offline_install_skipped", None)
+        offline_skipped = False
+        if callable(offline_getter):
+            try:
+                offline_skipped = bool(offline_getter())
+            except Exception as exc:  # pragma: no cover - defensive logging
+                context.orchestrator.logger.debug(
+                    "Failed to read offline skip flag: %s", exc
+                )
+        context.set(_OFFLINE_SKIPPED_KEY, offline_skipped)
     except Exception as exc:  # pragma: no cover - defensive
         return SetupResult(
             task="install.run",
@@ -209,6 +221,15 @@ def _verify_install(context: StageContext) -> SetupResult:
     sentinel: Path = context.get(_SENTINEL_KEY)
     digest: str | None = context.get(_DIGEST_KEY)
     config = context.recipe.config
+    module = context.get(_MODULE_KEY)
+    if module is None:
+        try:
+            module = _load_setup_module(context)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            module = None
+            context.orchestrator.logger.debug(
+                "Unable to load setup module during verification: %s", exc
+            )
     if context.get(_SKIP_KEY):
         if config.get("write_sentinel_on_skip", False) and digest:
             try:
@@ -221,10 +242,52 @@ def _verify_install(context: StageContext) -> SetupResult:
             status=SetupStatus.SKIPPED,
             payload={"reason": "SKIP_SETUP"},
         )
+    offline_skipped = context.get(_OFFLINE_SKIPPED_KEY)
+    if not offline_skipped:
+        getter = getattr(module, "offline_install_skipped", None) if module else None
+        if callable(getter):
+            try:
+                offline_skipped = bool(getter())
+            except Exception as exc:  # pragma: no cover - defensive logging
+                context.orchestrator.logger.debug(
+                    "Failed to query offline skip flag during verification: %s", exc
+                )
+            else:
+                context.set(_OFFLINE_SKIPPED_KEY, offline_skipped)
+    if offline_skipped:
+        return SetupResult(
+            task="verify.environment",
+            stage=SetupStage.VERIFICATION,
+            status=SetupStatus.SKIPPED,
+            payload={"reason": "offline-installs-skipped"},
+        )
     requirements = context.root / config.get("requirements", "requirements.txt")
     metadata_paths = _metadata_search_paths(context)
     missing = _missing_requirements(requirements, metadata_paths=metadata_paths)
     context.set("setup.missing_after", missing)
+    offline_mode = bool(context.get("setup.offline"))
+    if not offline_mode and module is not None:
+        offline_fn = getattr(module, "is_offline", None)
+        if callable(offline_fn):
+            try:
+                offline_mode = bool(offline_fn())
+            except Exception as exc:  # pragma: no cover - defensive logging
+                context.orchestrator.logger.debug(
+                    "Failed to query offline state during verification: %s", exc
+                )
+    if not offline_mode:
+        offline_env = os.environ.get("COOLBOX_OFFLINE")
+        offline_mode = bool(offline_env == "1")
+    if missing and (offline_skipped or offline_mode):
+        return SetupResult(
+            task="verify.environment",
+            stage=SetupStage.VERIFICATION,
+            status=SetupStatus.SKIPPED,
+            payload={
+                "reason": "offline-missing", "missing": missing,
+                "sentinel": str(sentinel),
+            },
+        )
     if not missing and digest:
         try:
             sentinel.write_text(digest, encoding="utf-8")
