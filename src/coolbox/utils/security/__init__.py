@@ -9,9 +9,12 @@ from . import platform as platform_state
 from .admin import is_admin as _is_admin, relaunch_security_center
 from .core import (
     ActionOutcome,
+    CapabilityGrantState,
     DefenderStatus,
     RunResult,
+    SecurityPluginsSnapshot,
     SecuritySnapshot,
+    WorkerSecurityInsight,
     run_command,
     run_command_background,
     run_powershell,
@@ -32,7 +35,13 @@ from .firewall_control import (
     is_firewall_enabled,
     set_firewall_enabled,
 )
-from .snapshot import get_security_snapshot
+from .permissions import (
+    CapabilityGrant,
+    PermissionManager,
+    get_permission_manager,
+    reset_permission_manager,
+)
+from .snapshot import get_plugin_security_snapshot, get_security_snapshot
 
 
 def is_admin() -> bool:
@@ -103,16 +112,24 @@ __all__ = [
     "DefenderStatus",
     "RunResult",
     "SecuritySnapshot",
+    "SecurityPluginsSnapshot",
+    "CapabilityGrant",
+    "CapabilityGrantState",
+    "PermissionManager",
     "defender_service_status",
     "detect_defender_blockers",
     "detect_firewall_blockers",
     "ensure_admin",
     "ensure_defender_autostart",
     "get_defender_status",
+    "get_permission_manager",
+    "get_plugin_security_snapshot",
     "get_security_snapshot",
     "is_admin",
     "is_defender_realtime_on",
     "is_firewall_enabled",
+    "WorkerSecurityInsight",
+    "reset_permission_manager",
     "relaunch_security_center",
     "run_command_background",
     "set_defender_enabled",

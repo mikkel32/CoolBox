@@ -23,6 +23,7 @@ from coolbox.plugins.worker import (
     WorkerSupervisor,
 )
 from coolbox.tools import ToolBus, ToolEndpoint
+from coolbox.utils.security.permissions import get_permission_manager
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..orchestrator import SetupOrchestrator, SetupResult, SetupStage, StageContext
@@ -196,6 +197,8 @@ class PluginManager:
         self._violations: list[PluginViolation] = []
         self._tool_bus: ToolBus | None = None
         self._tool_endpoint_registry: Dict[str, Dict[str, ToolEndpoint]] = {}
+        self._permission_manager = get_permission_manager()
+        self._permission_manager.bind_supervisor(self._supervisor)
 
     def attach_tool_bus(self, bus: ToolBus) -> None:
         """Attach a tool bus to register plugin endpoints with."""
@@ -255,6 +258,18 @@ class PluginManager:
         except PluginSandboxError as exc:
             orchestrator.logger.warning("Plugin %s sandbox configuration failed: %s", identifier, exc)
             return
+        capabilities = definition.capabilities if definition is not None else None
+        provides = capabilities.provides if capabilities else ()
+        requires = capabilities.requires if capabilities else ()
+        sandbox = capabilities.sandbox if capabilities else ()
+        display_name = getattr(plugin, "name", identifier)
+        self._permission_manager.register_worker(
+            identifier,
+            display_name=display_name,
+            provides=provides,
+            requires=requires,
+            sandbox=sandbox,
+        )
         self.plugins.append(plugin)
         self._handles[identifier] = handle
 
@@ -290,6 +305,7 @@ class PluginManager:
                 self._tool_bus.unregister(endpoint.name)
         handle.tool_endpoints.clear()
         self._supervisor.unregister(identifier)
+        self._permission_manager.unregister_worker(identifier)
 
     def clear(self) -> None:
         for worker in list(self._workers.values()):
@@ -298,6 +314,8 @@ class PluginManager:
             except Exception:  # pragma: no cover - defensive cleanup
                 continue
         self._workers.clear()
+        for identifier in list(self._handles.keys()):
+            self._permission_manager.unregister_worker(identifier)
         if self._tool_bus:
             for registry in self._tool_endpoint_registry.values():
                 for endpoint in registry.values():

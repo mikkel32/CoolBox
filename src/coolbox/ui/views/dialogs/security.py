@@ -11,7 +11,7 @@ import sys
 import threading
 import traceback
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime, timedelta
 from tkinter import messagebox, ttk
 
 from typing import Callable, Optional, Type, TypeVar, cast
@@ -114,6 +114,9 @@ class SecurityDialog(ttk.Frame):
         self._updating_fw_var = False
         self._updating_rt_var = False
         self._run_admin_visible = False
+        self._worker_snapshot: dict[str, security.WorkerSecurityInsight] = {}
+        self._plugin_snapshot: Optional[security.SecurityPluginsSnapshot] = None
+        self._selected_worker: Optional[str] = None
 
         # Track dialogs opened from the "+" buttons so they can be
         # positioned near the main window on any available side.
@@ -152,14 +155,33 @@ class SecurityDialog(ttk.Frame):
         style.configure("Report.Success.TLabel", foreground="#0a7d0a")
         style.configure("Report.Failure.TLabel", foreground="#a61e1e")
 
+        self._notebook = ttk.Notebook(self)
+        self._system_tab = ttk.Frame(self._notebook)
+        self._plugins_tab = ttk.Frame(self._notebook)
+        self._notebook.add(self._system_tab, text="System Controls")
+        self._notebook.add(self._plugins_tab, text="Tools & Plugins")
+        self._notebook.grid(row=0, column=0, sticky="nsew")
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self._build_system_tab(self._system_tab)
+        self._build_plugins_tab(self._plugins_tab)
+
+        # Initial load
+        self.refresh_async()
+        self._refresh_plugins()
+
+    def _build_system_tab(self, panel: ttk.Frame) -> None:
+        """Build the legacy firewall/Defender controls inside *panel*."""
+
         # Header
-        title = ttk.Label(self, text="Security Center", font=("Segoe UI", 16, "bold"))
+        title = ttk.Label(panel, text="Security Center", font=("Segoe UI", 16, "bold"))
         title.grid(row=0, column=0, sticky="w")
 
-        last_refresh = ttk.Label(self, textvariable=self._last_refresh_var, style="Caption.TLabel")
+        last_refresh = ttk.Label(panel, textvariable=self._last_refresh_var, style="Caption.TLabel")
         last_refresh.grid(row=0, column=1, sticky="e")
 
-        admin_frame = ttk.Frame(self)
+        admin_frame = ttk.Frame(panel)
         admin_frame.grid(row=1, column=0, columnspan=2, sticky="ew")
         admin_frame.columnconfigure(0, weight=1)
 
@@ -183,7 +205,7 @@ class SecurityDialog(ttk.Frame):
         self._admin_btn.grid_remove()
 
         subtitle = ttk.Label(
-            self,
+            panel,
             text="Manage Windows Firewall and Defender realtime protection with verified toggles.",
             style="Caption.TLabel",
             wraplength=460,
@@ -191,7 +213,7 @@ class SecurityDialog(ttk.Frame):
         subtitle.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 12))
 
         # Firewall section
-        fw_frame = ttk.LabelFrame(self, text="Windows Firewall")
+        fw_frame = ttk.LabelFrame(panel, text="Windows Firewall")
         fw_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 6))
         ttk.Button(fw_frame, text="+", width=2, command=self._open_firewall).grid(row=0, column=0, padx=(0, 4))
         self._fw_switch = ttk.Checkbutton(
@@ -223,7 +245,7 @@ class SecurityDialog(ttk.Frame):
         fw_frame.columnconfigure(1, weight=1)
 
         # Defender section
-        rt_frame = ttk.LabelFrame(self, text="Microsoft Defender Realtime")
+        rt_frame = ttk.LabelFrame(panel, text="Microsoft Defender Realtime")
         rt_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=6)
         ttk.Button(rt_frame, text="+", width=2, command=self._open_defender).grid(row=0, column=0, padx=(0, 4))
         self._rt_switch = ttk.Checkbutton(
@@ -257,7 +279,7 @@ class SecurityDialog(ttk.Frame):
         ).grid(row=2, column=1, columnspan=2, sticky="w", pady=(4, 0))
         rt_frame.columnconfigure(1, weight=1)
 
-        controls = ttk.Frame(self)
+        controls = ttk.Frame(panel)
         controls.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(8, 0))
         controls.columnconfigure(0, weight=1)
 
@@ -275,21 +297,21 @@ class SecurityDialog(ttk.Frame):
         self._auto_refresh.grid(row=0, column=0, sticky="w")
 
         self._busy_var = tk.StringVar(value="")
-        self._busy_lbl = ttk.Label(self, textvariable=self._busy_var, style="BusyCaption.TLabel")
-        self._busy_bar = ttk.Progressbar(self, mode="indeterminate", length=180)
+        self._busy_lbl = ttk.Label(panel, textvariable=self._busy_var, style="BusyCaption.TLabel")
+        self._busy_bar = ttk.Progressbar(panel, mode="indeterminate", length=180)
 
         self._report_var = tk.StringVar(
             value="Use the switches to apply changes. Results are verified automatically."
         )
         self._report_lbl = ttk.Label(
-            self,
+            panel,
             textvariable=self._report_var,
             wraplength=440,
             style="Report.Pending.TLabel",
         )
         self._report_lbl.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(16, 0))
 
-        log_frame = ttk.LabelFrame(self, text="Activity log")
+        log_frame = ttk.LabelFrame(panel, text="Activity log")
         log_frame.grid(row=8, column=0, columnspan=2, sticky="nsew", pady=(12, 0))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
@@ -306,13 +328,354 @@ class SecurityDialog(ttk.Frame):
         self._log.grid(row=0, column=0, sticky="nsew")
         scroll.grid(row=0, column=1, sticky="ns")
 
-        self.grid(sticky="nsew")
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=1)
-        self.rowconfigure(8, weight=1)
+        panel.columnconfigure(0, weight=1)
+        panel.columnconfigure(1, weight=1)
+        panel.rowconfigure(8, weight=1)
 
-        # Initial load
-        self.refresh_async()
+    def _build_plugins_tab(self, panel: ttk.Frame) -> None:
+        """Build the Tools/Plugins governance tab."""
+
+        panel.columnconfigure(0, weight=3)
+        panel.columnconfigure(1, weight=2)
+        panel.rowconfigure(3, weight=1)
+
+        description = ttk.Label(
+            panel,
+            text=(
+                "Review running plugin workers, the capabilities they have been"
+                " granted, and the runtime insights reported by the supervisor."
+            ),
+            style="Caption.TLabel",
+            wraplength=520,
+            justify="left",
+        )
+        description.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
+        self._pending_summary_var = tk.StringVar(value="No pending capability requests.")
+        pending_label = ttk.Label(
+            panel,
+            textvariable=self._pending_summary_var,
+            style="Report.Pending.TLabel",
+            wraplength=520,
+            anchor="w",
+            justify="left",
+        )
+        pending_label.grid(row=1, column=0, columnspan=2, sticky="ew")
+
+        toolbar = ttk.Frame(panel)
+        toolbar.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 4))
+        toolbar.columnconfigure(0, weight=1)
+
+        self._plugin_refresh_btn = ttk.Button(toolbar, text="Refresh workers", command=self._refresh_plugins)
+        self._plugin_refresh_btn.pack(side="right")
+
+        worker_frame = ttk.LabelFrame(panel, text="Running workers")
+        worker_frame.grid(row=3, column=0, sticky="nsew", padx=(0, 8))
+        worker_frame.columnconfigure(0, weight=1)
+        worker_frame.rowconfigure(0, weight=1)
+
+        columns = ("status", "pid", "grants", "ports")
+        self._worker_tree = ttk.Treeview(worker_frame, columns=columns, show="headings", height=8)
+        self._worker_tree.heading("status", text="Status")
+        self._worker_tree.heading("pid", text="PID")
+        self._worker_tree.heading("grants", text="Capabilities")
+        self._worker_tree.heading("ports", text="Open Ports")
+        self._worker_tree.column("status", width=110, anchor="w")
+        self._worker_tree.column("pid", width=70, anchor="center")
+        self._worker_tree.column("grants", width=120, anchor="center")
+        self._worker_tree.column("ports", width=120, anchor="center")
+        self._worker_tree.grid(row=0, column=0, sticky="nsew")
+        worker_scroll = ttk.Scrollbar(worker_frame, orient="vertical", command=self._worker_tree.yview)
+        self._worker_tree.configure(yscrollcommand=worker_scroll.set)
+        worker_scroll.grid(row=0, column=1, sticky="ns")
+        self._worker_tree.bind("<<TreeviewSelect>>", self._on_worker_selected)
+
+        detail_frame = ttk.LabelFrame(panel, text="Capability details")
+        detail_frame.grid(row=3, column=1, sticky="nsew")
+        detail_frame.columnconfigure(0, weight=1)
+        detail_frame.rowconfigure(4, weight=1)
+        detail_frame.rowconfigure(6, weight=1)
+
+        self._capabilities_tree = ttk.Treeview(
+            detail_frame,
+            columns=("state", "expires", "last", "notes"),
+            show="headings",
+            height=6,
+        )
+        self._capabilities_tree.heading("state", text="State")
+        self._capabilities_tree.heading("expires", text="Expires")
+        self._capabilities_tree.heading("last", text="Last used")
+        self._capabilities_tree.heading("notes", text="Notes")
+        self._capabilities_tree.column("state", width=90, anchor="center")
+        self._capabilities_tree.column("expires", width=120, anchor="center")
+        self._capabilities_tree.column("last", width=120, anchor="center")
+        self._capabilities_tree.column("notes", width=160, anchor="w")
+        self._capabilities_tree.grid(row=0, column=0, sticky="nsew")
+        caps_scroll = ttk.Scrollbar(detail_frame, orient="vertical", command=self._capabilities_tree.yview)
+        self._capabilities_tree.configure(yscrollcommand=caps_scroll.set)
+        caps_scroll.grid(row=0, column=1, sticky="ns")
+        self._capabilities_tree.bind("<<TreeviewSelect>>", self._on_capability_selected)
+
+        button_row = ttk.Frame(detail_frame)
+        button_row.grid(row=1, column=0, sticky="ew", pady=(6, 4))
+        for col in range(5):
+            button_row.columnconfigure(col, weight=1)
+
+        self._allow_once_btn = ttk.Button(button_row, text="Allow once", command=self._on_allow_once)
+        self._allow_once_btn.grid(row=0, column=0, padx=2)
+        self._allow_15_btn = ttk.Button(button_row, text="Allow 15 min", command=self._on_allow_temporal)
+        self._allow_15_btn.grid(row=0, column=1, padx=2)
+        self._allow_always_btn = ttk.Button(button_row, text="Allow always", command=self._on_allow_always)
+        self._allow_always_btn.grid(row=0, column=2, padx=2)
+        self._downgrade_btn = ttk.Button(button_row, text="Downgrade", command=self._on_downgrade)
+        self._downgrade_btn.grid(row=0, column=3, padx=2)
+        self._revoke_btn = ttk.Button(button_row, text="Revoke", command=self._on_revoke)
+        self._revoke_btn.grid(row=0, column=4, padx=2)
+
+        ttk.Label(
+            detail_frame,
+            text="Use the controls above to allow capabilities once, for 15 minutes, or permanently."
+            " Downgrade or revoke to immediately tighten a worker's access.",
+            style="Caption.TLabel",
+            wraplength=320,
+            justify="left",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        ttk.Label(detail_frame, text="Recent supervisor events", style="Caption.TLabel").grid(
+            row=3, column=0, sticky="w", pady=(8, 0)
+        )
+        self._syscall_list = tk.Listbox(detail_frame, height=6)
+        self._syscall_list.grid(row=4, column=0, sticky="nsew")
+        syscall_scroll = ttk.Scrollbar(detail_frame, orient="vertical", command=self._syscall_list.yview)
+        self._syscall_list.configure(yscrollcommand=syscall_scroll.set)
+        syscall_scroll.grid(row=4, column=1, sticky="ns")
+
+        ttk.Label(detail_frame, text="Process tree", style="Caption.TLabel").grid(
+            row=5, column=0, sticky="w", pady=(8, 0)
+        )
+        self._process_text = tk.Text(detail_frame, height=6, state="disabled", wrap="word", font=("Consolas", 9))
+        self._process_text.grid(row=6, column=0, columnspan=2, sticky="nsew")
+
+        self._capability_buttons = [
+            self._allow_once_btn,
+            self._allow_15_btn,
+            self._allow_always_btn,
+            self._downgrade_btn,
+            self._revoke_btn,
+        ]
+        self._set_capability_buttons_state("disabled")
+
+    def _refresh_plugins(self) -> None:
+        try:
+            snapshot = security.get_plugin_security_snapshot()
+        except Exception as exc:  # pragma: no cover - defensive UI path
+            self._append_log(f"Failed to refresh plugin snapshot: {exc}")
+            messagebox.showerror("Security Center", f"Unable to load plugin data: {exc}")
+            return
+        self._plugin_snapshot = snapshot
+        self._worker_snapshot = {worker.plugin_id: worker for worker in snapshot.workers}
+        self._update_pending_summary(snapshot)
+
+        for item in self._worker_tree.get_children():
+            self._worker_tree.delete(item)
+        for worker in snapshot.workers:
+            grants = self._summarize_grants(worker)
+            ports = len(worker.open_ports)
+            status = worker.status or "unknown"
+            pid = worker.pid if worker.pid is not None else "—"
+            self._worker_tree.insert(
+                "",
+                "end",
+                iid=worker.plugin_id,
+                values=(status, pid, grants, ports),
+            )
+        if self._selected_worker and self._selected_worker in self._worker_snapshot:
+            self._worker_tree.selection_set(self._selected_worker)
+            self._worker_tree.focus(self._selected_worker)
+            self._update_worker_detail(self._worker_snapshot[self._selected_worker])
+        else:
+            self._selected_worker = None
+            self._clear_worker_detail()
+
+    def _update_pending_summary(self, snapshot: security.SecurityPluginsSnapshot) -> None:
+        pending = len(snapshot.pending_requests)
+        if pending:
+            self._pending_summary_var.set(
+                f"{pending} pending capability request{'s' if pending != 1 else ''}."
+            )
+        else:
+            self._pending_summary_var.set("No pending capability requests.")
+
+    def _summarize_grants(self, worker: security.WorkerSecurityInsight) -> str:
+        total = len(worker.grants)
+        granted = sum(1 for grant in worker.grants if grant.state == "allowed")
+        pending = sum(1 for grant in worker.grants if grant.pending)
+        summary = f"{granted}/{total} allowed"
+        if pending:
+            summary += f" • {pending} pending"
+        return summary
+
+    def _clear_worker_detail(self) -> None:
+        for item in self._capabilities_tree.get_children():
+            self._capabilities_tree.delete(item)
+        self._syscall_list.delete(0, "end")
+        self._process_text.configure(state="normal")
+        self._process_text.delete("1.0", "end")
+        self._process_text.insert("end", "Select a worker to view details.")
+        self._process_text.configure(state="disabled")
+        self._set_capability_buttons_state("disabled")
+
+    def _update_worker_detail(self, worker: security.WorkerSecurityInsight) -> None:
+        for item in self._capabilities_tree.get_children():
+            self._capabilities_tree.delete(item)
+        for grant in worker.grants:
+            expires = self._format_timestamp(grant.expires_at)
+            last_used = self._format_timestamp(grant.last_used_at)
+            notes: list[str] = []
+            if grant.pending:
+                notes.append("pending")
+            if grant.request_reason:
+                notes.append(grant.request_reason)
+            if grant.auto_downgrade_after:
+                mins = int(grant.auto_downgrade_after // 60)
+                if mins:
+                    notes.append(f"downgrade after {mins}m idle")
+            self._capabilities_tree.insert(
+                "",
+                "end",
+                iid=f"{worker.plugin_id}:{grant.capability}",
+                text=grant.capability,
+                values=(grant.state, expires, last_used, ", ".join(notes)),
+            )
+        self._set_capability_buttons_state("disabled")
+        self._populate_syscalls(worker.recent_syscalls)
+        self._populate_process_tree(worker.process_tree)
+
+    def _populate_syscalls(self, entries: tuple[str, ...]) -> None:
+        self._syscall_list.delete(0, "end")
+        if not entries:
+            self._syscall_list.insert("end", "No supervisor events recorded yet.")
+            return
+        for entry in entries:
+            self._syscall_list.insert("end", entry)
+
+    def _populate_process_tree(self, lines: tuple[str, ...]) -> None:
+        self._process_text.configure(state="normal")
+        self._process_text.delete("1.0", "end")
+        if not lines:
+            self._process_text.insert("end", "No process diagnostics provided by the supervisor.")
+        else:
+            self._process_text.insert("end", "\n".join(lines))
+        self._process_text.configure(state="disabled")
+
+    def _on_worker_selected(self, _event=None) -> None:
+        selection = self._worker_tree.selection()
+        if not selection:
+            self._selected_worker = None
+            self._clear_worker_detail()
+            return
+        worker_id = selection[0]
+        self._selected_worker = worker_id
+        worker = self._worker_snapshot.get(worker_id)
+        if worker is None:
+            self._clear_worker_detail()
+            return
+        self._update_worker_detail(worker)
+
+    def _on_capability_selected(self, _event=None) -> None:
+        capability = self._get_selected_capability()
+        if capability is None:
+            self._set_capability_buttons_state("disabled")
+        else:
+            self._set_capability_buttons_state("!disabled")
+
+    def _get_selected_capability(self) -> Optional[str]:
+        selection = self._capabilities_tree.selection()
+        if not selection:
+            return None
+        item_id = selection[0]
+        item = self._capabilities_tree.item(item_id)
+        capability = item.get("text")
+        if capability:
+            return capability
+        if ":" in item_id:
+            return item_id.split(":", 1)[1]
+        return None
+
+    def _on_allow_once(self) -> None:
+        self._apply_capability_change("allow_once")
+
+    def _on_allow_temporal(self) -> None:
+        self._apply_capability_change("allow_temporal")
+
+    def _on_allow_always(self) -> None:
+        self._apply_capability_change("allow_always")
+
+    def _on_downgrade(self) -> None:
+        self._apply_capability_change("downgrade")
+
+    def _on_revoke(self) -> None:
+        self._apply_capability_change("revoke")
+
+    def _apply_capability_change(self, action: str) -> None:
+        worker_id = self._selected_worker
+        capability = self._get_selected_capability()
+        if not worker_id or not capability:
+            return
+        if not self._ensure_admin_for_capability(worker_id, capability):
+            return
+        manager = security.get_permission_manager()
+        try:
+            if action == "allow_once":
+                manager.allow_once(worker_id, capability)
+            elif action == "allow_temporal":
+                manager.allow_for(worker_id, capability, timedelta(minutes=15))
+            elif action == "allow_always":
+                manager.allow_always(worker_id, capability)
+            elif action == "downgrade":
+                manager.downgrade(worker_id, capability)
+            elif action == "revoke":
+                manager.revoke(worker_id, capability)
+            else:
+                raise ValueError(action)
+        except Exception as exc:
+            messagebox.showerror("Security Center", f"Capability update failed: {exc}")
+            return
+        self._append_log(f"Capability {capability} on {worker_id}: {action.replace('_', ' ')}")
+        self._refresh_plugins()
+
+    def _ensure_admin_for_capability(self, worker_id: str, capability: str) -> bool:
+        if security.is_admin():
+            return True
+        self._append_log(
+            f"Capability change for {worker_id}:{capability} requested without elevation."
+        )
+        if security.relaunch_security_center():
+            self._update_report(
+                "Elevation requested. Approve the prompt to continue with capability changes.",
+                success=True,
+            )
+            return False
+        messagebox.showwarning(
+            "Security Center",
+            "Administrator rights are required to modify plugin capabilities.",
+        )
+        return False
+
+    def _set_capability_buttons_state(self, mode: str) -> None:
+        for button in getattr(self, "_capability_buttons", []):
+            if mode == "!disabled":
+                button.state(["!disabled"])
+            else:
+                button.state(["disabled"])
+
+    @staticmethod
+    def _format_timestamp(value: Optional[datetime]) -> str:
+        if value is None:
+            return "—"
+        if value.tzinfo is not None:
+            value = value.astimezone()
+        return value.strftime("%H:%M:%S")
 
     # --------------------------- Event handlers ----------------------------
 

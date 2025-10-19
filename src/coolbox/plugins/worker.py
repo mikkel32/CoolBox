@@ -12,6 +12,7 @@ import time
 import warnings
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 import math
@@ -21,6 +22,11 @@ try:  # pragma: no cover - optional dependency on Unix only
     import resource
 except Exception:  # pragma: no cover - compatibility shim
     resource = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - optional dependency for process inspection
+    import psutil
+except Exception:  # pragma: no cover - optional dependency
+    psutil = None  # type: ignore[assignment]
 
 from coolbox.paths import artifacts_dir, ensure_directory
 
@@ -34,6 +40,8 @@ from coolbox.telemetry.tracing import (
     start_span,
     trace_id_hex,
 )
+
+from coolbox.utils.security.permissions import get_permission_manager
 
 from .manifest import PluginDefinition, ResourceBudget
 
@@ -108,6 +116,16 @@ class WorkerDiagnostics:
     breaches: Mapping[str, tuple[float | int | None, float | int | None]]
     mini_dump: Path | None = None
     telemetry_payload: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class WorkerRuntimeSnapshot:
+    """Runtime metadata for a worker process."""
+
+    pid: int | None
+    status: str | None
+    open_ports: tuple[str, ...]
+    process_tree: tuple[str, ...]
 
 
 @dataclass(slots=True)
@@ -394,10 +412,14 @@ class BudgetController:
 class WorkerSupervisor:
     """Coordinate sandbox configuration and budget enforcement."""
 
+    _MAX_SYSCALLS = 25
+
     def __init__(self, *, metrics: PluginMetricsRegistry | None = None) -> None:
         self._workers: dict[str, _WorkerProcess] = {}
         self._definitions: dict[str, PluginDefinition] = {}
         self._metrics = metrics or get_global_plugin_metrics()
+        self._recent_syscalls: dict[str, deque[str]] = {}
+        self._applied_permissions: dict[str, dict[str, str]] = {}
 
     def register(
         self,
@@ -427,12 +449,14 @@ class WorkerSupervisor:
             scopes=scopes,
             logger=logger,
         )
+        self._record_syscall(plugin_id, "worker registered")
 
     def unregister(self, plugin_id: str) -> None:
         worker = self._workers.pop(plugin_id, None)
         if worker is not None:
             worker.shutdown()
         self._definitions.pop(plugin_id, None)
+        self._record_syscall(plugin_id, "worker unregistered")
 
     def call(self, plugin_id: str, method_name: str, *args, **kwargs):
         worker = self._workers.get(plugin_id)
@@ -508,15 +532,58 @@ class WorkerSupervisor:
                 status=status,
                 error=error_text,
             )
+            millis = int(duration * 1000.0)
+            summary = f"{method_name} -> {status} ({millis} ms)"
+            self._record_syscall(plugin_id, summary)
 
     def clear(self) -> None:
         for worker in list(self._workers.values()):
             worker.shutdown()
         self._workers.clear()
         self._definitions.clear()
+        self._recent_syscalls.clear()
+        self._applied_permissions.clear()
 
     def metrics_snapshot(self) -> dict[str, PluginMetricsSnapshot]:
         return self._metrics.snapshot()
+
+    def recent_syscalls_snapshot(self) -> dict[str, tuple[str, ...]]:
+        return {plugin_id: tuple(entries) for plugin_id, entries in self._recent_syscalls.items()}
+
+    def security_runtime_snapshot(self) -> dict[str, dict[str, object]]:
+        snapshot: dict[str, dict[str, object]] = {}
+        for plugin_id, worker in self._workers.items():
+            info = worker.runtime_snapshot()
+            snapshot[plugin_id] = {
+                "pid": info.pid,
+                "status": info.status,
+                "open_ports": info.open_ports,
+                "process_tree": info.process_tree,
+            }
+        return snapshot
+
+    def apply_permission_update(self, plugin_id: str, grants: Mapping[str, str]) -> None:
+        self._applied_permissions[plugin_id] = dict(grants)
+        if grants:
+            changes = ", ".join(f"{cap}:{state}" for cap, state in sorted(grants.items()))
+        else:
+            changes = "no grants"
+        self._record_syscall(plugin_id, f"permissions updated ({changes})")
+
+    def applied_permissions(self) -> Mapping[str, Mapping[str, str]]:
+        return {plugin_id: dict(data) for plugin_id, data in self._applied_permissions.items()}
+
+    def _record_syscall(self, plugin_id: str, summary: str) -> None:
+        log = self._recent_syscalls.setdefault(
+            plugin_id, deque(maxlen=self._MAX_SYSCALLS)
+        )
+        timestamp = datetime.utcnow().strftime("%H:%M:%S")
+        entry = f"[{timestamp}] {summary}"
+        log.appendleft(entry)
+        try:
+            get_permission_manager().record_syscall_summary(plugin_id, summary)
+        except Exception:
+            pass
 
 
 def _parse_cpu_percent(value: str | None) -> float | None:
@@ -721,6 +788,24 @@ class _WorkerProcess:
             raise PluginRuntimeError(self.plugin_id, "worker timeout missing diagnostics")
         raise PluginRuntimeError(self.plugin_id, f"worker returned unknown status {status!r}")
 
+    def runtime_snapshot(self) -> WorkerRuntimeSnapshot:
+        pid = getattr(self._process, "pid", None)
+        if not pid:
+            return WorkerRuntimeSnapshot(None, None, (), ())
+        if psutil is None:  # pragma: no cover - psutil optional
+            return WorkerRuntimeSnapshot(pid, None, (), ())
+        try:
+            process = psutil.Process(pid)
+        except Exception:  # pragma: no cover - defensive when process exits
+            return WorkerRuntimeSnapshot(pid, None, (), ())
+        try:
+            status = process.status()
+        except Exception:  # pragma: no cover - psutil defensive
+            status = None
+        ports = _format_open_ports(process)
+        tree = _format_process_tree(process)
+        return WorkerRuntimeSnapshot(pid, status, ports, tree)
+
     def shutdown(self) -> None:
         if self._closed:
             return
@@ -828,6 +913,74 @@ def _multiprocessing_context() -> mp.context.BaseContext:
         except ValueError:  # pragma: no cover - fallback if context unavailable
             continue
     return mp.get_context()
+
+
+def _format_open_ports(process) -> tuple[str, ...]:
+    if psutil is None:  # pragma: no cover - optional dependency
+        return ()
+    try:
+        connections = process.connections(kind="inet")  # type: ignore[attr-defined]
+    except Exception:
+        try:
+            connections = process.net_connections(kind="inet")  # type: ignore[attr-defined]
+        except Exception:
+            return ()
+    entries: list[str] = []
+    for conn in connections[:50]:
+        local = _format_address(getattr(conn, "laddr", None))
+        remote = _format_address(getattr(conn, "raddr", None))
+        status = getattr(conn, "status", "")
+        if remote == "—":
+            text = f"{local} ({status or 'listening'})"
+        else:
+            text = f"{local} -> {remote} ({status or 'connected'})"
+        entries.append(text)
+    return tuple(dict.fromkeys(entries))
+
+
+def _format_address(address) -> str:
+    if not address:
+        return "—"
+    if isinstance(address, tuple):
+        if len(address) >= 2:
+            host, port = address[0], address[1]
+        elif address:
+            host, port = address[0], "*"
+        else:
+            host, port = "*", "*"
+        return f"{host}:{port}"
+    host = getattr(address, "ip", None) or getattr(address, "host", None) or "*"
+    port = getattr(address, "port", None)
+    return f"{host}:{port if port is not None else '*'}"
+
+
+def _format_process_tree(process) -> tuple[str, ...]:
+    if psutil is None:  # pragma: no cover - optional dependency
+        return ()
+    lines: list[str] = []
+    try:
+        lines.append(f"Worker {process.pid}: {process.name()}")
+    except Exception:
+        lines.append(f"Worker {process.pid}")
+    try:
+        for parent in process.parents():
+            try:
+                lines.append(f"Parent {parent.pid}: {parent.name()}")
+            except Exception:
+                lines.append(f"Parent {parent.pid}")
+    except Exception:
+        pass
+    try:
+        for child in process.children(recursive=True):
+            try:
+                lines.append(f"Child {child.pid}: {child.name()}")
+            except Exception:
+                lines.append(f"Child {child.pid}")
+    except Exception:
+        pass
+    if len(lines) > 40:
+        lines = lines[:39] + ["…"]
+    return tuple(lines)
 
 
 def _worker_entrypoint(
@@ -938,6 +1091,7 @@ __all__ = [
     "PluginMetricsSnapshot",
     "PluginTraceRecord",
     "WorkerDiagnostics",
+    "WorkerRuntimeSnapshot",
     "WorkerSupervisor",
     "get_global_plugin_metrics",
 ]

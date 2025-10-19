@@ -4,11 +4,53 @@ from __future__ import annotations
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Iterable, Optional, Tuple, TypeVar
 
 from . import platform as platform_state
 
 T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class CapabilityGrantState:
+    """Snapshot of a capability grant for a worker."""
+
+    capability: str
+    state: str
+    expires_at: Optional[datetime]
+    last_used_at: Optional[datetime]
+    requested_at: Optional[datetime]
+    request_reason: Optional[str]
+    pending: bool
+    auto_downgrade_after: Optional[float]
+    requires_admin: bool
+
+
+@dataclass(frozen=True)
+class WorkerSecurityInsight:
+    """Aggregated security information about a plugin worker."""
+
+    plugin_id: str
+    display_name: str
+    provides: tuple[str, ...]
+    requires: tuple[str, ...]
+    sandbox: tuple[str, ...]
+    grants: tuple[CapabilityGrantState, ...]
+    open_ports: tuple[str, ...]
+    recent_syscalls: tuple[str, ...]
+    process_tree: tuple[str, ...]
+    pid: Optional[int] = None
+    status: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SecurityPluginsSnapshot:
+    """Snapshot returned to the Security Center plugin tab."""
+
+    generated_at: datetime
+    workers: tuple[WorkerSecurityInsight, ...]
+    pending_requests: tuple[CapabilityGrantState, ...]
 
 
 @dataclass(frozen=True)
@@ -725,13 +767,16 @@ def drive_service_state(
 __all__ = [
     "ActionOutcome",
     "ActionLog",
+    "CapabilityGrantState",
     "CommandStep",
     "DefenderStatus",
+    "SecurityPluginsSnapshot",
     "FeatureAction",
     "OutcomeBuilder",
     "PipelineState",
     "PipelineStep",
     "RunResult",
+    "WorkerSecurityInsight",
     "SecuritySnapshot",
     "TogglePipeline",
     "TogglePlan",

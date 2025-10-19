@@ -31,6 +31,7 @@ from coolbox.plugins.worker import (
     PluginTraceRecord,
     get_global_plugin_metrics,
 )
+from coolbox.utils import security
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers
     from coolbox.utils.network import PortInfo, PortResult
@@ -82,6 +83,7 @@ class ToolsView(BaseView):
                 str,
             ]
         ] = []
+        self._security_center_job: str | None = None
 
         # Create tool sections
         self._create_file_tools()
@@ -324,6 +326,26 @@ class ToolsView(BaseView):
 
         for name, desc, func in tools:
             self._create_tool_item(body, name, desc, func)
+
+        self._update_security_center_entry()
+
+    def _update_security_center_entry(self) -> None:
+        if not self.winfo_exists():
+            return
+        pending = security.get_permission_manager().pending_count()
+        description = "Toggle Firewall and Defender"
+        if pending:
+            description += f" • Pending capability requests: {pending}"
+        for _, _, _, name_lbl, desc_lbl, *_ in self._tool_items:
+            if name_lbl.cget("text") == "Security Center":
+                desc_lbl.configure(text=description)
+                break
+        if self._security_center_job is not None:
+            try:
+                self.after_cancel(self._security_center_job)
+            except Exception:
+                pass
+        self._security_center_job = self.after(60000, self._update_security_center_entry)
 
     def _create_text_tools(self):
         """Create text manipulation tools"""
