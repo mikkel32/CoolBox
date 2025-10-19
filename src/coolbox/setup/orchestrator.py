@@ -307,6 +307,7 @@ class SetupOrchestrator:
 
     def attach_telemetry(self, telemetry: TelemetryClient | None) -> None:
         self.telemetry = telemetry or NullTelemetryClient()
+        self.plugin_manager.attach_telemetry(self.telemetry)
 
     def set_profile_context(
         self,

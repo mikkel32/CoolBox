@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from importlib import metadata
@@ -36,6 +37,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 
 ENTRYPOINT_GROUP = "coolbox.setup"
+
+
+def _env_flag(name: str) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
 
 
 Validator = Callable[["SetupResult", "StageContext"], None]
@@ -183,7 +191,7 @@ class PluginRegistrar:
 class PluginManager:
     """Load and manage setup plugins."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, sandbox_enabled: bool | None = None) -> None:
         self.plugins: list[SetupPlugin] = []
         self.validators: list[Validator] = []
         self.reporters: list[Reporter] = []
@@ -198,18 +206,26 @@ class PluginManager:
         self._hot_reload: HotReloadController | None = None
         self._manifest_definitions: Dict[str, PluginDefinition] = {}
         self._profile_dev: ProfileDevSettings | None = None
-        self._supervisor = WorkerSupervisor()
+        if sandbox_enabled is None:
+            sandbox_enabled = not _env_flag("COOLBOX_DISABLE_PLUGIN_SANDBOX")
+        self._sandbox_enabled = sandbox_enabled
+        self._supervisor = WorkerSupervisor(sandbox_enabled=sandbox_enabled)
         self._violations: list[PluginViolation] = []
         self._tool_bus: ToolBus | None = None
         self._tool_endpoint_registry: Dict[str, Dict[str, ToolEndpoint]] = {}
         self._permission_manager = get_permission_manager()
         self._permission_manager.bind_supervisor(self._supervisor)
         self._updater = PluginChannelUpdater()
+        self._telemetry: Any | None = None
 
     def attach_tool_bus(self, bus: ToolBus) -> None:
         """Attach a tool bus to register plugin endpoints with."""
 
         self._tool_bus = bus
+
+    def attach_telemetry(self, telemetry: Any | None) -> None:
+        self._telemetry = telemetry
+        self._supervisor.attach_telemetry(telemetry)
 
     def plugin_metrics(self) -> Mapping[str, PluginMetricsSnapshot]:
         """Return a snapshot of per-plugin supervisor metrics."""

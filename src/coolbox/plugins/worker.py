@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
-import multiprocessing as mp
 import platform
 import re
 import traceback
 import time
-import warnings
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Sequence
 import math
 import threading
 
@@ -47,6 +45,10 @@ from coolbox.utils.security.permissions import get_permission_manager
 
 from .manifest import PluginDefinition, ResourceBudget
 from .runtime.environment import RuntimeActivation, apply_runtime_activation
+from .runtime.toold_client import TooldProcess, TooldProcessError
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from coolbox.telemetry.client import NullTelemetryClient, TelemetryClient
 
 
 class PluginWorkerError(RuntimeError):
@@ -107,6 +109,38 @@ class BudgetLimits:
         return any(value is not None for value in (self.cpu_percent, self.memory_bytes, self.wall_time))
 
 
+def budget_limits_to_payload(limits: BudgetLimits) -> dict[str, float | int | None]:
+    """Serialize :class:`BudgetLimits` to a JSON compatible payload."""
+
+    return {
+        "cpu_percent": limits.cpu_percent,
+        "memory_bytes": limits.memory_bytes,
+        "wall_time": limits.wall_time,
+    }
+
+
+def budget_limits_from_payload(payload: Mapping[str, object] | None) -> BudgetLimits:
+    """Deserialize :class:`BudgetLimits` from :func:`budget_limits_to_payload`."""
+
+    if not payload:
+        return BudgetLimits()
+    cpu_percent = payload.get("cpu_percent")
+    memory_bytes = payload.get("memory_bytes")
+    wall_time = payload.get("wall_time")
+    return BudgetLimits(
+        cpu_percent=float(cpu_percent) if cpu_percent is not None else None,
+        memory_bytes=int(memory_bytes) if memory_bytes is not None else None,
+        wall_time=float(wall_time) if wall_time is not None else None,
+    )
+
+
+def _resolve_runtime_entrypoint(definition: PluginDefinition | None) -> str | None:
+    if definition is None:
+        return None
+    runtime = definition.runtime
+    return runtime.entrypoint or runtime.handler or runtime.module
+
+
 @dataclass(slots=True)
 class WorkerDiagnostics:
     """Structured diagnostics captured when a worker misbehaves."""
@@ -119,6 +153,56 @@ class WorkerDiagnostics:
     breaches: Mapping[str, tuple[float | int | None, float | int | None]]
     mini_dump: Path | None = None
     telemetry_payload: dict[str, object] = field(default_factory=dict)
+
+
+def diagnostics_to_payload(diagnostics: WorkerDiagnostics) -> dict[str, object]:
+    """Serialize diagnostics for transport across process boundaries."""
+
+    payload: dict[str, object] = {
+        "plugin_id": diagnostics.plugin_id,
+        "wall_time": diagnostics.wall_time,
+        "cpu_time": diagnostics.cpu_time,
+        "memory_usage": diagnostics.memory_usage,
+        "limits": budget_limits_to_payload(diagnostics.limits),
+        "breaches": {
+            key: (actual, limit)
+            for key, (actual, limit) in diagnostics.breaches.items()
+        },
+        "telemetry_payload": dict(diagnostics.telemetry_payload),
+    }
+    if diagnostics.mini_dump is not None:
+        payload["mini_dump"] = str(diagnostics.mini_dump)
+    return payload
+
+
+def diagnostics_from_payload(payload: Mapping[str, object]) -> WorkerDiagnostics:
+    """Reconstruct diagnostics produced by :func:`diagnostics_to_payload`."""
+
+    limits_payload = payload.get("limits")
+    limits = budget_limits_from_payload(limits_payload if isinstance(limits_payload, Mapping) else None)
+    breaches_raw = payload.get("breaches")
+    breaches: dict[str, tuple[float | int | None, float | int | None]] = {}
+    if isinstance(breaches_raw, Mapping):
+        for key, value in breaches_raw.items():
+            if isinstance(value, (list, tuple)) and len(value) == 2:
+                breaches[str(key)] = (value[0], value[1])
+    telemetry_payload = payload.get("telemetry_payload")
+    if isinstance(telemetry_payload, Mapping):
+        telemetry = dict(telemetry_payload)
+    else:
+        telemetry = {}
+    mini_dump_raw = payload.get("mini_dump")
+    mini_dump = Path(mini_dump_raw) if isinstance(mini_dump_raw, str) else None
+    return WorkerDiagnostics(
+        plugin_id=str(payload.get("plugin_id", "")),
+        wall_time=float(payload.get("wall_time", 0.0)),
+        cpu_time=float(payload.get("cpu_time", 0.0)),
+        memory_usage=int(payload["memory_usage"]) if payload.get("memory_usage") is not None else None,
+        limits=limits,
+        breaches=breaches,
+        mini_dump=mini_dump,
+        telemetry_payload=telemetry,
+    )
 
 
 @dataclass(slots=True)
@@ -430,12 +514,22 @@ class WorkerSupervisor:
 
     _MAX_SYSCALLS = 25
 
-    def __init__(self, *, metrics: PluginMetricsRegistry | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        metrics: PluginMetricsRegistry | None = None,
+        sandbox_enabled: bool = True,
+    ) -> None:
         self._workers: dict[str, _WorkerProcess] = {}
         self._definitions: dict[str, PluginDefinition] = {}
         self._metrics = metrics or get_global_plugin_metrics()
         self._recent_syscalls: dict[str, deque[str]] = {}
         self._applied_permissions: dict[str, dict[str, str]] = {}
+        self._sandbox_enabled = sandbox_enabled
+        self._telemetry: "TelemetryClient | NullTelemetryClient | None" = None
+
+    def attach_telemetry(self, telemetry) -> None:
+        self._telemetry = telemetry
 
     def register(
         self,
@@ -447,12 +541,13 @@ class WorkerSupervisor:
         runtime_activation: RuntimeActivation | None = None,
     ) -> None:
         self._metrics.touch(plugin_id)
-        if definition is not None:
+        if definition is not None and self._sandbox_enabled:
             try:
                 _apply_sandbox(plugin_id, definition.capabilities.sandbox, logger)
             except Exception as exc:  # pragma: no cover - defensive
                 self._metrics.record_capability_denial(plugin_id, str(exc))
                 raise PluginSandboxError(plugin_id, f"failed to apply sandbox: {exc}") from exc
+        if definition is not None:
             self._definitions[plugin_id] = definition
             limits = BudgetLimits.from_budget(definition.resources)
             scopes: Iterable[str] = tuple(definition.capabilities.sandbox)
@@ -464,9 +559,12 @@ class WorkerSupervisor:
             plugin_id,
             plugin,
             limits,
+            definition=definition,
             scopes=scopes,
             logger=logger,
             activation_payload=activation_payload,
+            telemetry=self._telemetry,
+            sandbox_enabled=self._sandbox_enabled,
         )
         self._record_syscall(plugin_id, "worker registered")
         get_slo_tracker().record_plugin_spawn(plugin_id)
@@ -712,10 +810,9 @@ class RemotePluginError(Exception):
         return super().__str__()
 
 
-class _WorkerProcess:
-    """Host plugin execution inside a dedicated worker process."""
 
-    _RESPONSE_GRACE = 0.1
+class _WorkerProcess:
+    """Coordinate sandboxed execution through the ``toold`` runner."""
 
     def __init__(
         self,
@@ -723,61 +820,54 @@ class _WorkerProcess:
         plugin: object,
         limits: BudgetLimits,
         *,
+        definition: PluginDefinition | None,
         scopes: Iterable[str] = (),
         logger: logging.Logger | None = None,
         activation_payload: Mapping[str, object] | None = None,
+        telemetry: "TelemetryClient | NullTelemetryClient | None" = None,
+        sandbox_enabled: bool = True,
     ) -> None:
         self.plugin_id = plugin_id
         self.limits = limits
+        self._definition = definition
         self._scopes = tuple(scopes)
         self._logger_name = logger.name if logger else "coolbox.plugins.supervisor"
         self._logger_level = logger.getEffectiveLevel() if logger else logging.INFO
         self._activation_payload = dict(activation_payload) if activation_payload else None
-        self._closed = False
-        self._context = _multiprocessing_context()
-        parent_conn, child_conn = self._context.Pipe(duplex=True)
-        self._connection = parent_conn
-        self._process = self._context.Process(
-            target=_worker_entrypoint,
-            args=(
-                child_conn,
+        self._telemetry = telemetry
+        self._sandbox_enabled = sandbox_enabled and definition is not None
+        self._local_plugin = plugin if not self._sandbox_enabled else None
+        self._controller: BudgetController | None = None
+        self._remote: TooldProcess | None = None
+        self._last_trace: Mapping[str, str] | None = None
+        if not self._sandbox_enabled:
+            if plugin is not None:
+                self._controller = BudgetController(plugin_id, limits, logger=logger)
+            return
+        entrypoint = _resolve_runtime_entrypoint(definition)
+        if not entrypoint:
+            self._sandbox_enabled = False
+            self._local_plugin = plugin
+            self._controller = BudgetController(plugin_id, limits, logger=logger)
+            return
+        environment = dict(definition.runtime.environment)
+        heartbeat_interval = limits.wall_time or 15.0
+        limits_payload = budget_limits_to_payload(limits)
+        try:
+            self._remote = TooldProcess(
                 plugin_id,
-                plugin,
-                limits,
-                self._scopes,
-                self._logger_name,
-                self._logger_level,
-                self._activation_payload,
-            ),
-            name=f"coolbox-plugin-{plugin_id}",
-        )
-        try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings(
-                    "ignore",
-                    message=r"This process .* is multi-threaded, use of fork\(\) may lead to deadlocks in the child\.",
-                    category=DeprecationWarning,
-                    module="multiprocessing.popen_fork",
-                )
-                self._process.start()
-        except Exception:
-            child_conn.close()
-            self._connection.close()
-            self._closed = True
-            raise
-        child_conn.close()
-        try:
-            ready = self._connection.recv()
-        except EOFError as exc:  # pragma: no cover - defensive
-            raise PluginRuntimeError(plugin_id, "worker failed to start") from exc
-        status = ready.get("status")
-        if status == "error":
-            message = ready.get("message", "worker startup failed")
-            self._terminate()
-            raise PluginSandboxError(plugin_id, message)
-        if status != "ready":  # pragma: no cover - defensive
-            self._terminate()
-            raise PluginRuntimeError(plugin_id, f"unexpected worker handshake: {status!r}")
+                entrypoint=entrypoint,
+                environment=environment,
+                activation_payload=self._activation_payload,
+                limits_payload=limits_payload,
+                scopes=self._scopes,
+                logger_name=self._logger_name,
+                logger_level=self._logger_level,
+                heartbeat_interval=max(1.0, float(heartbeat_interval)),
+                telemetry_callback=self._handle_telemetry,
+            )
+        except TooldProcessError as exc:
+            raise PluginSandboxError(plugin_id, str(exc)) from exc
 
     def call(
         self,
@@ -785,54 +875,68 @@ class _WorkerProcess:
         *args,
         trace_context: Mapping[str, str] | None = None,
         **kwargs,
-    ):
-        if self._closed:
-            raise PluginRuntimeError(self.plugin_id, "worker already shut down")
-        if not self._process.is_alive():
-            raise PluginRuntimeError(self.plugin_id, "worker terminated unexpectedly")
-        payload = {
-            "cmd": "call",
-            "method": method_name,
-            "args": args,
-            "kwargs": kwargs,
-        }
-        if trace_context:
-            payload["trace"] = dict(trace_context)
-        start = time.perf_counter()
+    ) -> Mapping[str, Any]:
+        if self._remote is not None:
+            try:
+                response = self._remote.call(
+                    method_name,
+                    args=args,
+                    kwargs=kwargs,
+                    trace_context=trace_context,
+                )
+            except TooldProcessError as exc:
+                raise PluginRuntimeError(self.plugin_id, str(exc)) from exc
+            status = response.get("status")
+            if status == "ok":
+                return response.get("result")
+            if status == "violation":
+                diagnostics = response.get("diagnostics")
+                if isinstance(diagnostics, Mapping):
+                    raise BudgetViolation(diagnostics_from_payload(diagnostics))
+                raise PluginRuntimeError(self.plugin_id, "worker reported malformed diagnostics")
+            if status == "startup_error":
+                diagnostics = response.get("diagnostics")
+                payload = diagnostics_from_payload(diagnostics) if isinstance(diagnostics, Mapping) else None
+                message = response.get("message", "plugin startup error")
+                raise PluginStartupError(self.plugin_id, message, diagnostics=payload)
+            if status == "runtime_error":
+                message = response.get("message", "plugin raised an error")
+                remote = RemotePluginError(message, response.get("traceback"))
+                raise PluginRuntimeError(self.plugin_id, message, original=remote)
+            if status == "timeout":
+                diagnostics = response.get("diagnostics")
+                if isinstance(diagnostics, Mapping):
+                    raise BudgetViolation(diagnostics_from_payload(diagnostics))
+                raise PluginRuntimeError(self.plugin_id, "worker timeout missing diagnostics")
+            raise PluginRuntimeError(self.plugin_id, f"worker returned unknown status {status!r}")
+        plugin = self._local_plugin
+        if plugin is None:
+            raise PluginRuntimeError(self.plugin_id, "plugin instance unavailable")
+        method = getattr(plugin, method_name)
+        controller = self._controller
         try:
-            self._connection.send(payload)
-        except (BrokenPipeError, OSError) as exc:
-            raise PluginRuntimeError(self.plugin_id, "failed to communicate with worker") from exc
-        response = self._recv_response(method_name, start)
-        status = response.get("status")
-        response.pop("trace", None)
-        if status == "ok":
-            return response.get("result")
-        if status == "violation":
-            diagnostics = response.get("diagnostics")
-            if isinstance(diagnostics, WorkerDiagnostics):
-                raise BudgetViolation(diagnostics)
-            raise PluginRuntimeError(self.plugin_id, "worker reported malformed diagnostics")
-        if status == "startup_error":
-            diagnostics = response.get("diagnostics")
-            message = response.get("message", "plugin startup error")
-            raise PluginStartupError(self.plugin_id, message, diagnostics=diagnostics)
-        if status == "runtime_error":
-            message = response.get("message", "plugin raised an error")
-            remote = RemotePluginError(message, response.get("traceback"))
-            raise PluginRuntimeError(self.plugin_id, message, original=remote)
-        if status == "timeout":
-            diagnostics = response.get("diagnostics")
-            if isinstance(diagnostics, WorkerDiagnostics):
-                raise BudgetViolation(diagnostics)
-            raise PluginRuntimeError(self.plugin_id, "worker timeout missing diagnostics")
-        raise PluginRuntimeError(self.plugin_id, f"worker returned unknown status {status!r}")
+            if controller and controller.limits.is_enforced():
+                result = controller.run(method, *args, **kwargs)
+            else:
+                result = method(*args, **kwargs)
+        except BudgetViolation:
+            raise
+        except PluginStartupError:
+            raise
+        except Exception as exc:
+            raise PluginRuntimeError(self.plugin_id, f"Plugin '{self.plugin_id}' raised: {exc}", original=exc) from exc
+        response: dict[str, Any] = {"status": "ok", "result": result}
+        if trace_context:
+            response["trace"] = dict(trace_context)
+        return response
 
     def runtime_snapshot(self) -> WorkerRuntimeSnapshot:
-        pid = getattr(self._process, "pid", None)
-        if not pid:
+        if self._remote is None:
+            return WorkerRuntimeSnapshot(None, "in-process", (), ())
+        pid = self._remote.pid
+        if pid is None:
             return WorkerRuntimeSnapshot(None, None, (), ())
-        if psutil is None:  # pragma: no cover - psutil optional
+        if psutil is None:  # pragma: no cover - optional dependency
             return WorkerRuntimeSnapshot(pid, None, (), ())
         try:
             process = psutil.Process(pid)
@@ -847,113 +951,21 @@ class _WorkerProcess:
         return WorkerRuntimeSnapshot(pid, status, ports, tree)
 
     def shutdown(self) -> None:
-        if self._closed:
+        if self._remote is not None:
+            self._remote.shutdown()
+
+    def _handle_telemetry(self, payload: Mapping[str, object]) -> None:
+        client = self._telemetry
+        if client is None:
             return
-        try:
-            if self._process.is_alive():
-                try:
-                    self._connection.send({"cmd": "shutdown"})
-                except (BrokenPipeError, OSError):
-                    pass
-                else:
-                    if self._connection.poll(self._RESPONSE_GRACE):
-                        try:
-                            self._connection.recv()
-                        except EOFError:
-                            pass
-        finally:
-            if self._process.is_alive():
-                self._process.terminate()
-            self._process.join(timeout=1)
-            if self._process.is_alive():  # pragma: no cover - defensive
-                self._process.kill()
-                self._process.join(timeout=1)
+        recorder = getattr(client, "record_plugin", None)
+        if callable(recorder):
             try:
-                self._process.close()
-            except Exception:  # pragma: no cover - defensive
-                pass
-            try:
-                self._connection.close()
-            except OSError:  # pragma: no cover - defensive
-                pass
-            self._closed = True
-
-    def _recv_response(self, method_name: str, start_time: float) -> Mapping[str, object]:
-        timeout = self.limits.wall_time
-        if timeout is not None:
-            grace = max(timeout * 0.1, self._RESPONSE_GRACE)
-            wait_time = timeout + grace
-            if not self._connection.poll(wait_time):
-                elapsed = time.perf_counter() - start_time
-                diagnostics = self._build_timeout_diagnostics(method_name, elapsed)
-                self._terminate()
-                return {"status": "timeout", "diagnostics": diagnostics}
-        try:
-            return self._connection.recv()
-        except EOFError as exc:
-            self._terminate()
-            raise PluginRuntimeError(self.plugin_id, "worker pipe closed unexpectedly") from exc
-
-    def _build_timeout_diagnostics(self, method_name: str, elapsed: float) -> WorkerDiagnostics:
-        limit = self.limits.wall_time or 0.0
-        breaches = {"wall_time": (elapsed, limit)}
-        payload = {
-            "plugin": self.plugin_id,
-            "method": method_name,
-            "wall_time": elapsed,
-            "limit": limit,
-            "breaches": {
-                "wall_time": {
-                    "observed": elapsed,
-                    "limit": limit,
-                }
-            },
-        }
-        dump = _write_mini_dump(self.plugin_id, payload)
-        telemetry_payload = dict(payload)
-        telemetry_payload["mini_dump"] = str(dump) if dump else None
-        return WorkerDiagnostics(
-            plugin_id=self.plugin_id,
-            wall_time=elapsed,
-            cpu_time=0.0,
-            memory_usage=None,
-            limits=self.limits,
-            breaches=breaches,
-            mini_dump=dump,
-            telemetry_payload=telemetry_payload,
-        )
-
-    def _terminate(self) -> None:
-        if self._closed:
-            return
-        if self._process.is_alive():
-            self._process.terminate()
-        self._process.join(timeout=1)
-        if self._process.is_alive():  # pragma: no cover - defensive
-            self._process.kill()
-            self._process.join(timeout=1)
-        try:
-            self._process.close()
-        except Exception:  # pragma: no cover - defensive
-            pass
-        try:
-            self._connection.close()
-        except OSError:  # pragma: no cover - defensive
-            pass
-        self._closed = True
-
-
-def _multiprocessing_context() -> mp.context.BaseContext:
-    """Select a multiprocessing context compatible with the host platform."""
-
-    for method in ("fork", "spawn"):
-        try:
-            if method in mp.get_all_start_methods():
-                return mp.get_context(method)
-        except ValueError:  # pragma: no cover - fallback if context unavailable
-            continue
-    return mp.get_context()
-
+                recorder(dict(payload))
+            except Exception:  # pragma: no cover - defensive logging only
+                logging.getLogger("coolbox.plugins.supervisor").debug(
+                    "Telemetry callback raised", exc_info=True
+                )
 
 def _format_open_ports(process) -> tuple[str, ...]:
     if psutil is None:  # pragma: no cover - optional dependency
@@ -1129,7 +1141,11 @@ def _worker_entrypoint(
 __all__ = [
     "BudgetController",
     "BudgetLimits",
+    "budget_limits_from_payload",
+    "budget_limits_to_payload",
     "BudgetViolation",
+    "diagnostics_from_payload",
+    "diagnostics_to_payload",
     "PluginRuntimeError",
     "PluginSandboxError",
     "PluginStartupError",
