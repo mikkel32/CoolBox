@@ -57,7 +57,15 @@ from coolbox.setup import (
 from coolbox.setup.recipes import Recipe, RecipeLoader
 from coolbox.setup.stages import register_builtin_tasks
 from coolbox.utils import launch_vm_debug
-from coolbox.telemetry import JsonlTelemetryStorage, TelemetryClient, TelemetryConsentManager
+from coolbox.telemetry import (
+    ClickHouseTelemetryStorage,
+    CompositeTelemetryStorage,
+    JsonlTelemetryStorage,
+    TelemetryClient,
+    TelemetryConsentManager,
+    TelemetryStorageAdapter,
+)
+from coolbox.telemetry.tracing import SpanKind, Status, StatusCode, set_status, start_span
 from .default_manifest import get_default_manifest
 
 
@@ -88,7 +96,7 @@ class BootManager:
         logger: logging.Logger | None = None,
         telemetry: TelemetryClient | None = None,
         consent_manager: TelemetryConsentManager | None = None,
-        telemetry_storage: JsonlTelemetryStorage | None = None,
+        telemetry_storage: TelemetryStorageAdapter | None = None,
     ) -> None:
         self._default_manifest = self._coerce_manifest(manifest_path)
         self.app_factory = app_factory
@@ -98,8 +106,12 @@ class BootManager:
             self.telemetry = telemetry
         else:
             storage_path = ensure_directory(artifacts_dir()) / "telemetry.jsonl"
-            storage = telemetry_storage or JsonlTelemetryStorage(storage_path)
-            self.telemetry = TelemetryClient(storage)
+            default_storage = JsonlTelemetryStorage(storage_path)
+            if telemetry_storage is not None:
+                storage_adapter: TelemetryStorageAdapter = telemetry_storage
+            else:
+                storage_adapter = self._build_default_storage(default_storage)
+            self.telemetry = TelemetryClient(storage_adapter)
         self.orchestrator = self._orchestrator_factory()
         if hasattr(self.orchestrator, "attach_telemetry"):
             self.orchestrator.attach_telemetry(self.telemetry)
@@ -137,94 +149,153 @@ class BootManager:
     def _default_root() -> Path:
         return project_root()
 
+    def _build_default_storage(
+        self, default_storage: JsonlTelemetryStorage
+    ) -> TelemetryStorageAdapter:
+        storages: list[TelemetryStorageAdapter] = [default_storage]
+        endpoint = os.environ.get("COOLBOX_CLICKHOUSE_URL")
+        if endpoint:
+            database = os.environ.get("COOLBOX_CLICKHOUSE_DATABASE", "coolbox")
+            table = os.environ.get("COOLBOX_CLICKHOUSE_TABLE", "telemetry_events")
+            username = os.environ.get("COOLBOX_CLICKHOUSE_USER")
+            password = os.environ.get("COOLBOX_CLICKHOUSE_PASSWORD")
+            try:
+                clickhouse = ClickHouseTelemetryStorage(
+                    endpoint=endpoint,
+                    database=database,
+                    table=table,
+                    username=username,
+                    password=password,
+                )
+            except Exception:
+                self.logger.debug(
+                    "Failed to initialise ClickHouse telemetry storage", exc_info=True
+                )
+            else:
+                storages.append(clickhouse)
+        if len(storages) == 1:
+            return storages[0]
+        return CompositeTelemetryStorage(storages)
+
     # ------------------------------------------------------------------
     def run(self, argv: Sequence[str] | None = None) -> None:
         """Execute the full boot pipeline."""
 
         args = self._parse_args(argv)
-        if args.boot_manifest is not None:
-            self._default_manifest = Path(args.boot_manifest)
-            self._manifest_cache.clear()
-            self._manifest_document = None
+        span_attributes = {
+            "coolbox.boot.profile": args.profile,
+            "coolbox.boot.debug": bool(args.debug),
+            "coolbox.boot.vm_debug": bool(args.vm_debug),
+        }
+        with start_span(
+            "coolbox.boot.run",
+            kind=SpanKind.SERVER,
+            attributes=span_attributes,
+        ) as span:
+            if args.boot_manifest is not None:
+                self._default_manifest = Path(args.boot_manifest)
+                self._manifest_cache.clear()
+                self._manifest_document = None
 
-        self.logger.debug("Boot arguments parsed", extra={"argv": list(argv or [])})
+            self.logger.debug("Boot arguments parsed", extra={"argv": list(argv or [])})
 
-        if args.vm_debug:
-            self.logger.info("Launching VM debug helper")
-            launch_vm_debug(
-                prefer=None if args.vm_prefer == "auto" else args.vm_prefer,
-                open_code=args.open_code,
-                port=args.debug_port,
-            )
-            return
+            if args.vm_debug:
+                self.logger.info("Launching VM debug helper")
+                launch_vm_debug(
+                    prefer=None if args.vm_prefer == "auto" else args.vm_prefer,
+                    open_code=args.open_code,
+                    port=args.debug_port,
+                )
+                if span:
+                    span.set_attribute("coolbox.boot.stage", "vm-debug")
+                    set_status(span, Status(StatusCode.OK))
+                return
 
-        if args.debug:
-            self._initialize_debugger(args.debug_port)
+            if args.debug:
+                self._initialize_debugger(args.debug_port)
 
-        if self.dependency_checker:
+            if self.dependency_checker:
+                try:
+                    self.dependency_checker(self._default_root())
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    if span:
+                        span.record_exception(exc)
+                        set_status(span, Status(StatusCode.ERROR, "dependency"))
+                    self.logger.exception("Dependency check failed", exc_info=exc)
+                    raise
+
+            profile = self._load_profile(args.profile)
+            consent = self.consent_manager.ensure_opt_in()
+            if consent.granted and isinstance(self.telemetry, TelemetryClient):
+                metadata = {"profile": profile.name}
+                if self._default_manifest:
+                    metadata["manifest"] = str(self._default_manifest)
+                self.telemetry.record_environment(metadata)
+                self.telemetry.record_consent(granted=True, source=consent.source)
+            else:
+                if isinstance(self.telemetry, TelemetryClient):
+                    self.telemetry.disable()
+            self.logger.debug("Selected boot profile", extra={"profile": profile.name})
+            if span:
+                span.set_attribute("coolbox.boot.selected_profile", profile.name)
+
+            recipe_name = args.setup_recipe or profile.orchestrator.get("recipe")
+            stages = self._resolve_stages(profile.orchestrator.get("stages"))
+            task_names = self._resolve_task_names(profile.orchestrator.get("tasks"))
+            plugin_definitions = profile.plugins
+            load_flag = profile.orchestrator.get("load_plugins")
+            if load_flag is False:
+                plugin_payload: Sequence[PluginDefinition] | None = ()
+            elif plugin_definitions:
+                plugin_payload = plugin_definitions
+            else:
+                plugin_payload = None
+
+            if not (args.debug or args.vm_debug):
+                self._preload_components(
+                    modules=profile.preload.get("modules", []),
+                    callables=profile.preload.get("callables", []),
+                )
+            else:
+                self.logger.debug("Skipping preload due to debugger/VM flags")
+
             try:
-                self.dependency_checker(self._default_root())
-            except Exception as exc:  # pragma: no cover - defensive logging
-                self.logger.exception("Dependency check failed", exc_info=exc)
-                raise
-
-        profile = self._load_profile(args.profile)
-        consent = self.consent_manager.ensure_opt_in()
-        if consent.granted and isinstance(self.telemetry, TelemetryClient):
-            metadata = {"profile": profile.name}
-            if self._default_manifest:
-                metadata["manifest"] = str(self._default_manifest)
-            self.telemetry.record_environment(metadata)
-            self.telemetry.record_consent(granted=True, source=consent.source)
-        else:
-            if isinstance(self.telemetry, TelemetryClient):
-                self.telemetry.disable()
-        self.logger.debug("Selected boot profile", extra={"profile": profile.name})
-
-        recipe_name = args.setup_recipe or profile.orchestrator.get("recipe")
-        stages = self._resolve_stages(profile.orchestrator.get("stages"))
-        task_names = self._resolve_task_names(profile.orchestrator.get("tasks"))
-        plugin_definitions = profile.plugins
-        load_flag = profile.orchestrator.get("load_plugins")
-        if load_flag is False:
-            plugin_payload: Sequence[PluginDefinition] | None = ()
-        elif plugin_definitions:
-            plugin_payload = plugin_definitions
-        else:
-            plugin_payload = None
-
-        if not (args.debug or args.vm_debug):
-            self._preload_components(
-                modules=profile.preload.get("modules", []),
-                callables=profile.preload.get("callables", []),
-            )
-        else:
-            self.logger.debug("Skipping preload due to debugger/VM flags")
-
-        try:
-            recipe = self._load_recipe(recipe_name)
-            self._execute_setup(
-                recipe,
-                stages=stages,
-                task_names=task_names,
-                plugins=plugin_payload,
-                dev=profile.dev,
-            )
-            self._launch_application()
-        except PluginStartupError as exc:
-            self.logger.error(
-                "Plugin '%s' failed during startup: %s",
-                exc.plugin_id,
-                exc,
-                exc_info=exc.original,
-            )
-            self._handle_plugin_failure(exc, profile)
-        except Exception as exc:
-            self.logger.exception("Application launch failed; entering recovery console", exc_info=exc)
-            self._fallback_to_console(exc, profile)
-        finally:
-            if isinstance(self.telemetry, TelemetryClient):
-                self.telemetry.flush()
+                recipe = self._load_recipe(recipe_name)
+                if span and recipe_name:
+                    span.set_attribute("coolbox.boot.recipe", str(recipe_name))
+                self._execute_setup(
+                    recipe,
+                    stages=stages,
+                    task_names=task_names,
+                    plugins=plugin_payload,
+                    dev=profile.dev,
+                )
+                self._launch_application()
+                if span:
+                    set_status(span, Status(StatusCode.OK))
+            except PluginStartupError as exc:
+                if span:
+                    span.record_exception(exc)
+                    set_status(span, Status(StatusCode.ERROR, exc.plugin_id))
+                self.logger.error(
+                    "Plugin '%s' failed during startup: %s",
+                    exc.plugin_id,
+                    exc,
+                    exc_info=exc.original,
+                )
+                self._handle_plugin_failure(exc, profile)
+            except Exception as exc:
+                if span:
+                    span.record_exception(exc)
+                    set_status(span, Status(StatusCode.ERROR, "launch"))
+                self.logger.exception(
+                    "Application launch failed; entering recovery console",
+                    exc_info=exc,
+                )
+                self._fallback_to_console(exc, profile)
+            finally:
+                if isinstance(self.telemetry, TelemetryClient):
+                    self.telemetry.flush()
 
     # ------------------------------------------------------------------
     def _parse_args(self, argv: Sequence[str] | None) -> Namespace:

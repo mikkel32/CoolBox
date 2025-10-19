@@ -11,6 +11,7 @@ import socket
 import subprocess
 import threading
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Literal, TYPE_CHECKING, cast
 
@@ -25,6 +26,11 @@ except ImportError:  # pragma: no cover - runtime dependency check
     ImageGrab = pil.ImageGrab  # type: ignore[attr-defined]
 from ..base import BaseView
 from ...components.widgets import info_label
+from coolbox.plugins.worker import (
+    PluginMetricsSnapshot,
+    PluginTraceRecord,
+    get_global_plugin_metrics,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing helpers
     from coolbox.utils.network import PortInfo, PortResult
@@ -42,10 +48,16 @@ class ToolsView(BaseView):
         """Initialize tools view"""
         super().__init__(parent, app)
 
-        # Create scrollable frame
-        self.scroll_frame = self.create_scrollable_container()
+        # Layout tabs for utilities and health dashboard
+        self.tabview = ctk.CTkTabview(self)
+        self.tabview.pack(fill="both", expand=True, padx=self.padx, pady=self.pady)
 
-        # Title
+        utilities_tab = self.tabview.add("Utilities")
+        self.health_tab = self.tabview.add("Health")
+
+        self.scroll_frame = ctk.CTkScrollableFrame(utilities_tab)
+        self.scroll_frame.pack(fill="both", expand=True)
+
         self.add_title(self.scroll_frame, "🛠️ Tools & Utilities")
 
         self.search_var = ctk.StringVar()
@@ -82,9 +94,35 @@ class ToolsView(BaseView):
         )
         self.no_results.pack_forget()
 
+        # Health dashboard elements
+        self._metrics_rows: list[ctk.CTkFrame] = []
+        self._metrics_header = ctk.CTkFrame(self.health_tab)
+        self._metrics_header.pack(fill="x", padx=20, pady=(20, 10))
+        self._metrics_title = ctk.CTkLabel(
+            self._metrics_header,
+            text="Plugin Health Dashboard",
+            font=self.section_font,
+        )
+        self._metrics_title.pack(side="left")
+        self._refresh_button = ctk.CTkButton(
+            self._metrics_header,
+            text="Refresh",
+            command=self._refresh_metrics,
+            width=100,
+        )
+        self._refresh_button.pack(side="right")
+        self.metrics_container = ctk.CTkScrollableFrame(self.health_tab)
+        self.metrics_container.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        self._metrics_empty = ctk.CTkLabel(
+            self.metrics_container,
+            text="No plugin activity recorded yet.",
+            font=self.font,
+        )
+
         # Apply current styling
         self.refresh_fonts()
         self.refresh_theme()
+        self._refresh_metrics()
 
     def refresh_theme(self) -> None:  # type: ignore[override]
         super().refresh_theme()
@@ -120,6 +158,112 @@ class ToolsView(BaseView):
                 self.no_results.pack_forget()
         else:
             self.no_results.pack(pady=20)
+
+    def _refresh_metrics(self) -> None:
+        registry = get_global_plugin_metrics()
+        snapshot = registry.snapshot()
+        for row in self._metrics_rows:
+            row.destroy()
+        self._metrics_rows.clear()
+        if not snapshot:
+            if not self._metrics_empty.winfo_ismapped():
+                self._metrics_empty.pack(pady=40)
+            return
+        if self._metrics_empty.winfo_ismapped():
+            self._metrics_empty.pack_forget()
+        for plugin_id, metrics in sorted(snapshot.items()):
+            row = ctk.CTkFrame(self.metrics_container)
+            row.pack(fill="x", padx=10, pady=6)
+            header = ctk.CTkFrame(row, fg_color="transparent")
+            header.pack(fill="x", padx=10, pady=(10, 4))
+            title = ctk.CTkLabel(header, text=plugin_id, font=self.section_font)
+            title.pack(side="left")
+            summary = ctk.CTkLabel(
+                row,
+                text=self._format_metrics_summary(metrics),
+                justify="left",
+            )
+            summary.pack(fill="x", padx=10)
+            traces_frame = ctk.CTkFrame(row, fg_color="transparent")
+            traces_frame.pack(fill="x", padx=10, pady=(4, 10))
+            traces_label = ctk.CTkLabel(
+                traces_frame, text="Recent Invocations:", font=self.font
+            )
+            traces_label.pack(anchor="w")
+            recent_traces = list(metrics.recent_traces)[-5:][::-1]
+            if not recent_traces:
+                ctk.CTkLabel(
+                    traces_frame,
+                    text="No recent invocations.",
+                    font=self.font,
+                ).pack(anchor="w", padx=4, pady=2)
+            else:
+                for record in recent_traces:
+                    button = ctk.CTkButton(
+                        traces_frame,
+                        text=self._format_trace_button(record),
+                        anchor="w",
+                        command=lambda r=record, pid=plugin_id: self._show_trace_detail(pid, r),
+                    )
+                    button.pack(fill="x", padx=4, pady=2)
+            self._metrics_rows.append(row)
+        self.apply_fonts(self.metrics_container)
+
+    def _format_metrics_summary(self, metrics: PluginMetricsSnapshot) -> str:
+        error_rate = f"{metrics.error_rate * 100:.1f}%" if metrics.invocations else "0.0%"
+        latency_line = (
+            f"Latency p50: {self._format_latency(metrics.latency_p50)}    "
+            f"p95: {self._format_latency(metrics.latency_p95)}    "
+            f"p99: {self._format_latency(metrics.latency_p99)}"
+        )
+        if metrics.memory_high_water is None:
+            memory = "—"
+        else:
+            memory = f"{metrics.memory_high_water / (1024 * 1024):.1f} MiB"
+        lines = [
+            f"Invocations: {metrics.invocations}    Errors: {metrics.errors} ({error_rate})",
+            latency_line,
+            f"Memory high-water: {memory}    Capability denials: {metrics.capability_denials}",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_latency(value: float | None) -> str:
+        if value is None:
+            return "—"
+        return f"{value * 1000.0:.1f} ms"
+
+    def _format_trace_button(self, record: PluginTraceRecord) -> str:
+        timestamp = datetime.fromtimestamp(record.timestamp).strftime("%H:%M:%S")
+        duration = self._format_latency(record.duration)
+        status = record.status.replace("_", " ").title()
+        parts = [timestamp, record.method, status, duration]
+        if record.trace_id:
+            parts.append(record.trace_id[:8])
+        return " • ".join(parts)
+
+    def _show_trace_detail(self, plugin_id: str, record: PluginTraceRecord) -> None:
+        timestamp = datetime.fromtimestamp(record.timestamp).strftime("%Y-%m-%d %H:%M:%S")
+        detail_lines = [
+            f"Plugin: {plugin_id}",
+            f"Method: {record.method}",
+            f"Status: {record.status}",
+            f"Recorded: {timestamp}",
+            f"Duration: {self._format_latency(record.duration)}",
+        ]
+        if record.error:
+            detail_lines.append(f"Error: {record.error}")
+        if record.trace_id:
+            detail_lines.append(f"Trace ID: {record.trace_id}")
+        message = "\n".join(detail_lines)
+        if record.trace_id:
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(record.trace_id)
+                message += "\n\nTrace ID copied to clipboard."
+            except Exception:
+                message += "\n\nTrace ID available for copy."
+        messagebox.showinfo("Trace Details", message, parent=self)
 
     def _focus_search(self) -> None:
         """Focus the tools search box when active."""

@@ -15,6 +15,7 @@ from coolbox.plugins.runtime import (
     WasmRuntimeManager,
 )
 from coolbox.plugins.worker import (
+    PluginMetricsSnapshot,
     PluginRuntimeError,
     PluginSandboxError,
     PluginStartupError,
@@ -200,6 +201,11 @@ class PluginManager:
         """Attach a tool bus to register plugin endpoints with."""
 
         self._tool_bus = bus
+
+    def plugin_metrics(self) -> Mapping[str, PluginMetricsSnapshot]:
+        """Return a snapshot of per-plugin supervisor metrics."""
+
+        return self._supervisor.metrics_snapshot()
 
     def load_entrypoints(self, orchestrator: "SetupOrchestrator", group: str = ENTRYPOINT_GROUP) -> None:
         """Discover plugins via entry points."""

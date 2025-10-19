@@ -10,9 +10,12 @@ import re
 import traceback
 import time
 import warnings
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, Mapping
+from typing import Callable, Iterable, Mapping, Sequence
+import math
+import threading
 
 try:  # pragma: no cover - optional dependency on Unix only
     import resource
@@ -20,6 +23,17 @@ except Exception:  # pragma: no cover - compatibility shim
     resource = None  # type: ignore[assignment]
 
 from coolbox.paths import artifacts_dir, ensure_directory
+
+from coolbox.telemetry.tracing import (
+    SpanKind,
+    Status,
+    StatusCode,
+    current_carrier,
+    extract_context,
+    set_status,
+    start_span,
+    trace_id_hex,
+)
 
 from .manifest import PluginDefinition, ResourceBudget
 
@@ -94,6 +108,188 @@ class WorkerDiagnostics:
     breaches: Mapping[str, tuple[float | int | None, float | int | None]]
     mini_dump: Path | None = None
     telemetry_payload: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class PluginTraceRecord:
+    """Record describing an individual plugin invocation."""
+
+    trace_id: str | None
+    method: str
+    status: str
+    duration: float
+    timestamp: float
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class PluginMetricsSnapshot:
+    """Aggregated runtime metrics for a single plugin."""
+
+    plugin_id: str
+    invocations: int
+    errors: int
+    error_rate: float
+    latency_p50: float | None
+    latency_p95: float | None
+    latency_p99: float | None
+    memory_high_water: int | None
+    capability_denials: int
+    recent_traces: tuple[PluginTraceRecord, ...]
+
+
+class _PluginMetrics:
+    __slots__ = (
+        "latencies",
+        "invocations",
+        "errors",
+        "memory_high_water",
+        "capability_denials",
+        "traces",
+    )
+
+    def __init__(self, max_samples: int, max_traces: int) -> None:
+        self.latencies: deque[float] = deque(maxlen=max_samples)
+        self.invocations = 0
+        self.errors = 0
+        self.memory_high_water: int | None = None
+        self.capability_denials = 0
+        self.traces: deque[PluginTraceRecord] = deque(maxlen=max_traces)
+
+
+class PluginMetricsRegistry:
+    """Thread-safe registry collecting per-plugin performance metrics."""
+
+    def __init__(self, *, max_samples: int = 256, max_traces: int = 25) -> None:
+        self._max_samples = max_samples
+        self._max_traces = max_traces
+        self._lock = threading.RLock()
+        self._metrics: dict[str, _PluginMetrics] = {}
+
+    def _ensure(self, plugin_id: str) -> _PluginMetrics:
+        metrics = self._metrics.get(plugin_id)
+        if metrics is None:
+            metrics = _PluginMetrics(self._max_samples, self._max_traces)
+            self._metrics[plugin_id] = metrics
+        return metrics
+
+    def touch(self, plugin_id: str) -> None:
+        with self._lock:
+            self._ensure(plugin_id)
+
+    def record_invocation(
+        self,
+        plugin_id: str,
+        *,
+        duration: float,
+        trace_id: str | None,
+        method: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        timestamp = time.time()
+        with self._lock:
+            metrics = self._ensure(plugin_id)
+            metrics.invocations += 1
+            metrics.latencies.append(duration)
+            if status != "ok":
+                metrics.errors += 1
+            metrics.traces.append(
+                PluginTraceRecord(
+                    trace_id=trace_id,
+                    method=method,
+                    status=status,
+                    duration=duration,
+                    timestamp=timestamp,
+                    error=error,
+                )
+            )
+
+    def record_capability_denial(self, plugin_id: str, reason: str | None = None) -> None:
+        with self._lock:
+            metrics = self._ensure(plugin_id)
+            metrics.capability_denials += 1
+            metrics.traces.append(
+                PluginTraceRecord(
+                    trace_id=None,
+                    method="sandbox",
+                    status="capability_denied",
+                    duration=0.0,
+                    timestamp=time.time(),
+                    error=reason,
+                )
+            )
+
+    def observe_diagnostics(
+        self, plugin_id: str, diagnostics: WorkerDiagnostics | None
+    ) -> None:
+        if diagnostics is None:
+            return
+        memory_value = diagnostics.memory_usage
+        if memory_value is None:
+            breach = diagnostics.breaches.get("memory_bytes")
+            if breach and breach[0] is not None:
+                try:
+                    memory_value = int(float(breach[0]))
+                except (TypeError, ValueError):
+                    memory_value = None
+        if memory_value is None:
+            return
+        with self._lock:
+            metrics = self._ensure(plugin_id)
+            if metrics.memory_high_water is None:
+                metrics.memory_high_water = memory_value
+            else:
+                metrics.memory_high_water = max(metrics.memory_high_water, memory_value)
+
+    def snapshot(self) -> dict[str, PluginMetricsSnapshot]:
+        with self._lock:
+            summary: dict[str, PluginMetricsSnapshot] = {}
+            for plugin_id, metrics in self._metrics.items():
+                latencies = sorted(metrics.latencies)
+                summary[plugin_id] = PluginMetricsSnapshot(
+                    plugin_id=plugin_id,
+                    invocations=metrics.invocations,
+                    errors=metrics.errors,
+                    error_rate=self._compute_error_rate(metrics.invocations, metrics.errors),
+                    latency_p50=self._percentile(latencies, 0.50),
+                    latency_p95=self._percentile(latencies, 0.95),
+                    latency_p99=self._percentile(latencies, 0.99),
+                    memory_high_water=metrics.memory_high_water,
+                    capability_denials=metrics.capability_denials,
+                    recent_traces=tuple(metrics.traces),
+                )
+            return summary
+
+    @staticmethod
+    def _compute_error_rate(invocations: int, errors: int) -> float:
+        if invocations <= 0:
+            return 0.0
+        return errors / invocations
+
+    @staticmethod
+    def _percentile(samples: Sequence[float], percentile: float) -> float | None:
+        if not samples:
+            return None
+        if len(samples) == 1:
+            return samples[0]
+        k = (len(samples) - 1) * percentile
+        lower = math.floor(k)
+        upper = math.ceil(k)
+        if lower == upper:
+            return samples[int(k)]
+        lower_value = samples[lower]
+        upper_value = samples[upper]
+        return lower_value + (upper_value - lower_value) * (k - lower)
+
+
+_GLOBAL_PLUGIN_METRICS = PluginMetricsRegistry()
+
+
+def get_global_plugin_metrics() -> PluginMetricsRegistry:
+    """Return the global plugin metrics registry."""
+
+    return _GLOBAL_PLUGIN_METRICS
 
 
 class BudgetViolation(RuntimeError):
@@ -198,9 +394,10 @@ class BudgetController:
 class WorkerSupervisor:
     """Coordinate sandbox configuration and budget enforcement."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, metrics: PluginMetricsRegistry | None = None) -> None:
         self._workers: dict[str, _WorkerProcess] = {}
         self._definitions: dict[str, PluginDefinition] = {}
+        self._metrics = metrics or get_global_plugin_metrics()
 
     def register(
         self,
@@ -210,10 +407,12 @@ class WorkerSupervisor:
         *,
         logger: logging.Logger | None = None,
     ) -> None:
+        self._metrics.touch(plugin_id)
         if definition is not None:
             try:
                 _apply_sandbox(plugin_id, definition.capabilities.sandbox, logger)
             except Exception as exc:  # pragma: no cover - defensive
+                self._metrics.record_capability_denial(plugin_id, str(exc))
                 raise PluginSandboxError(plugin_id, f"failed to apply sandbox: {exc}") from exc
             self._definitions[plugin_id] = definition
             limits = BudgetLimits.from_budget(definition.resources)
@@ -239,24 +438,85 @@ class WorkerSupervisor:
         worker = self._workers.get(plugin_id)
         if worker is None:
             raise PluginRuntimeError(plugin_id, f"plugin '{plugin_id}' not registered")
+        self._metrics.touch(plugin_id)
+        start_time = time.perf_counter()
+        status = "ok"
+        error_text: str | None = None
+        span = None
+        attributes = {
+            "coolbox.plugin.id": plugin_id,
+            "coolbox.plugin.method": method_name,
+        }
         try:
-            return worker.call(method_name, *args, **kwargs)
+            with start_span(
+                "coolbox.plugins.call",
+                kind=SpanKind.CLIENT,
+                attributes=attributes,
+            ) as span_obj:
+                span = span_obj
+                carrier = current_carrier()
+                result = worker.call(
+                    method_name,
+                    *args,
+                    trace_context=carrier,
+                    **kwargs,
+                )
+                if span:
+                    span.set_attribute("coolbox.plugin.status", "ok")
+                    set_status(span, Status(StatusCode.OK))
+                return result
         except BudgetViolation as violation:
+            status = "budget_violation"
+            error_text = "budget exceeded"
+            self._metrics.observe_diagnostics(plugin_id, violation.diagnostics)
+            if span:
+                span.record_exception(violation)
+                set_status(span, Status(StatusCode.ERROR, "budget"))
             raise PluginStartupError(
                 plugin_id,
                 f"Plugin '{plugin_id}' exceeded its resource budget",
                 diagnostics=violation.diagnostics,
             ) from violation
-        except PluginStartupError:
+        except PluginStartupError as exc:
+            status = "startup_error"
+            error_text = str(exc)
+            self._metrics.observe_diagnostics(plugin_id, getattr(exc, "diagnostics", None))
+            if span:
+                span.record_exception(exc)
+                set_status(span, Status(StatusCode.ERROR, exc.plugin_id))
             raise
         except Exception as exc:
-            raise PluginRuntimeError(plugin_id, f"Plugin '{plugin_id}' raised: {exc}", original=exc) from exc
+            status = "runtime_error"
+            error_text = str(exc)
+            if span:
+                span.record_exception(exc)
+                set_status(span, Status(StatusCode.ERROR, "runtime"))
+            raise PluginRuntimeError(
+                plugin_id,
+                f"Plugin '{plugin_id}' raised: {exc}",
+                original=exc,
+            ) from exc
+        finally:
+            duration = time.perf_counter() - start_time
+            if span:
+                span.set_attribute("coolbox.plugin.duration_ms", duration * 1000.0)
+            self._metrics.record_invocation(
+                plugin_id,
+                duration=duration,
+                trace_id=trace_id_hex(span),
+                method=method_name,
+                status=status,
+                error=error_text,
+            )
 
     def clear(self) -> None:
         for worker in list(self._workers.values()):
             worker.shutdown()
         self._workers.clear()
         self._definitions.clear()
+
+    def metrics_snapshot(self) -> dict[str, PluginMetricsSnapshot]:
+        return self._metrics.snapshot()
 
 
 def _parse_cpu_percent(value: str | None) -> float | None:
@@ -412,7 +672,13 @@ class _WorkerProcess:
             self._terminate()
             raise PluginRuntimeError(plugin_id, f"unexpected worker handshake: {status!r}")
 
-    def call(self, method_name: str, *args, **kwargs):
+    def call(
+        self,
+        method_name: str,
+        *args,
+        trace_context: Mapping[str, str] | None = None,
+        **kwargs,
+    ):
         if self._closed:
             raise PluginRuntimeError(self.plugin_id, "worker already shut down")
         if not self._process.is_alive():
@@ -423,6 +689,8 @@ class _WorkerProcess:
             "args": args,
             "kwargs": kwargs,
         }
+        if trace_context:
+            payload["trace"] = dict(trace_context)
         start = time.perf_counter()
         try:
             self._connection.send(payload)
@@ -430,6 +698,7 @@ class _WorkerProcess:
             raise PluginRuntimeError(self.plugin_id, "failed to communicate with worker") from exc
         response = self._recv_response(method_name, start)
         status = response.get("status")
+        response.pop("trace", None)
         if status == "ok":
             return response.get("result")
         if status == "violation":
@@ -600,31 +869,59 @@ def _worker_entrypoint(
         args = message.get("args", ())
         kwargs = message.get("kwargs", {})
         method = getattr(plugin, method_name)
-        try:
-            if limits.is_enforced():
-                result = controller.run(method, *args, **kwargs)
-            else:
-                result = method(*args, **kwargs)
-        except BudgetViolation as violation:
-            connection.send({"status": "violation", "diagnostics": violation.diagnostics})
-        except PluginStartupError as exc:
-            connection.send(
-                {
+        trace_context = message.get("trace") if isinstance(message.get("trace"), Mapping) else None
+        span_attributes = {
+            "coolbox.plugin.id": plugin_id,
+            "coolbox.plugin.method": method_name,
+        }
+        response: dict[str, object]
+        trace_payload: dict[str, str] | None = None
+        with start_span(
+            "coolbox.plugins.worker",
+            context=extract_context(trace_context),
+            kind=SpanKind.SERVER,
+            attributes=span_attributes,
+        ) as span:
+            try:
+                if limits.is_enforced():
+                    result = controller.run(method, *args, **kwargs)
+                else:
+                    result = method(*args, **kwargs)
+            except BudgetViolation as violation:
+                response = {"status": "violation", "diagnostics": violation.diagnostics}
+                if span:
+                    span.record_exception(violation)
+                    span.set_attribute("coolbox.plugin.status", "budget_violation")
+                    set_status(span, Status(StatusCode.ERROR, "budget"))
+            except PluginStartupError as exc:
+                response = {
                     "status": "startup_error",
                     "message": str(exc),
                     "diagnostics": getattr(exc, "diagnostics", None),
                 }
-            )
-        except Exception as exc:  # pragma: no cover - plugin errors routed as runtime errors
-            connection.send(
-                {
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.plugin.status", "startup_error")
+                    set_status(span, Status(StatusCode.ERROR, "startup"))
+            except Exception as exc:  # pragma: no cover - plugin errors routed as runtime errors
+                response = {
                     "status": "runtime_error",
                     "message": str(exc),
                     "traceback": traceback.format_exc(),
                 }
-            )
-        else:
-            connection.send({"status": "ok", "result": result})
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.plugin.status", "runtime_error")
+                    set_status(span, Status(StatusCode.ERROR, "runtime"))
+            else:
+                response = {"status": "ok", "result": result}
+                if span:
+                    span.set_attribute("coolbox.plugin.status", "ok")
+                    set_status(span, Status(StatusCode.OK))
+            trace_payload = current_carrier()
+        if trace_payload:
+            response["trace"] = trace_payload
+        connection.send(response)
 
     connection.close()
 
@@ -637,6 +934,10 @@ __all__ = [
     "PluginSandboxError",
     "PluginStartupError",
     "PluginWorkerError",
+    "PluginMetricsRegistry",
+    "PluginMetricsSnapshot",
+    "PluginTraceRecord",
     "WorkerDiagnostics",
     "WorkerSupervisor",
+    "get_global_plugin_metrics",
 ]

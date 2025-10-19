@@ -13,6 +13,7 @@ from threading import RLock
 from typing import Any, Union
 
 from coolbox.proto import toolbus_pb2
+from coolbox.telemetry import tracing
 
 PayloadType = bytes | str | Mapping[str, Any] | Sequence[Any] | None
 InvokeReturn = Union["InvocationResult", toolbus_pb2.InvokeResponse, PayloadType]
@@ -124,125 +125,202 @@ class ToolBus:
     async def invoke(self, request: toolbus_pb2.InvokeRequest) -> toolbus_pb2.InvokeResponse:
         """Execute a request/response tool invocation."""
 
+        metadata = dict(request.header.metadata)
+        carrier_context = tracing.extract_context(metadata)
         endpoint = self._endpoints.get(request.header.tool)
         context = InvocationContext(
             request_id=request.header.request_id or _generate_request_id(),
             tool=request.header.tool,
-            metadata=dict(request.header.metadata),
+            metadata=metadata,
             endpoint=endpoint if endpoint else ToolEndpoint(
                 name=request.header.tool,
                 source="<unregistered>",
             ),
         )
-        if endpoint is None or not endpoint.supports_invoke():
-            return toolbus_pb2.InvokeResponse(
-                request_id=context.request_id,
-                status=toolbus_pb2.StatusCode.STATUS_NOT_FOUND,
-                error=f"Tool '{context.tool}' is not registered",
-            )
-        try:
-            result_obj = await _maybe_await(endpoint.invoke_handler(context, request.payload))  # type: ignore[arg-type]
-            result = _coerce_invocation_result(result_obj)
-        except GuardRejected as exc:
-            return toolbus_pb2.InvokeResponse(
-                request_id=context.request_id,
-                status=toolbus_pb2.StatusCode.STATUS_GUARD_REJECTED,
-                error=str(exc),
-            )
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self._logger.exception("Invocation for tool %s failed", context.tool)
-            return toolbus_pb2.InvokeResponse(
-                request_id=context.request_id,
-                status=toolbus_pb2.StatusCode.STATUS_ERROR,
-                error=str(exc),
-            )
-        return result.to_proto(context.request_id)
+        span_attributes = {
+            "coolbox.tool.name": context.tool,
+            "coolbox.tool.request_id": context.request_id,
+            "coolbox.tool.source": context.endpoint.source,
+        }
+        with tracing.start_span(
+            "coolbox.toolbus.invoke",
+            context=carrier_context,
+            kind=tracing.SpanKind.SERVER,
+            attributes=span_attributes,
+        ) as span:
+            tracing.inject_context(metadata)
+            if endpoint is None or not endpoint.supports_invoke():
+                if span:
+                    span.set_attribute("coolbox.tool.status", "not_found")
+                return toolbus_pb2.InvokeResponse(
+                    request_id=context.request_id,
+                    status=toolbus_pb2.StatusCode.STATUS_NOT_FOUND,
+                    error=f"Tool '{context.tool}' is not registered",
+                )
+            try:
+                result_obj = await _maybe_await(
+                    endpoint.invoke_handler(context, request.payload)
+                )  # type: ignore[arg-type]
+                result = _coerce_invocation_result(result_obj)
+            except GuardRejected as exc:
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.tool.status", "guard_rejected")
+                return toolbus_pb2.InvokeResponse(
+                    request_id=context.request_id,
+                    status=toolbus_pb2.StatusCode.STATUS_GUARD_REJECTED,
+                    error=str(exc),
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.tool.status", "error")
+                self._logger.exception("Invocation for tool %s failed", context.tool)
+                return toolbus_pb2.InvokeResponse(
+                    request_id=context.request_id,
+                    status=toolbus_pb2.StatusCode.STATUS_ERROR,
+                    error=str(exc),
+                )
+            if span:
+                span.set_attribute("coolbox.tool.status", "ok")
+            return result.to_proto(context.request_id)
 
     async def stream(self, request: toolbus_pb2.StreamRequest) -> AsyncIterator[toolbus_pb2.StreamChunk]:
         """Execute a streaming invocation yielding multiple chunks."""
 
+        metadata = dict(request.header.metadata)
+        carrier_context = tracing.extract_context(metadata)
         endpoint = self._endpoints.get(request.header.tool)
         context = InvocationContext(
             request_id=request.header.request_id or _generate_request_id(),
             tool=request.header.tool,
-            metadata=dict(request.header.metadata),
+            metadata=metadata,
             endpoint=endpoint if endpoint else ToolEndpoint(
                 name=request.header.tool,
                 source="<unregistered>",
             ),
         )
-        if endpoint is None or not endpoint.supports_stream():
+        span_attributes = {
+            "coolbox.tool.name": context.tool,
+            "coolbox.tool.request_id": context.request_id,
+            "coolbox.tool.source": context.endpoint.source,
+        }
+        with tracing.start_span(
+            "coolbox.toolbus.stream",
+            context=carrier_context,
+            kind=tracing.SpanKind.SERVER,
+            attributes=span_attributes,
+        ) as span:
+            tracing.inject_context(metadata)
+            if endpoint is None or not endpoint.supports_stream():
+                if span:
+                    span.set_attribute("coolbox.tool.status", "not_found")
+                yield toolbus_pb2.StreamChunk(
+                    request_id=context.request_id,
+                    status=toolbus_pb2.StatusCode.STATUS_NOT_FOUND,
+                    end_of_stream=True,
+                    error=f"Stream '{context.tool}' is not registered",
+                )
+                return
+            try:
+                stream_obj = await _maybe_iter(
+                    endpoint.stream_handler, context, request.payload
+                )  # type: ignore[arg-type]
+            except GuardRejected as exc:
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.tool.status", "guard_rejected")
+                yield toolbus_pb2.StreamChunk(
+                    request_id=context.request_id,
+                    status=toolbus_pb2.StatusCode.STATUS_GUARD_REJECTED,
+                    end_of_stream=True,
+                    error=str(exc),
+                )
+                return
+            except Exception as exc:  # pragma: no cover - defensive logging
+                if span:
+                    span.record_exception(exc)
+                    span.set_attribute("coolbox.tool.status", "error")
+                self._logger.exception("Streaming invocation for %s failed", context.tool)
+                yield toolbus_pb2.StreamChunk(
+                    request_id=context.request_id,
+                    status=toolbus_pb2.StatusCode.STATUS_ERROR,
+                    end_of_stream=True,
+                    error=str(exc),
+                )
+                return
+            async for chunk in stream_obj:
+                normalized = _coerce_stream_chunk(chunk, context.request_id)
+                yield normalized
+            if span:
+                span.set_attribute("coolbox.tool.status", "ok")
             yield toolbus_pb2.StreamChunk(
                 request_id=context.request_id,
-                status=toolbus_pb2.StatusCode.STATUS_NOT_FOUND,
+                status=toolbus_pb2.StatusCode.STATUS_OK,
                 end_of_stream=True,
-                error=f"Stream '{context.tool}' is not registered",
             )
-            return
-        try:
-            stream_obj = await _maybe_iter(endpoint.stream_handler, context, request.payload)  # type: ignore[arg-type]
-        except GuardRejected as exc:
-            yield toolbus_pb2.StreamChunk(
-                request_id=context.request_id,
-                status=toolbus_pb2.StatusCode.STATUS_GUARD_REJECTED,
-                end_of_stream=True,
-                error=str(exc),
-            )
-            return
-        except Exception as exc:  # pragma: no cover - defensive logging
-            self._logger.exception("Streaming invocation for %s failed", context.tool)
-            yield toolbus_pb2.StreamChunk(
-                request_id=context.request_id,
-                status=toolbus_pb2.StatusCode.STATUS_ERROR,
-                end_of_stream=True,
-                error=str(exc),
-            )
-            return
-        async for chunk in stream_obj:
-            normalized = _coerce_stream_chunk(chunk, context.request_id)
-            yield normalized
-        yield toolbus_pb2.StreamChunk(
-            request_id=context.request_id,
-            status=toolbus_pb2.StatusCode.STATUS_OK,
-            end_of_stream=True,
-        )
 
     async def subscribe(self, request: toolbus_pb2.SubscribeRequest) -> Subscription:
         """Subscribe to one or more topics, optionally delegated to a worker."""
 
+        metadata = dict(request.header.metadata)
+        carrier_context = tracing.extract_context(metadata)
         endpoint = self._endpoints.get(request.header.tool)
         context = InvocationContext(
             request_id=request.header.request_id or _generate_request_id(),
             tool=request.header.tool,
-            metadata=dict(request.header.metadata),
+            metadata=metadata,
             endpoint=endpoint if endpoint else ToolEndpoint(
                 name=request.header.tool,
                 source="<unregistered>",
             ),
         )
         topics = tuple(request.topics or (context.tool,))
-        if endpoint and endpoint.supports_subscribe():
-            queue: asyncio.Queue[toolbus_pb2.Event | None] = asyncio.Queue()
+        span_attributes = {
+            "coolbox.tool.name": context.tool,
+            "coolbox.tool.request_id": context.request_id,
+            "coolbox.tool.source": context.endpoint.source,
+        }
+        with tracing.start_span(
+            "coolbox.toolbus.subscribe",
+            context=carrier_context,
+            kind=tracing.SpanKind.SERVER,
+            attributes=span_attributes,
+        ) as span:
+            tracing.inject_context(metadata)
+            if endpoint and endpoint.supports_subscribe():
+                queue: asyncio.Queue[toolbus_pb2.Event | None] = asyncio.Queue()
 
-            async def _forward() -> None:
-                try:
-                    stream_obj = await _maybe_iter(endpoint.subscribe_handler, context, topics)  # type: ignore[arg-type]
-                    async for item in stream_obj:
-                        queue.put_nowait(_coerce_event(item, context.request_id))
-                except asyncio.CancelledError:  # pragma: no cover - subscription teardown
-                    pass
-                except Exception:  # pragma: no cover - defensive logging
-                    self._logger.exception("Subscription stream for %s failed", context.tool)
-                finally:
-                    queue.put_nowait(None)
+                async def _forward() -> None:
+                    try:
+                        stream_obj = await _maybe_iter(
+                            endpoint.subscribe_handler, context, topics
+                        )  # type: ignore[arg-type]
+                        async for item in stream_obj:
+                            queue.put_nowait(_coerce_event(item, context.request_id))
+                    except asyncio.CancelledError:  # pragma: no cover - subscription teardown
+                        pass
+                    except Exception as exc:  # pragma: no cover - defensive logging
+                        if span:
+                            span.record_exception(exc)
+                            span.set_attribute("coolbox.tool.status", "error")
+                        self._logger.exception(
+                            "Subscription stream for %s failed", context.tool
+                        )
+                    finally:
+                        queue.put_nowait(None)
 
-            task = asyncio.create_task(_forward())
+                task = asyncio.create_task(_forward())
 
-            def _cancel() -> None:
-                task.cancel()
+                def _cancel() -> None:
+                    task.cancel()
 
-            return Subscription(topics=topics, queue=queue, cancel=_cancel)
-        return self._subscribe_local(context.request_id, topics)
+                if span:
+                    span.set_attribute("coolbox.tool.status", "ok")
+                return Subscription(topics=topics, queue=queue, cancel=_cancel)
+            if span:
+                span.set_attribute("coolbox.tool.status", "local")
+            return self._subscribe_local(context.request_id, topics)
 
     # ------------------------------------------------------------------
     def register_local(

@@ -8,7 +8,14 @@ from .knowledge import (
     TaskOverride,
     TelemetryKnowledgeBase,
 )
-from .storage import InMemoryTelemetryStorage, JsonlTelemetryStorage, TelemetryStorageAdapter
+from .storage import (
+    ClickHouseTelemetryStorage,
+    CompositeTelemetryStorage,
+    InMemoryTelemetryStorage,
+    JsonlTelemetryStorage,
+    TelemetryStorageAdapter,
+)
+from . import tracing
 
 __all__ = [
     "NullTelemetryClient",
@@ -24,4 +31,7 @@ __all__ = [
     "TelemetryStorageAdapter",
     "JsonlTelemetryStorage",
     "InMemoryTelemetryStorage",
+    "CompositeTelemetryStorage",
+    "ClickHouseTelemetryStorage",
+    "tracing",
 ]

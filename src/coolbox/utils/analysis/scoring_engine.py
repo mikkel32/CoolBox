@@ -290,6 +290,7 @@ class ScoringEngine:
             active = None
 
         relevant_samples: List[WindowInfo] = []
+        now = time.monotonic()
         for sample in samples:
             pid = sample.pid
             if pid is None or pid == self.own_pid or is_transient_pid(pid):
@@ -422,7 +423,6 @@ class ScoringEngine:
                     ) + self.tuning.zorder_weight / (idx + 1)
 
         if self.tuning.gaze_weight:
-            now = time.monotonic()
             for pid, entry in self.gaze_duration.items():
                 if is_transient_pid(pid):
                     continue

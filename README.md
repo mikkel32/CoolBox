@@ -39,6 +39,8 @@ environments behave identically.
 - **Opt-in consent**: The setup orchestrator now records stage durations, task outcomes, failure codes, and sanitized environment metadata only when telemetry is explicitly enabled. Preferences are cached locally and can be overridden at runtime with `COOLBOX_TELEMETRY=0/1`.
 - **Anonymized insights**: Task failures include deterministic failure codes (stage, task, error type) plus optional remediation hints. These aggregate into an on-device knowledge base that powers the console dashboard's "most likely fix" suggestions without storing personal data.
 - **Storage adapters**: Telemetry is persisted to `artifacts/telemetry.jsonl` via an append-only JSONL adapter. Tests can swap in-memory adapters to keep runs deterministic.
+- **OpenTelemetry tracing**: Boot orchestration, ToolBus invocations, and plugin RPC handlers now emit OpenTelemetry spans. Trace context flows into plugin workers and back out so you can correlate host activity with plugin behaviour in Jaeger, Zipkin, or any other collector.
+- **ClickHouse streaming (optional)**: Set `COOLBOX_CLICKHOUSE_URL` (and optionally `COOLBOX_CLICKHOUSE_DATABASE`, `COOLBOX_CLICKHOUSE_TABLE`, `COOLBOX_CLICKHOUSE_USER`, `COOLBOX_CLICKHOUSE_PASSWORD`) to mirror telemetry into a local ClickHouse instance while the JSONL adapter continues to serve lightweight installs and knowledge-base hydration.
 - **QA guardrails**: New unit and integration tests simulate online/offline setup flows, recipe variants, and orchestrator edge cases using heavy system-call mocks so regressions are caught quickly without touching the network or filesystem.
 
 ## 🔌 Plugin Manifest & Runtimes
@@ -60,6 +62,7 @@ environments behave identically.
   menu bar now includes recent files, a Quick Settings dialog and a fullscreen
   toggle. Quick Settings can also be launched from the toolbar or with the
   `Ctrl+Q` shortcut.
+- **Plugin Health Dashboard**: The Tools view now includes a Health tab with per-plugin latency percentiles, error rates, memory high-water usage, capability denials, and recent trace slices. Drill into an invocation to review diagnostics and copy trace IDs directly into your observability tools.
 - **Unified Styling**: All views and dialogs inherit from shared base classes
   so fonts and accent colors update instantly when settings change.
 - **Cross-Platform**: Works on Windows, macOS, and Linux
