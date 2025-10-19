@@ -80,6 +80,37 @@ class DummyOrchestrator(SetupOrchestrator):
         return []
 
 
+class RecordingOrchestrator(DummyOrchestrator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_with: PluginStartupError | None = None
+        self.runs: list[dict[str, object]] = []
+
+    def run(
+        self,
+        recipe,
+        *,
+        stages=None,
+        task_names=None,
+        plugins=None,
+        dev=None,
+    ):
+        result = super().run(
+            recipe,
+            stages=stages,
+            task_names=task_names,
+            plugins=plugins,
+            dev=dev,
+        )
+        if self.last_run is not None:
+            self.runs.append(dict(self.last_run))
+        if self.fail_with is not None:
+            error = self.fail_with
+            self.fail_with = None
+            raise error
+        return result
+
+
 @pytest.fixture()
 def manifest(tmp_path: Path) -> Path:
     data = {
@@ -145,6 +176,21 @@ def telemetry_client() -> TelemetryClient:
         return state["current"]
 
     return TelemetryClient(storage, clock=clock)
+
+
+@pytest.fixture(autouse=True)
+def isolated_artifacts_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    artifact_root = tmp_path / "artifacts"
+    monkeypatch.setattr("coolbox.boot.manager.artifacts_dir", lambda: artifact_root)
+    monkeypatch.setattr("coolbox.plugins.state.artifacts_dir", lambda: artifact_root)
+    return artifact_root
+
+
+@pytest.fixture()
+def plugin_state_dir(isolated_artifacts_dir: Path) -> Path:
+    return isolated_artifacts_dir
 
 
 def _stub_app():
@@ -471,13 +517,183 @@ def test_boot_manager_switches_to_recovery_on_plugin_failure(
     assert any("fixtures.crash" in str(hint) for hint in hints)
 
 
+def test_plugin_failure_persists_state_and_forces_recovery(
+    tmp_path: Path,
+    telemetry_client: TelemetryClient,
+    plugin_state_dir: Path,
+) -> None:
+    manifest_data = {
+        "profiles": {
+            "default": {
+                "orchestrator": {"recipe": "demo"},
+                "preload": {},
+                "recovery": {"dashboard": {"mode": "json"}},
+                "plugins": [
+                    {
+                        "id": "fixtures.demo",
+                        "runtime": {
+                            "kind": "native",
+                            "entrypoint": "coolbox.setup.plugins:NullPlugin",
+                        },
+                        "capabilities": {
+                            "provides": [],
+                            "requires": [],
+                            "sandbox": [],
+                        },
+                        "io": {"inputs": {}, "outputs": {}},
+                        "resources": {
+                            "cpu": "50%",
+                            "memory": "32M",
+                            "disk": None,
+                            "gpu": None,
+                            "timeout": 5,
+                        },
+                        "hooks": {"before": [], "after": [], "on_failure": []},
+                        "dev": {"hot_reload": False, "watch": [], "locales": []},
+                    }
+                ],
+                "dev": {"hot_reload": False, "watch": [], "locales": []},
+                "recovery_profile": "recovery",
+            },
+            "recovery": {
+                "orchestrator": {"recipe": "recovery"},
+                "preload": {},
+                "recovery": {"hints": ["baseline recovery"]},
+                "plugins": [],
+                "dev": {"hot_reload": False, "watch": [], "locales": []},
+            },
+        }
+    }
+    manifest_path = tmp_path / "state_manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    orchestrator = RecordingOrchestrator()
+    orchestrator.fail_with = PluginStartupError("fixtures.demo", "boom")
+
+    manager = BootManager(
+        manifest_path=manifest_path,
+        app_factory=_stub_app,
+        orchestrator_factory=lambda: orchestrator,
+        recipe_loader=DummyRecipeLoader(),
+        dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
+    )
+    manager.run([])
+
+    state_path = plugin_state_dir / "plugin_init_state.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert payload["profile"] == "default"
+    assert payload["recovery_profile"] == "recovery"
+    assert payload["plugin_id"] == "fixtures.demo"
+
+    orchestrator2 = RecordingOrchestrator()
+
+    manager2 = BootManager(
+        manifest_path=manifest_path,
+        app_factory=_stub_app,
+        orchestrator_factory=lambda: orchestrator2,
+        recipe_loader=DummyRecipeLoader(),
+        dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
+    )
+    manager2.run([])
+
+    assert orchestrator2.last_run is not None
+    assert orchestrator2.last_run["plugins"] == ()
+
+
+def test_retry_plugins_clears_failure_state(
+    tmp_path: Path,
+    telemetry_client: TelemetryClient,
+    plugin_state_dir: Path,
+) -> None:
+    manifest_data = {
+        "profiles": {
+            "default": {
+                "orchestrator": {"recipe": "demo"},
+                "preload": {},
+                "plugins": [
+                    {
+                        "id": "fixtures.demo",
+                        "runtime": {
+                            "kind": "native",
+                            "entrypoint": "coolbox.setup.plugins:NullPlugin",
+                        },
+                        "capabilities": {
+                            "provides": [],
+                            "requires": [],
+                            "sandbox": [],
+                        },
+                        "io": {"inputs": {}, "outputs": {}},
+                        "resources": {
+                            "cpu": "50%",
+                            "memory": "32M",
+                            "disk": None,
+                            "gpu": None,
+                            "timeout": 5,
+                        },
+                        "hooks": {"before": [], "after": [], "on_failure": []},
+                        "dev": {"hot_reload": False, "watch": [], "locales": []},
+                    }
+                ],
+                "dev": {"hot_reload": False, "watch": [], "locales": []},
+            }
+        }
+    }
+    manifest_path = tmp_path / "retry_manifest.json"
+    manifest_path.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    orchestrator_fail = RecordingOrchestrator()
+    orchestrator_fail.fail_with = PluginStartupError("fixtures.demo", "boom")
+
+    manager_fail = BootManager(
+        manifest_path=manifest_path,
+        app_factory=_stub_app,
+        orchestrator_factory=lambda: orchestrator_fail,
+        recipe_loader=DummyRecipeLoader(),
+        dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
+    )
+    manager_fail.run([])
+
+    state_path = plugin_state_dir / "plugin_init_state.json"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+
+    orchestrator_success = RecordingOrchestrator()
+
+    manager_success = BootManager(
+        manifest_path=manifest_path,
+        app_factory=_stub_app,
+        orchestrator_factory=lambda: orchestrator_success,
+        recipe_loader=DummyRecipeLoader(),
+        dependency_checker=lambda root: False,
+        telemetry=telemetry_client,
+        consent_manager=DummyConsentManager(),
+    )
+    manager_success.run(["--retry-plugins"])
+
+    assert orchestrator_success.last_run is not None
+    plugins_run = orchestrator_success.last_run["plugins"]
+    assert plugins_run and plugins_run != ()
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "success"
+
 def test_manifest_scopes_propagated_to_supervisor(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     permission_manager = _StubPermissionManager()
     supervisor = _StubSupervisor()
     monkeypatch.setattr("coolbox.setup.plugins.get_permission_manager", lambda: permission_manager)
-    monkeypatch.setattr("coolbox.setup.plugins.WorkerSupervisor", lambda: supervisor)
+    monkeypatch.setattr(
+        "coolbox.setup.plugins.WorkerSupervisor",
+        lambda *_, **__: supervisor,
+    )
 
     orchestrator = SetupOrchestrator(root=tmp_path)
     orchestrator.plugin_manager._runtime_managers = (_StubRuntimeManager(),)

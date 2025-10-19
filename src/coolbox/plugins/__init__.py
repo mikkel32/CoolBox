@@ -23,6 +23,13 @@ from .manifest import (
     MANIFEST_JSON_SCHEMA,
     MINIMAL_MANIFEST_JSON_SCHEMA,
 )
+from .state import (
+    PluginInitState,
+    clear_plugin_init_state,
+    load_plugin_init_state,
+    record_plugin_init_failure,
+    record_plugin_init_success,
+)
 
 __all__ = [
     "BootManifest",
@@ -44,4 +51,9 @@ __all__ = [
     "load_manifest_document",
     "MANIFEST_JSON_SCHEMA",
     "MINIMAL_MANIFEST_JSON_SCHEMA",
+    "PluginInitState",
+    "clear_plugin_init_state",
+    "load_plugin_init_state",
+    "record_plugin_init_failure",
+    "record_plugin_init_success",
 ]

@@ -48,6 +48,13 @@ from coolbox.plugins import (
     MANIFEST_JSON_SCHEMA,
     MINIMAL_MANIFEST_JSON_SCHEMA,
 )
+from coolbox.plugins.state import (
+    PluginInitState,
+    clear_plugin_init_state,
+    load_plugin_init_state,
+    record_plugin_init_failure,
+    record_plugin_init_success,
+)
 from coolbox.plugins.worker import PluginStartupError
 from coolbox.console.dashboard import TEXTUAL_AVAILABLE
 from coolbox.paths import ensure_directory, artifacts_dir, project_root
@@ -236,7 +243,9 @@ class BootManager:
                     self.logger.exception("Dependency check failed", exc_info=exc)
                     raise
 
-            profile = self._load_profile(args.profile)
+            persisted_plugin_state = self._prepare_plugin_state(args)
+            profile_name = self._resolve_profile_name(args.profile, persisted_plugin_state)
+            profile = self._load_profile(profile_name)
             slo_tracker.record_profile(profile.name)
             manifest_hint = self._manifest_path_hint()
             self.orchestrator.set_profile_context(
@@ -262,12 +271,15 @@ class BootManager:
             task_names = self._resolve_task_names(profile.orchestrator.get("tasks"))
             plugin_definitions = profile.plugins
             load_flag = profile.orchestrator.get("load_plugins")
-            if load_flag is False:
-                plugin_payload: Sequence[PluginDefinition] | None = ()
+            if self._should_force_recovery_plugins(persisted_plugin_state):
+                plugin_payload = ()
+            elif load_flag is False:
+                plugin_payload = ()
             elif plugin_definitions:
                 plugin_payload = plugin_definitions
             else:
                 plugin_payload = None
+            plugins_attempted = self._plugin_loading_attempted(plugin_payload)
 
             if not (args.debug or args.vm_debug):
                 self._preload_components(
@@ -288,6 +300,8 @@ class BootManager:
                     plugins=plugin_payload,
                     dev=profile.dev,
                 )
+                if plugins_attempted:
+                    self._record_plugin_success(profile)
                 self._launch_application()
                 if span:
                     set_status(span, Status(StatusCode.OK))
@@ -358,6 +372,11 @@ class BootManager:
             type=Path,
             default=None,
             help="Override the boot manifest path",
+        )
+        parser.add_argument(
+            "--retry-plugins",
+            action="store_true",
+            help="Retry plugin initialization after a previous failure",
         )
         return parser.parse_args(list(argv) if argv is not None else None)
 
@@ -722,19 +741,8 @@ class BootManager:
             profile_name=recovery_profile.name,
             manifest_path=manifest_hint,
         )
-        remediation_hints: list[str] = []
-        for violation in violations:
-            hint = f"Plugin {violation.plugin} disabled: {violation.reason}"
-            remediation_hints.append(hint)
-        if error.diagnostics is not None:
-            breach_text = ", ".join(
-                f"{metric}={observed:.2f}>{limit:.2f}" if isinstance(observed, (int, float)) and isinstance(limit, (int, float))
-                else f"{metric}"
-                for metric, (observed, limit) in error.diagnostics.breaches.items()
-            )
-            remediation_hints.append(
-                f"Resource budget exceeded for plugin {error.plugin_id}: {breach_text}"
-            )
+        remediation_hints = self._collect_plugin_hints(error, violations)
+        self._record_plugin_failure(profile, recovery_profile, error, remediation_hints)
         recovery_cfg = dict(recovery_profile.recovery)
         if remediation_hints:
             hints = list(recovery_cfg.get("hints", []))
@@ -796,4 +804,91 @@ class BootManager:
         except Exception:  # pragma: no cover - Traversable without name
             return str(manifest)
         return str(name)
+
+    # ------------------------------------------------------------------
+    def _prepare_plugin_state(self, args: Namespace) -> PluginInitState | None:
+        state = load_plugin_init_state()
+        if getattr(args, "retry_plugins", False):
+            if state and state.status == "failed":
+                self.logger.info(
+                    "Retrying plugin initialization after clearing persisted failure state",
+                )
+                clear_plugin_init_state()
+                return None
+            return state
+        if state and state.status == "failed":
+            plugin_label = state.plugin_id or "unknown"
+            message = state.message or "see diagnostics"
+            self.logger.warning(
+                "Previous plugin initialization for '%s' failed: %s", plugin_label, message
+            )
+            if state.hints:
+                for hint in state.hints:
+                    self.logger.warning("Remediation hint: %s", hint)
+            self.logger.warning(
+                "Plugin loading is disabled until you retry with --retry-plugins or enable plugins in Security Center"
+            )
+        return state
+
+    def _resolve_profile_name(self, requested: str, state: PluginInitState | None) -> str:
+        if state and state.status == "failed":
+            return state.recovery_profile or requested
+        return requested
+
+    def _should_force_recovery_plugins(self, state: PluginInitState | None) -> bool:
+        return bool(state and state.status == "failed")
+
+    def _plugin_loading_attempted(
+        self, payload: Sequence[PluginDefinition] | None
+    ) -> bool:
+        if payload is None:
+            return True
+        if isinstance(payload, Sequence):
+            return len(payload) > 0
+        try:  # pragma: no cover - defensive fallback
+            return bool(list(payload))
+        except Exception:
+            return True
+
+    def _record_plugin_success(self, profile: ManifestProfile) -> None:
+        try:
+            record_plugin_init_success(profile.name)
+        except Exception:  # pragma: no cover - persistence best effort
+            self.logger.debug("Unable to persist plugin success state", exc_info=True)
+
+    def _record_plugin_failure(
+        self,
+        failed_profile: ManifestProfile,
+        recovery_profile: ManifestProfile,
+        error: PluginStartupError,
+        hints: Sequence[str],
+    ) -> None:
+        try:
+            record_plugin_init_failure(
+                profile=failed_profile.name,
+                plugin_id=error.plugin_id,
+                message=str(error),
+                recovery_profile=recovery_profile.name,
+                hints=hints,
+            )
+        except Exception:  # pragma: no cover - persistence best effort
+            self.logger.debug("Unable to persist plugin failure state", exc_info=True)
+
+    def _collect_plugin_hints(
+        self, error: PluginStartupError, violations: Sequence[PluginViolation]
+    ) -> list[str]:
+        remediation_hints: list[str] = []
+        for violation in violations:
+            hint = f"Plugin {violation.plugin} disabled: {violation.reason}"
+            remediation_hints.append(hint)
+        if error.diagnostics is not None:
+            breach_text = ", ".join(
+                f"{metric}={observed:.2f}>{limit:.2f}" if isinstance(observed, (int, float)) and isinstance(limit, (int, float))
+                else f"{metric}"
+                for metric, (observed, limit) in error.diagnostics.breaches.items()
+            )
+            remediation_hints.append(
+                f"Resource budget exceeded for plugin {error.plugin_id}: {breach_text}"
+            )
+        return remediation_hints
 

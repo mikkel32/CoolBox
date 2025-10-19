@@ -16,6 +16,7 @@ from tkinter import messagebox, ttk
 
 from typing import Callable, Optional, Type, TypeVar, cast
 
+from coolbox.plugins.state import clear_plugin_init_state, load_plugin_init_state
 from coolbox.utils import security
 from .firewall import FirewallDialog
 from .defender import DefenderDialog
@@ -119,6 +120,9 @@ class SecurityDialog(ttk.Frame):
         self._selected_worker: Optional[str] = None
         self._syncing_worker_selection = False
         self._inventory_tree: ttk.Treeview | None = None
+        self._plugin_status_var = tk.StringVar(value="")
+        self._plugin_status_lbl: ttk.Label | None = None
+        self._plugin_enable_btn: ttk.Button | None = None
 
         # Track dialogs opened from the "+" buttons so they can be
         # positioned near the main window on any available side.
@@ -338,8 +342,18 @@ class SecurityDialog(ttk.Frame):
 
         panel.columnconfigure(0, weight=3)
         panel.columnconfigure(1, weight=2)
-        panel.rowconfigure(3, weight=1)
         panel.rowconfigure(4, weight=1)
+        panel.rowconfigure(5, weight=1)
+
+        self._plugin_status_lbl = ttk.Label(
+            panel,
+            textvariable=self._plugin_status_var,
+            style="Status.Info.TLabel",
+            wraplength=520,
+            anchor="w",
+            justify="left",
+        )
+        self._plugin_status_lbl.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
         description = ttk.Label(
             panel,
@@ -351,7 +365,7 @@ class SecurityDialog(ttk.Frame):
             wraplength=520,
             justify="left",
         )
-        description.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        description.grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         self._pending_summary_var = tk.StringVar(value="No pending capability requests.")
         pending_label = ttk.Label(
@@ -362,17 +376,24 @@ class SecurityDialog(ttk.Frame):
             anchor="w",
             justify="left",
         )
-        pending_label.grid(row=1, column=0, columnspan=2, sticky="ew")
+        pending_label.grid(row=2, column=0, columnspan=2, sticky="ew")
 
         toolbar = ttk.Frame(panel)
-        toolbar.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 4))
+        toolbar.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 4))
         toolbar.columnconfigure(0, weight=1)
+
+        self._plugin_enable_btn = ttk.Button(
+            toolbar,
+            text="Enable plugins",
+            command=self._on_enable_plugins,
+        )
+        self._plugin_enable_btn.pack(side="left", padx=(0, 6))
 
         self._plugin_refresh_btn = ttk.Button(toolbar, text="Refresh workers", command=self._refresh_plugins)
         self._plugin_refresh_btn.pack(side="right")
 
         worker_frame = ttk.LabelFrame(panel, text="Running workers")
-        worker_frame.grid(row=3, column=0, sticky="nsew", padx=(0, 8))
+        worker_frame.grid(row=4, column=0, sticky="nsew", padx=(0, 8))
         worker_frame.columnconfigure(0, weight=1)
         worker_frame.rowconfigure(0, weight=1)
 
@@ -393,7 +414,7 @@ class SecurityDialog(ttk.Frame):
         self._worker_tree.bind("<<TreeviewSelect>>", self._on_worker_selected)
 
         detail_frame = ttk.LabelFrame(panel, text="Capability details")
-        detail_frame.grid(row=3, column=1, sticky="nsew")
+        detail_frame.grid(row=4, column=1, sticky="nsew")
         detail_frame.columnconfigure(0, weight=1)
         detail_frame.rowconfigure(4, weight=1)
         detail_frame.rowconfigure(6, weight=1)
@@ -468,7 +489,7 @@ class SecurityDialog(ttk.Frame):
         self._set_capability_buttons_state("disabled")
 
         inventory_frame = ttk.LabelFrame(panel, text="Worker manifest overview")
-        inventory_frame.grid(row=4, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+        inventory_frame.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
         inventory_frame.columnconfigure(0, weight=1)
         inventory_frame.rowconfigure(0, weight=1)
 
@@ -493,6 +514,48 @@ class SecurityDialog(ttk.Frame):
         self._inventory_tree.configure(yscrollcommand=inventory_scroll.set)
         inventory_scroll.grid(row=0, column=1, sticky="ns")
         self._inventory_tree.bind("<<TreeviewSelect>>", self._on_inventory_selected)
+
+        self._update_plugin_status_banner()
+
+    def _update_plugin_status_banner(self) -> None:
+        if not self._plugin_status_lbl or not self._plugin_enable_btn:
+            return
+        state = load_plugin_init_state()
+        if state and state.status == "failed":
+            plugin_name = state.plugin_id or "a plugin"
+            message = f"Plugin loading disabled after '{plugin_name}' failed to initialize."
+            if state.message:
+                message += f" Last error: {state.message}."
+            hint_text = ". ".join(str(hint).rstrip(".") for hint in state.hints)
+            if hint_text:
+                message += f" {hint_text}."
+            message += " Use Enable plugins or restart with --retry-plugins after addressing the issue."
+            self._plugin_status_lbl.configure(style="Status.Warn.TLabel")
+            self._plugin_status_var.set(message)
+            self._plugin_status_lbl.grid()
+            self._plugin_enable_btn.configure(state="normal")
+        else:
+            self._plugin_status_var.set("")
+            self._plugin_status_lbl.configure(style="Status.Info.TLabel")
+            self._plugin_status_lbl.grid_remove()
+            self._plugin_enable_btn.configure(state="disabled")
+
+    def _on_enable_plugins(self) -> None:
+        try:
+            clear_plugin_init_state()
+        except Exception as exc:  # pragma: no cover - defensive UI path
+            self._append_log(f"Failed to clear plugin state: {exc}")
+            messagebox.showerror(
+                "Security Center",
+                f"Unable to clear plugin state: {exc}",
+            )
+            return
+        self._append_log("Plugin loading re-enabled for the next launch.")
+        messagebox.showinfo(
+            "Security Center",
+            "Plugins will load again the next time you restart CoolBox.",
+        )
+        self._update_plugin_status_banner()
 
     def _refresh_plugins(self) -> None:
         try:
@@ -535,6 +598,7 @@ class SecurityDialog(ttk.Frame):
             self._apply_worker_selection(self._selected_worker, origin="refresh")
         else:
             self._apply_worker_selection(None, origin="refresh")
+        self._update_plugin_status_banner()
 
     def _update_pending_summary(self, snapshot: security.SecurityPluginsSnapshot) -> None:
         pending = len(snapshot.pending_requests)
